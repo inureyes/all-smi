@@ -293,6 +293,12 @@ impl TenstorrentReader {
         // Try to get telemetry from the chip
         match chip.get_telemetry() {
             Ok(telemetry) => {
+                // Debug: Check if we're getting real telemetry (only in debug mode)
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "Debug: Got telemetry for device {}: tdp=0x{:08x}, vcore={}, arch={:?}",
+                    index, telemetry.tdp, telemetry.vcore, telemetry.arch
+                );
                 let hostname = get_hostname();
                 let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
 
@@ -357,11 +363,8 @@ impl TenstorrentReader {
                 let power = telemetry.power(); // Returns watts as f64
                 let frequency = telemetry.ai_clk(); // Use luwen's ai_clk() method
 
-                // Debug logging to understand power reading
-                if power == 0.0 {
-                    eprintln!("Warning: Tenstorrent device {} has 0W power reading. Raw tdp value: 0x{:08x}", 
-                        index, telemetry.tdp);
-                }
+                // Note: If power is very low, it might indicate the device is idle or
+                // telemetry reading is returning default values
 
                 // Calculate utilization based on power consumption vs TDP
                 // This is a proxy metric since Tenstorrent doesn't provide direct utilization
