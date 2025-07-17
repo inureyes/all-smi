@@ -207,14 +207,18 @@ impl PciDevice {
         };
 
         let arch = match device_info.output.device_id {
-            0x401 => super::super::arch::Arch::Grayskull,
-            0x402 => super::super::arch::Arch::Wormhole,
-            0x403 => super::super::arch::Arch::Blackhole,
+            0xfaca => super::super::arch::Arch::Grayskull,
+            0x401e => super::super::arch::Arch::Wormhole,
+            0xb140 => super::super::arch::Arch::Blackhole,
             _ => {
+                eprintln!(
+                    "[DEBUG] Unrecognized device ID: 0x{:04x}",
+                    device_info.output.device_id
+                );
                 return Err(PciOpenError::UnrecognizedDeviceId {
                     pci_id: device_id,
                     device_id: device_info.output.device_id,
-                })
+                });
             }
         };
 
