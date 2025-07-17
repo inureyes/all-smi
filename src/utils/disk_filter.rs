@@ -64,6 +64,10 @@ impl DiskFilter {
         exact.insert("/Volumes"); // Empty volumes directory
         prefixes.insert("/Network/");
 
+        // Docker paths on macOS
+        prefixes.insert("/var/lib/docker/");
+        exact.insert("/var/lib/docker");
+
         exact.insert("/Users/Shared");
         exact.insert("/cores");
     }
@@ -106,11 +110,17 @@ impl DiskFilter {
 
     fn add_common_exclusions(
         prefixes: &mut HashSet<&'static str>,
-        _exact: &mut HashSet<&'static str>,
+        exact: &mut HashSet<&'static str>,
     ) {
         // Common runtime and temporary directories
         prefixes.insert("/tmp/");
         prefixes.insert("/var/tmp/");
+
+        // Docker-specific paths (common across platforms)
+        prefixes.insert("/var/lib/docker/");
+        exact.insert("/var/lib/docker");
+        prefixes.insert("/var/lib/containerd/");
+        exact.insert("/var/lib/containerd");
     }
 
     fn add_docker_exclusions(docker_mounts: &mut HashSet<&'static str>) {
@@ -180,9 +190,11 @@ pub fn filter_docker_aware_disks(disks: &Disks) -> Vec<&Disk> {
         }
     }
 
-    // Special case: always include overlay filesystem (Docker container root)
+    // Special case: include overlay filesystem (Docker container root) if it passes basic filter
     for disk in disks.list() {
+        let mount_point = disk.mount_point().to_string_lossy().to_string();
         if (disk.file_system() == "overlay" || disk.file_system() == "overlay2")
+            && filter.should_include(&mount_point)
             && !filtered_disks
                 .iter()
                 .any(|d| d.mount_point() == disk.mount_point())
@@ -273,6 +285,8 @@ mod tests {
         assert!(!filter.should_include("/Library/Preferences"));
         assert!(!filter.should_include("/Applications/Safari.app"));
         assert!(!filter.should_include("/Users/Shared"));
+        assert!(!filter.should_include("/var/lib/docker"));
+        assert!(!filter.should_include("/var/lib/docker/volumes"));
 
         // Should include user and data paths
         assert!(filter.should_include("/Users/john"));
