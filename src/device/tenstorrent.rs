@@ -287,18 +287,19 @@ impl TenstorrentReader {
             device_type: "NPU".to_string(),
             hostname: hostname.clone(),
             instance: format!("tt{index}"),
-            utilization: 0.0,
+            utilization: -1.0, // Use -1 to indicate N/A
             ane_utilization: 0.0,
             dla_utilization: None,
-            temperature: 0,
+            temperature: 0, // 0 will display as 0°C
             used_memory: 0,
-            total_memory: 0,
+            total_memory: 1, // Set to 1 to avoid division by zero, will show as 0.0/0GB
             frequency: 0,
-            power_consumption: 0.0,
+            power_consumption: -1.0, // Use -1 to indicate N/A
             detail: {
                 let mut detail = HashMap::new();
                 detail.insert("device_path".to_string(), device_path.display().to_string());
                 detail.insert("collection_method".to_string(), "device_file".to_string());
+                detail.insert("metrics_available".to_string(), "false".to_string());
                 detail
             },
         })

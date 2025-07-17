@@ -66,21 +66,19 @@ pub fn print_gpu_info<W: Write>(
     print_colored_text(stdout, " @ ", Color::DarkGreen, None, None);
     print_colored_text(stdout, &hostname_display, Color::White, None, None);
     print_colored_text(stdout, " Util:", Color::Yellow, None, None);
-    print_colored_text(
-        stdout,
-        &format!("{:>5.1}%", info.utilization),
-        Color::White,
-        None,
-        None,
-    );
+    let util_display = if info.utilization < 0.0 {
+        format!("{:>6}", "N/A")
+    } else {
+        format!("{:>5.1}%", info.utilization)
+    };
+    print_colored_text(stdout, &util_display, Color::White, None, None);
     print_colored_text(stdout, " VRAM:", Color::Blue, None, None);
-    print_colored_text(
-        stdout,
-        &format!("{:>11}", format!("{memory_gb:.1}/{total_memory_gb:.0}GB")),
-        Color::White,
-        None,
-        None,
-    );
+    let vram_display = if info.detail.get("metrics_available") == Some(&"false".to_string()) {
+        format!("{:>11}", "N/A")
+    } else {
+        format!("{:>11}", format!("{memory_gb:.1}/{total_memory_gb:.0}GB"))
+    };
+    print_colored_text(stdout, &vram_display, Color::White, None, None);
     print_colored_text(stdout, " Temp:", Color::Magenta, None, None);
 
     // For Apple Silicon, display thermal pressure level instead of numeric temperature
@@ -90,6 +88,8 @@ pub fn print_gpu_info<W: Write>(
         } else {
             format!("{:>7}", "Unknown")
         }
+    } else if info.detail.get("metrics_available") == Some(&"false".to_string()) {
+        format!("{:>7}", "N/A")
     } else {
         format!("{:>4}°C", info.temperature)
     };
@@ -123,7 +123,9 @@ pub fn print_gpu_info<W: Write>(
     // Check if power_limit_max is available and display as current/max
     // For Apple Silicon, info.power_consumption contains GPU power only
     let is_apple_silicon = info.name.contains("Apple") || info.name.contains("Metal");
-    let power_display = if is_apple_silicon {
+    let power_display = if info.power_consumption < 0.0 {
+        "N/A".to_string()
+    } else if is_apple_silicon {
         // Apple Silicon GPU uses very little power, show 2 decimal places
         format!("{:.2}W", info.power_consumption)
     } else if let Some(power_max_str) = info.detail.get("power_limit_max") {
