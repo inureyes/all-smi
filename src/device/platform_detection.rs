@@ -26,6 +26,11 @@ pub fn has_furiosa() -> bool {
     Command::new("furiosactl").output().is_ok()
 }
 
+pub fn has_tenstorrent() -> bool {
+    // Check if tt-smi or tensix-stat is available
+    Command::new("tt-smi").output().is_ok() || Command::new("tensix-stat").output().is_ok()
+}
+
 pub fn get_os_type() -> &'static str {
     std::env::consts::OS
 }
