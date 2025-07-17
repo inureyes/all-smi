@@ -2,6 +2,7 @@ use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
 use luwen_if::chip::{Chip, ChipImpl};
+use luwen_if::ChipDetectOptions;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
@@ -220,15 +221,30 @@ impl TenstorrentReader {
 
     /// Collect NPU information by reading device files
     fn collect_via_device_files(&self) -> Vec<GpuInfo> {
-        // Try to detect Tenstorrent chips using luwen
-        // Using local only detection as we're reading from device files
-        match luwen_ref::detect_local_chips() {
-            Ok(chips) => {
+        // Try to detect Tenstorrent chips using luwen - use silent version to avoid UI interference
+        let options = ChipDetectOptions {
+            local_only: true,
+            ..Default::default()
+        };
+
+        // Use detect_chips_silent to avoid progress bars and messages
+        match luwen_ref::detect_chips_silent(options) {
+            Ok(uninit_chips) => {
                 let mut devices = Vec::new();
 
-                for (idx, chip) in chips.into_iter().enumerate() {
-                    if let Some(info) = self.read_device_info_luwen(chip, idx) {
-                        devices.push(info);
+                // Initialize each chip and collect info
+                for (idx, uninit_chip) in uninit_chips.into_iter().enumerate() {
+                    // Initialize the chip without progress callbacks
+                    match uninit_chip.init(&mut |_| Ok::<(), std::convert::Infallible>(())) {
+                        Ok(chip) => {
+                            if let Some(info) = self.read_device_info_luwen(chip, idx) {
+                                devices.push(info);
+                            }
+                        }
+                        Err(_) => {
+                            // This should never happen with Infallible error type
+                            eprintln!("Failed to initialize chip {idx}");
+                        }
                     }
                 }
 

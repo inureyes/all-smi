@@ -132,6 +132,8 @@ jobs:
     # ───────────────────────────────────────────────────────────────
     - name: Build release binary
       run: |
+        sudo apt update
+        sudo apt install -y protobuf-compiler
         if [[ "${{ matrix.cross }}" == "true" ]]; then
           cross build --release --target ${{ matrix.target }} --locked
         else
