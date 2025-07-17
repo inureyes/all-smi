@@ -167,6 +167,11 @@ pub fn print_gpu_info<W: Write>(
     let num_gauges = if is_apple_silicon { 3 } else { 2 }; // Util, Mem, (ANE for Apple Silicon only)
     let gauge_width = (available_width - (num_gauges - 1) * 2) / num_gauges; // 2 spaces between gauges
 
+    // Calculate actual space used and dynamic right padding
+    let total_gauge_width = gauge_width * num_gauges + (num_gauges - 1) * 2;
+    let left_padding = 5;
+    let right_padding = width - left_padding - total_gauge_width;
+
     // Print gauges on one line with proper spacing
     print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
 
@@ -213,7 +218,7 @@ pub fn print_gpu_info<W: Write>(
         );
     }
 
-    print_colored_text(stdout, "     ", Color::White, None, None); // 5 char right padding
+    print_colored_text(stdout, &" ".repeat(right_padding), Color::White, None, None); // dynamic right padding
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
@@ -339,7 +344,13 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
 
     if let Some(apple_info) = &info.apple_silicon_info {
         // Apple Silicon: Two gauges for P-Core and E-Core
+        let num_gauges = 2;
         let gauge_width = (available_width - 2) / 2; // 2 spaces between gauges
+
+        // Calculate actual space used and dynamic right padding
+        let total_gauge_width = gauge_width * num_gauges + (num_gauges - 1) * 2;
+        let left_padding = 5;
+        let right_padding = width - left_padding - total_gauge_width;
 
         print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
 
@@ -364,17 +375,19 @@ pub fn print_cpu_info<W: Write>(stdout: &mut W, _index: usize, info: &CpuInfo, w
             None,
         );
 
-        print_colored_text(stdout, "     ", Color::White, None, None); // 5 char right padding
+        print_colored_text(stdout, &" ".repeat(right_padding), Color::White, None, None);
+    // dynamic right padding
     } else {
         // Other CPUs: Single CPU utilization gauge
-        let gauge_width = available_width;
+        // Make single gauge 1 character shorter for alignment
+        let gauge_width = available_width - 1;
 
         print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
 
         // CPU gauge
         draw_bar(stdout, "CPU", info.utilization, 100.0, gauge_width, None);
 
-        print_colored_text(stdout, "     ", Color::White, None, None); // 5 char right padding
+        print_colored_text(stdout, "      ", Color::White, None, None); // 6 char right padding (5 + 1)
     }
 
     queue!(stdout, Print("\r\n")).unwrap();
@@ -437,6 +450,11 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
         // Used + Cache gauges
         let gauge_width = (available_width - 2) / 2; // 2 spaces between gauges
 
+        // Calculate actual space used and dynamic right padding
+        let total_gauge_width = gauge_width * num_gauges + (num_gauges - 1) * 2;
+        let left_padding = 5;
+        let right_padding = width - left_padding - total_gauge_width;
+
         // Used gauge
         draw_bar(
             stdout,
@@ -460,19 +478,25 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
             gauge_width,
             Some(format!("{cache_gb:.1}GB")),
         );
+
+        print_colored_text(stdout, &" ".repeat(right_padding), Color::White, None, None);
+    // dynamic right padding
     } else {
         // Just Used gauge
+        // Make single gauge 1 character shorter for alignment
+        let gauge_width = available_width - 1;
+
         draw_bar(
             stdout,
             "Used",
             info.utilization,
             100.0,
-            available_width,
+            gauge_width,
             Some(format!("{used_gb:.1}GB")),
         );
-    }
 
-    print_colored_text(stdout, "     ", Color::White, None, None); // 5 char right padding
+        print_colored_text(stdout, "      ", Color::White, None, None); // 6 char right padding (5 + 1)
+    }
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
@@ -543,6 +567,9 @@ pub fn print_storage_info<W: Write>(
     // Calculate gauge widths with 5 char padding on each side
     let available_width = width.saturating_sub(10); // 5 padding each side
 
+    // Make single gauge 1 character shorter for alignment
+    let gauge_width = available_width - 1;
+
     print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
 
     // Just Used gauge (matching the other lists format)
@@ -551,10 +578,10 @@ pub fn print_storage_info<W: Write>(
         "Used",
         usage_percent,
         100.0,
-        available_width,
+        gauge_width,
         Some(format_size(used_gb)),
     );
 
-    print_colored_text(stdout, "     ", Color::White, None, None); // 5 char right padding
+    print_colored_text(stdout, "      ", Color::White, None, None); // 6 char right padding (5 + 1)
     queue!(stdout, Print("\r\n")).unwrap();
 }
