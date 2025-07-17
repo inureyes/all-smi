@@ -7,7 +7,9 @@
 pub mod arch;
 pub mod chip;
 pub mod detect;
+pub mod error;
+pub mod interface;
+pub mod luwen_ref;
+pub mod ttkmd;
 
 pub use arch::Arch;
-pub use chip::Chip;
-pub use detect::ChipDetectOptions;

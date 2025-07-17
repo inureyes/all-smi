@@ -7,8 +7,11 @@ use std::fs;
 use std::sync::Mutex;
 
 // Use embedded Tenstorrent modules instead of external luwen
-use super::tenstorrent_embedded::detect::detect_chips_silent;
-use super::tenstorrent_embedded::{Arch, Chip, ChipDetectOptions};
+use super::tenstorrent_embedded::{
+    chip::Chip,
+    detect::{detect_chips_silent, ChipDetectOptions},
+    Arch,
+};
 
 // Global status for error messages
 static TENSTORRENT_STATUS: Mutex<Option<String>> = Mutex::new(None);
