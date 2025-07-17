@@ -333,7 +333,41 @@ pub fn comms_callback_inner(
 
 pub fn axi_translate(addr_str: &str) -> Result<AxiData, Box<dyn std::error::Error>> {
     let mut data = AxiData::default();
-    data.addr = addr_str.parse::<u32>()?;
+
+    // Handle register name translations for common registers
+    // These are the actual hardware addresses for these registers
+    data.addr = match addr_str {
+        // Wormhole/Grayskull scratch registers
+        "ARC_RESET.SCRATCH[0]" => 0x1ff30060,
+        "ARC_RESET.SCRATCH[1]" => 0x1ff30064,
+        "ARC_RESET.SCRATCH[2]" => 0x1ff30068,
+        "ARC_RESET.SCRATCH[3]" => 0x1ff3006c,
+        "ARC_RESET.SCRATCH[4]" => 0x1ff30070,
+        "ARC_RESET.SCRATCH[5]" => 0x1ff30074,
+        "ARC_RESET.POST_CODE" => 0x1ff3007c,
+        "ARC_RESET.ARC_MISC_CNTL" => 0x1ff30100,
+        "ARC_CSM.ARC_PCIE_DMA_REQUEST" => 0x1fef83b0,
+        "ARC_CSM.ARC_PCIE_DMA_REQUEST.trigger" => 0x1fef83b0,
+
+        // Blackhole scratch registers
+        "arc_ss.reset_unit.SCRATCH_0" => 0xffff0060,
+        "arc_ss.reset_unit.SCRATCH_RAM[0]" => 0xffff0060,
+        "arc_ss.reset_unit.SCRATCH_RAM[10]" => 0xffff0088,
+        "arc_ss.reset_unit.SCRATCH_RAM[11]" => 0xffff008c,
+        "arc_ss.reset_unit.SCRATCH_RAM[12]" => 0xffff0090,
+        "arc_ss.reset_unit.SCRATCH_RAM[13]" => 0xffff0094,
+        "arc_ss.reset_unit.ARC_MISC_CNTL" => 0xffff0100,
+
+        // If not a known register name, try to parse as hex or decimal
+        _ => {
+            if let Some(hex_str) = addr_str.strip_prefix("0x") {
+                u32::from_str_radix(hex_str, 16)?
+            } else {
+                addr_str.parse::<u32>()?
+            }
+        }
+    };
+
     Ok(data)
 }
 
