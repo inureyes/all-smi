@@ -687,10 +687,9 @@ impl PciDevice {
             .flatten()
             .filter_map(|f| {
                 if let Some(name) = f.file_name().to_str() {
-                    if let Some(id) = name.strip_prefix("tenstorrent-") {
-                        if let Ok(id) = id.parse::<usize>() {
-                            return Some(id);
-                        }
+                    // The device files are just numeric IDs, not prefixed with "tenstorrent-"
+                    if let Ok(id) = name.parse::<usize>() {
+                        return Some(id);
                     }
                 }
                 None
