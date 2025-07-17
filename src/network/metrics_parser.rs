@@ -46,7 +46,10 @@ impl MetricsParser {
                 }
 
                 // Process different metric types
-                if metric_name.starts_with("gpu_") || metric_name == "ane_utilization" {
+                if metric_name.starts_with("gpu_")
+                    || metric_name.starts_with("npu_")
+                    || metric_name == "ane_utilization"
+                {
                     self.process_gpu_metrics(&mut gpu_info_map, metric_name, &labels, value, host);
                 } else if metric_name.starts_with("cpu_") {
                     self.process_cpu_metrics(&mut cpu_info_map, metric_name, &labels, value, host);
@@ -180,6 +183,35 @@ impl MetricsParser {
                     gpu_info
                         .detail
                         .insert("compute_capability".to_string(), compute_cap.clone());
+                }
+                // Extract NPU-specific info
+                if let Some(firmware) = labels.get("firmware") {
+                    gpu_info
+                        .detail
+                        .insert("firmware".to_string(), firmware.clone());
+                }
+                if let Some(serial_number) = labels.get("serial_number") {
+                    gpu_info
+                        .detail
+                        .insert("serial_number".to_string(), serial_number.clone());
+                }
+                if let Some(pci_address) = labels.get("pci_address") {
+                    gpu_info
+                        .detail
+                        .insert("pci_address".to_string(), pci_address.clone());
+                }
+                if let Some(pci_device) = labels.get("pci_device") {
+                    gpu_info
+                        .detail
+                        .insert("pci_device".to_string(), pci_device.clone());
+                }
+            }
+            "npu_firmware_info" => {
+                // Handle NPU-specific firmware info metric
+                if let Some(firmware) = labels.get("firmware") {
+                    gpu_info
+                        .detail
+                        .insert("firmware".to_string(), firmware.clone());
                 }
             }
             _ => {}

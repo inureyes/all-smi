@@ -106,8 +106,8 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
             ));
         }
 
-        // Add GPU info metric with device type and vendor-specific information
-        metrics.push_str("# HELP all_smi_gpu_info GPU device information\n");
+        // Add GPU/NPU info metric with device type and vendor-specific information
+        metrics.push_str("# HELP all_smi_gpu_info GPU/NPU device information\n");
         metrics.push_str("# TYPE all_smi_gpu_info info\n");
 
         // Build label string
@@ -217,6 +217,19 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
                         info.name, info.instance, info.uuid, i, state_num
                     ));
                 }
+            }
+        }
+
+        // NPU-specific metrics (Furiosa)
+        if info.device_type == "NPU" {
+            // Add NPU-specific firmware version as a dedicated metric
+            if let Some(firmware) = info.detail.get("firmware") {
+                metrics.push_str("# HELP all_smi_npu_firmware_info NPU firmware version\n");
+                metrics.push_str("# TYPE all_smi_npu_firmware_info info\n");
+                metrics.push_str(&format!(
+                    "all_smi_npu_firmware_info{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", firmware=\"{}\"}} 1\n",
+                    info.name, info.instance, info.uuid, i, firmware
+                ));
             }
         }
     }
