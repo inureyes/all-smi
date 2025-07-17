@@ -21,6 +21,11 @@ pub fn is_apple_silicon() -> bool {
     architecture.trim() == "arm64"
 }
 
+pub fn has_furiosa() -> bool {
+    // Check if furiosactl is available
+    Command::new("furiosactl").output().is_ok()
+}
+
 pub fn get_os_type() -> &'static str {
     std::env::consts::OS
 }
