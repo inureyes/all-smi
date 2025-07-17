@@ -172,29 +172,13 @@ impl ChipImpl for MinimalChip {
 impl MinimalChip {
     /// Try to read real telemetry values from available sources
     fn try_read_real_telemetry(&self) -> Option<Telemetry> {
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "Debug: Trying to read telemetry for device {}",
-            self.device_id
-        );
-
         // Method 1: Try to read from sysfs first (no external tools needed)
         if let Some(telemetry) = self.read_telemetry_from_sysfs() {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "Debug: Got telemetry from sysfs: tdp={}, vcore={}",
-                telemetry.tdp, telemetry.vcore
-            );
             return Some(telemetry);
         }
 
         // Method 2: Try to read directly from hardware registers via tools
         if let Some(telemetry) = self.read_telemetry_from_hardware() {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "Debug: Got telemetry from hardware tools: tdp={}, vcore={}",
-                telemetry.tdp, telemetry.vcore
-            );
             return Some(telemetry);
         }
 
@@ -202,20 +186,9 @@ impl MinimalChip {
         // Check if DISABLE_TT_SMI env var is set to skip this
         if std::env::var("DISABLE_TT_SMI").is_err() {
             if let Some(telemetry) = self.read_telemetry_from_tt_smi() {
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "Debug: Got telemetry from tt-smi: tdp={}, vcore={}",
-                    telemetry.tdp, telemetry.vcore
-                );
                 return Some(telemetry);
             }
         }
-
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "Debug: No real telemetry available for device {}",
-            self.device_id
-        );
         // No real telemetry available
         None
     }
@@ -307,15 +280,9 @@ impl MinimalChip {
             "/sys/devices/pci0000:00/0000:00:*/*.0/tenstorrent/telemetry".to_string(),
         ];
 
-        #[cfg(debug_assertions)]
-        eprintln!("Debug: Checking sysfs paths for device {}", self.device_id);
         let mut base_path = None;
         for path in &sysfs_paths {
-            #[cfg(debug_assertions)]
-            eprintln!("Debug: Checking path: {path}");
             if Path::new(path).exists() {
-                #[cfg(debug_assertions)]
-                eprintln!("Debug: Found sysfs path: {path}");
                 base_path = Some(path.clone());
                 break;
             }
@@ -323,11 +290,7 @@ impl MinimalChip {
 
         // Also check if there's a direct telemetry file
         let direct_telemetry_path = format!("/proc/tenstorrent/{}/telemetry", self.device_id);
-        #[cfg(debug_assertions)]
-        eprintln!("Debug: Checking direct telemetry path: {direct_telemetry_path}");
         if Path::new(&direct_telemetry_path).exists() {
-            #[cfg(debug_assertions)]
-            eprintln!("Debug: Found direct telemetry file");
             // Try to read all telemetry in one go
             if let Ok(contents) = fs::read_to_string(&direct_telemetry_path) {
                 return self.parse_proc_telemetry(&contents);
@@ -338,14 +301,10 @@ impl MinimalChip {
         let device_telemetry_path =
             format!("/sys/class/tenstorrent/device{}/telemetry", self.device_id);
         if Path::new(&device_telemetry_path).exists() {
-            #[cfg(debug_assertions)]
-            eprintln!("Debug: Found device telemetry path: {device_telemetry_path}");
             base_path = Some(device_telemetry_path);
         }
 
         let base_path = base_path?;
-        #[cfg(debug_assertions)]
-        eprintln!("Debug: Using base path: {base_path}");
 
         let mut telemetry = Telemetry {
             arch: self.arch,

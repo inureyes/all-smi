@@ -293,12 +293,6 @@ impl TenstorrentReader {
         // Try to get telemetry from the chip
         match chip.get_telemetry() {
             Ok(telemetry) => {
-                // Debug: Check if we're getting real telemetry (only in debug mode)
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "Debug: Got telemetry for device {}: tdp=0x{:08x}, vcore={}, arch={:?}",
-                    index, telemetry.tdp, telemetry.vcore, telemetry.arch
-                );
                 let hostname = get_hostname();
                 let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
 
