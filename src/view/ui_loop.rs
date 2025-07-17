@@ -34,6 +34,7 @@ pub struct UiLoop {
     previous_loading: bool,
     previous_tab: usize,
     last_render_time: std::time::Instant,
+    resize_occurred: bool,
 }
 
 impl UiLoop {
@@ -48,6 +49,7 @@ impl UiLoop {
             previous_loading: false,
             previous_tab: 0,
             last_render_time: std::time::Instant::now(),
+            resize_occurred: false,
         })
     }
 
@@ -80,8 +82,13 @@ impl UiLoop {
                             }
                             drop(state);
                         }
+                        Ok(Event::Resize(_width, _height)) => {
+                            // Force a re-render on terminal resize
+                            self.differential_renderer.force_clear().ok();
+                            self.resize_occurred = true;
+                        }
                         _ => {
-                            // Ignore other event types (resize, focus, paste)
+                            // Ignore other event types (focus, paste)
                         }
                     }
                 }
@@ -93,11 +100,13 @@ impl UiLoop {
             // Check if we need to force clear due to mode change or tab change
             let force_clear = state.show_help != self.previous_show_help
                 || state.loading != self.previous_loading
-                || state.current_tab != self.previous_tab;
+                || state.current_tab != self.previous_tab
+                || self.resize_occurred;
 
             // Check if enough time has passed for rendering (throttle to prevent visual artifacts)
             let now = std::time::Instant::now();
             let should_render = force_clear
+                || self.resize_occurred
                 || now.duration_since(self.last_render_time).as_millis()
                     >= AppConfig::MIN_RENDER_INTERVAL_MS as u128;
 
@@ -151,6 +160,7 @@ impl UiLoop {
             self.previous_show_help = state.show_help;
             self.previous_loading = state.loading;
             self.previous_tab = state.current_tab;
+            self.resize_occurred = false;
 
             if queue!(stdout, cursor::Show).is_err() {
                 break;
