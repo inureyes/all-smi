@@ -176,17 +176,25 @@ impl PciDevice {
         }
         eprintln!("[DEBUG] get_device_info ioctl succeeded");
 
+        eprintln!(
+            "[DEBUG] Trying to open config space: /dev/tenstorrent/{}_config",
+            device_id
+        );
         let config_space = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(format!("/dev/tenstorrent/{device_id}_config"));
         let config_space = match config_space {
-            Ok(fd) => fd,
+            Ok(fd) => {
+                eprintln!("[DEBUG] Config space opened successfully");
+                fd
+            }
             Err(err) => {
+                eprintln!("[DEBUG] Failed to open config space: {}", err);
                 return Err(PciOpenError::DeviceOpenFailed {
                     id: device_id,
                     source: err,
-                })
+                });
             }
         };
 
@@ -707,6 +715,7 @@ impl PciDevice {
     }
 
     pub fn allocate_tlb(&self, size: u64) -> Result<TlbAllocation, PciError> {
+        eprintln!("[DEBUG] allocate_tlb called with size: {}", size);
         let mut data = ioctl::AllocateTlb {
             input: ioctl::AllocateTlbIn {
                 size,
@@ -714,27 +723,46 @@ impl PciDevice {
             },
             ..Default::default()
         };
+        eprintln!("[DEBUG] Calling allocate_tlb ioctl");
         let result =
             unsafe { ioctl::allocate_tlb(self.device_fd.as_raw_fd(), (&mut data) as *mut _) };
+        eprintln!("[DEBUG] allocate_tlb ioctl returned: {:?}", result);
 
+        eprintln!(
+            "[DEBUG] Attempting to mmap uc buffer with offset: {}, size: {}",
+            data.output.mmap_offset_uc, size
+        );
         let uc_mapping = unsafe {
             memmap2::MmapOptions::default()
                 .len(size as usize)
                 .offset(data.output.mmap_offset_uc)
                 .map_mut(self.device_fd.as_raw_fd())
         }
-        .map_err(|_err| PciError::TlbAllocationError("Failed to map uc buffer".to_string()))?;
+        .map_err(|err| {
+            eprintln!("[DEBUG] mmap failed: {:?}", err);
+            PciError::TlbAllocationError(format!("Failed to map uc buffer: {:?}", err))
+        })?;
+        eprintln!("[DEBUG] mmap succeeded");
 
         match result {
             Ok(rc) => match rc {
-                0 => Ok(TlbAllocation {
-                    id: data.output.id,
-                    uc_mapping,
-                    size,
-                }),
-                errno => Err(PciError::IoctlError(nix::errno::Errno::from_raw(errno))),
+                0 => {
+                    eprintln!("[DEBUG] TLB allocation successful, id: {}", data.output.id);
+                    Ok(TlbAllocation {
+                        id: data.output.id,
+                        uc_mapping,
+                        size,
+                    })
+                }
+                errno => {
+                    eprintln!("[DEBUG] TLB allocation failed with errno: {}", errno);
+                    Err(PciError::IoctlError(nix::errno::Errno::from_raw(errno)))
+                }
             },
-            Err(errno) => Err(PciError::IoctlError(errno)),
+            Err(errno) => {
+                eprintln!("[DEBUG] TLB allocation ioctl failed: {:?}", errno);
+                Err(PciError::IoctlError(errno))
+            }
         }
     }
 

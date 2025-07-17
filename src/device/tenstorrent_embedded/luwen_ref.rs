@@ -60,17 +60,31 @@ pub struct ExtendedPciDevice {
 
 impl ExtendedPciDevice {
     pub fn open(pci_interface: usize) -> Result<ExtendedPciDeviceWrapper, PciError> {
+        eprintln!(
+            "[DEBUG] ExtendedPciDevice::open() called with interface {}",
+            pci_interface
+        );
         let device = PciDevice::open(pci_interface)?;
+        eprintln!(
+            "[DEBUG] PciDevice::open() succeeded, arch: {:?}, driver_version: {}",
+            device.arch, device.driver_version
+        );
 
         let (grid_size_x, grid_size_y) = match device.arch {
             Arch::Grayskull => (13, 12),
             Arch::Wormhole => (10, 12),
             Arch::Blackhole => (17, 12),
         };
+        eprintln!("[DEBUG] Grid size: {}x{}", grid_size_x, grid_size_y);
 
         let default_tlb;
 
         // Driver API 2+ has TLB allocation APIs supporting WH & BH.
+        eprintln!(
+            "[DEBUG] Checking TLB allocation: arch != Grayskull: {}, driver_version >= 2: {}",
+            device.arch != Arch::Grayskull,
+            device.driver_version >= 2
+        );
         if device.arch != Arch::Grayskull && device.driver_version >= 2 {
             let size = match device.arch {
                 Arch::Wormhole => 1 << 24,  // 16 MiB
@@ -82,24 +96,33 @@ impl ExtendedPciDevice {
                 }
             };
 
-            if let Ok(tlb) = device.allocate_tlb(size) {
-                default_tlb = PossibleTlbAllocation::Allocation(tlb);
-            } else {
-                // Couldn't get a tlb... ideally at this point we would fallback to using a slower but useable read/write API
-                // for now though, we will just fail
-                return Err(PciError::TlbAllocationError(
-                    "Failed to find a free tlb".to_string(),
-                ));
+            eprintln!("[DEBUG] Attempting to allocate TLB of size: {}", size);
+            match device.allocate_tlb(size) {
+                Ok(tlb) => {
+                    eprintln!("[DEBUG] TLB allocation succeeded");
+                    default_tlb = PossibleTlbAllocation::Allocation(tlb);
+                }
+                Err(e) => {
+                    eprintln!("[DEBUG] TLB allocation failed: {:?}", e);
+                    // Couldn't get a tlb... ideally at this point we would fallback to using a slower but useable read/write API
+                    // for now though, we will just fail
+                    return Err(PciError::TlbAllocationError(format!(
+                        "Failed to find a free tlb: {:?}",
+                        e
+                    )));
+                }
             }
         } else {
             // Otherwise fallback to default behaviour of just taking a constant one
-            default_tlb = PossibleTlbAllocation::Hardcoded(match device.arch {
+            let hardcoded_tlb = match device.arch {
                 Arch::Grayskull | Arch::Wormhole => 184,
                 Arch::Blackhole => 190,
-            });
+            };
+            eprintln!("[DEBUG] Using hardcoded TLB: {}", hardcoded_tlb);
+            default_tlb = PossibleTlbAllocation::Hardcoded(hardcoded_tlb);
         }
 
-        Ok(ExtendedPciDeviceWrapper {
+        let wrapper = ExtendedPciDeviceWrapper {
             inner: Arc::new(RwLock::new(ExtendedPciDevice {
                 harvested_rows: 0,
                 grid_size_x,
@@ -115,7 +138,9 @@ impl ExtendedPciDevice {
 
                 ethernet_dma_buffer: HashMap::with_capacity(16),
             })),
-        })
+        };
+        eprintln!("[DEBUG] ExtendedPciDevice::open() completed successfully");
+        Ok(wrapper)
     }
 
     pub fn read_block(&mut self, addr: u32, data: &mut [u8]) -> Result<(), PciError> {
