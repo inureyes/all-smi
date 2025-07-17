@@ -64,45 +64,28 @@ impl PciDevice {
         use super::error::PciOpenError;
         use super::ioctl::GetDeviceInfo;
 
-        eprintln!(
-            "[DEBUG] PciDevice::open called for device_id: {}",
-            device_id
-        );
-
-        let device_path = format!("/dev/tenstorrent/{device_id}");
-        eprintln!("[DEBUG] Attempting to open device path: {}", device_path);
-
         let fd = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .open(&device_path);
+            .open(format!("/dev/tenstorrent/{device_id}"));
         let fd = match fd {
             Ok(fd) => fd,
             Err(err) => {
-                eprintln!("[DEBUG] Failed to open {}: {}", device_path, err);
                 return Err(PciOpenError::DeviceOpenFailed {
                     id: device_id,
                     source: err,
-                });
+                })
             }
         };
 
-        eprintln!("[DEBUG] Device opened successfully, getting device info via ioctl");
-
         let mut device_info = GetDeviceInfo::default();
         if let Err(errorno) = unsafe { ioctl::get_device_info(fd.as_raw_fd(), &mut device_info) } {
-            eprintln!("[DEBUG] ioctl get_device_info failed: {}", errorno);
             return Err(PciOpenError::IoctlError {
                 name: "get_device_info".to_string(),
                 id: device_id,
                 source: errorno,
             });
         }
-
-        eprintln!(
-            "[DEBUG] ioctl successful, device_id: 0x{:x}",
-            device_info.output.device_id
-        );
 
         let config_space = std::fs::OpenOptions::new()
             .read(true)
@@ -695,7 +678,7 @@ impl PciDevice {
         let output = match output {
             Ok(output) => output,
             Err(err) => {
-                eprintln!("[DEBUG] When reading /dev/tenstorrent for a scan hit error: {err}");
+                tracing::debug!("When reading /dev/tenstorrent for a scan hit error: {err}");
                 return Vec::new();
             }
         };
@@ -704,10 +687,8 @@ impl PciDevice {
             .flatten()
             .filter_map(|f| {
                 if let Some(name) = f.file_name().to_str() {
-                    eprintln!("[DEBUG] Found file in /dev/tenstorrent: {}", name);
                     // The device files are just numeric IDs, not prefixed with "tenstorrent-"
                     if let Ok(id) = name.parse::<usize>() {
-                        eprintln!("[DEBUG] Parsed device ID: {}", id);
                         return Some(id);
                     }
                 }
@@ -716,7 +697,6 @@ impl PciDevice {
             .collect::<Vec<_>>();
 
         output.sort_unstable();
-        eprintln!("[DEBUG] Total devices found in scan: {}", output.len());
         output
     }
 }
