@@ -19,10 +19,12 @@ impl Default for Arch {
 }
 
 impl Arch {
+    #[allow(dead_code)]
     pub fn is_wormhole(&self) -> bool {
         matches!(self, Arch::Wormhole)
     }
 
+    #[allow(dead_code)]
     pub fn is_grayskull(&self) -> bool {
         matches!(self, Arch::Grayskull)
     }

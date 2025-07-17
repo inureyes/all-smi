@@ -19,6 +19,7 @@ impl std::error::Error for PlatformError {}
 
 /// Telemetry information from the chip
 #[derive(Default, Debug)]
+#[allow(dead_code)]
 pub struct Telemetry {
     pub arch: Arch,
     pub board_id: u64,
@@ -231,6 +232,7 @@ impl Telemetry {
 }
 
 /// Simplified chip interface trait
+#[allow(dead_code)]
 pub trait ChipImpl: Send + Sync + 'static {
     /// Returns the current arch of the chip
     fn get_arch(&self) -> Arch;
@@ -249,6 +251,7 @@ pub struct Chip {
 
 impl Chip {
     /// Get the architecture of this chip
+    #[allow(dead_code)]
     pub fn get_arch(&self) -> Arch {
         self.inner.get_arch()
     }
