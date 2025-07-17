@@ -115,7 +115,10 @@ impl PciDevice {
             .write(true)
             .open(&device_path);
         let fd = match fd {
-            Ok(fd) => fd,
+            Ok(fd) => {
+                eprintln!("[DEBUG] Read-write open SUCCEEDED!");
+                fd
+            }
             Err(err) => {
                 eprintln!("[DEBUG] Failed to open '{}': {}", device_path, err);
                 eprintln!("[DEBUG] Error kind: {:?}", err.kind());
@@ -161,14 +164,17 @@ impl PciDevice {
             }
         };
 
+        eprintln!("[DEBUG] About to call get_device_info ioctl...");
         let mut device_info = GetDeviceInfo::default();
         if let Err(errorno) = unsafe { ioctl::get_device_info(fd.as_raw_fd(), &mut device_info) } {
+            eprintln!("[DEBUG] get_device_info ioctl FAILED: {}", errorno);
             return Err(PciOpenError::IoctlError {
                 name: "get_device_info".to_string(),
                 id: device_id,
                 source: errorno,
             });
         }
+        eprintln!("[DEBUG] get_device_info ioctl succeeded");
 
         let config_space = std::fs::OpenOptions::new()
             .read(true)
