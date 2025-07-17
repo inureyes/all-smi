@@ -741,10 +741,68 @@ impl PciDevice {
             bar0_uc_mapping.mapping_base,
             bar0_uc_mapping.mapping_size
         );
+        // Determine WC mapping size based on architecture
+        let wc_mapping_size = if self.arch.is_blackhole() {
+            super::kmdif::BH_BAR0_WC_MAPPING_SIZE
+        } else {
+            super::kmdif::GS_BAR0_WC_MAPPING_SIZE
+        };
+
+        // Map BAR0 WC first if available
+        let mut bar0_wc_size = 0;
+        let bar0_wc = if let Some(mapping) = bar0_wc_mapping {
+            if mapping.mapping_id == 2 {
+                // Resource0Wc
+                bar0_wc_size = mapping.mapping_size.min(wc_mapping_size);
+                eprintln!(
+                    "[DEBUG] Mapping BAR0 WC: offset=0x{:x}, size=0x{:x}",
+                    mapping.mapping_base, bar0_wc_size
+                );
+                let bar0_wc_map = unsafe {
+                    memmap2::MmapOptions::default()
+                        .len(bar0_wc_size as usize)
+                        .offset(mapping.mapping_base)
+                        .map_mut(self.device_fd.as_raw_fd())
+                };
+                match bar0_wc_map {
+                    Ok(map) => Some(map),
+                    Err(err) => {
+                        eprintln!("[DEBUG] WARNING: Failed to map bar0_wc: {err}");
+                        bar0_wc_size = 0;
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Adjust BAR0 UC mapping based on whether WC mapping exists
+        let bar0_uc_size;
+        let bar0_uc_offset;
+        if bar0_wc.is_some() {
+            // When WC mapping exists, UC mapping is reduced and offset
+            bar0_uc_size = bar0_uc_mapping.mapping_size.saturating_sub(wc_mapping_size);
+            bar0_uc_offset = wc_mapping_size;
+        } else {
+            // No WC mapping, map the entire BAR UC
+            bar0_uc_size = bar0_uc_mapping.mapping_size;
+            bar0_uc_offset = 0;
+        }
+
+        eprintln!(
+            "[DEBUG] Mapping BAR0 UC: offset=0x{:x}, size=0x{:x}, adjusted_offset=0x{:x}",
+            bar0_uc_mapping.mapping_base,
+            bar0_uc_size,
+            bar0_uc_mapping.mapping_base + bar0_uc_offset
+        );
+
         let bar0_uc = unsafe {
             memmap2::MmapOptions::default()
-                .len(bar0_uc_mapping.mapping_size as usize)
-                .offset(bar0_uc_mapping.mapping_base)
+                .len(bar0_uc_size as usize)
+                .offset(bar0_uc_mapping.mapping_base + bar0_uc_offset)
                 .map_mut(self.device_fd.as_raw_fd())
         }
         .map_err(|err| {
@@ -757,31 +815,6 @@ impl PciDevice {
         })?;
 
         eprintln!("[DEBUG] BAR0 UC mapped successfully");
-
-        // Map BAR0 WC if available
-        let bar0_wc = if let Some(mapping) = bar0_wc_mapping {
-            eprintln!(
-                "[DEBUG] Mapping BAR0 WC: offset=0x{:x}, size=0x{:x}",
-                mapping.mapping_base, mapping.mapping_size
-            );
-            Some(
-                unsafe {
-                    memmap2::MmapOptions::default()
-                        .len(mapping.mapping_size as usize)
-                        .offset(mapping.mapping_base)
-                        .map_mut(self.device_fd.as_raw_fd())
-                }
-                .map_err(|err| {
-                    eprintln!("[DEBUG] mmap failed for BAR0 WC: {err:?}");
-                    PciOpenError::BarMappingError {
-                        name: format!("bar0_wc mmap: {err}"),
-                        id: self.id,
-                    }
-                })?,
-            )
-        } else {
-            None
-        };
 
         // Map BAR1 UC if available (for Blackhole)
         let (bar1_uc, bar1_uc_size) = if let Some(mapping) = bar1_uc_mapping {
@@ -860,14 +893,11 @@ impl PciDevice {
             bar_size_bytes: bar0_uc_mapping.mapping_size,
 
             bar0_uc,
-            bar0_uc_size: bar0_uc_mapping.mapping_size,
-            bar0_uc_offset: 0,
+            bar0_uc_size,
+            bar0_uc_offset,
 
             bar0_wc,
-            bar0_wc_size: bar0_wc_mapping
-                .as_ref()
-                .map(|m| m.mapping_size)
-                .unwrap_or(0),
+            bar0_wc_size,
             bar1_uc,
             bar1_uc_size,
 
