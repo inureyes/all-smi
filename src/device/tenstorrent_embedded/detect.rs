@@ -56,8 +56,20 @@ pub fn detect_chips_silent(_options: ChipDetectOptions) -> Result<Vec<UninitChip
     let mut chips = Vec::new();
 
     let device_ids = PciDevice::scan();
+    eprintln!(
+        "[DEBUG] detect_chips_silent: Found {} device IDs from scan",
+        device_ids.len()
+    );
+
     for device_id in device_ids {
-        let ud = ExtendedPciDevice::open(device_id)?;
+        eprintln!("[DEBUG] Attempting to open device ID: {}", device_id);
+        let ud = match ExtendedPciDevice::open(device_id) {
+            Ok(ud) => ud,
+            Err(e) => {
+                eprintln!("[DEBUG] Failed to open device {}: {}", device_id, e);
+                return Err(e.into());
+            }
+        };
 
         let arch = ud.borrow().device.arch;
 
