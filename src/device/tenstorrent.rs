@@ -372,30 +372,8 @@ impl TenstorrentReader {
                 // Since the actual TDP limit is not directly available in telemetry, we use
                 // board-specific estimates based on Tenstorrent specifications
                 let utilization = {
-                    // Get board-specific TDP based on board type
-                    let tdp_limit = match telemetry.board_type() {
-                        // Grayskull boards
-                        "e75" => 75.0,
-                        "e150" => 75.0,
-                        "e300" | "e300_R2" | "e300_R3" => 100.0,
-                        // Wormhole boards
-                        "n150" => 150.0,
-                        "n300" => 160.0,
-                        "galaxy-wormhole" => 200.0,
-                        // Blackhole boards
-                        "p100" | "p100a" => 300.0,
-                        "p150a" | "p150b" | "p150c" => 350.0,
-                        "p300a" | "p300b" | "p300c" => 400.0,
-                        "galaxy-blackhole" => 450.0,
-                        _ => {
-                            // Fallback based on architecture
-                            match telemetry.arch {
-                                Arch::Grayskull => 75.0,
-                                Arch::Wormhole => 160.0,
-                                Arch::Blackhole => 350.0,
-                            }
-                        }
-                    };
+                    // Get board-specific TDP using the telemetry helper
+                    let tdp_limit = telemetry.get_board_tdp();
 
                     // Calculate utilization percentage
                     ((power / tdp_limit) * 100.0).min(100.0)
@@ -409,37 +387,8 @@ impl TenstorrentReader {
 
                 // DDR memory info (if available)
                 let (used_memory, total_memory) = if telemetry.ddr_status != 0 {
-                    // Get memory information based on board type
-                    // Memory sizes are based on Tenstorrent board specifications
-                    let total_mem = match telemetry.board_type() {
-                        // Grayskull boards
-                        "e75" => 16 * 1024 * 1024 * 1024,  // 16GB
-                        "e150" => 32 * 1024 * 1024 * 1024, // 32GB
-                        "e300" | "e300_R2" | "e300_R3" => 48 * 1024 * 1024 * 1024, // 48GB
-                        // Wormhole boards
-                        "n150" => 32 * 1024 * 1024 * 1024, // 32GB
-                        "n300" => 64 * 1024 * 1024 * 1024, // 64GB
-                        "galaxy-wormhole" => 96 * 1024 * 1024 * 1024, // 96GB per board
-                        // Blackhole boards
-                        "p100" | "p100a" => 96 * 1024 * 1024 * 1024, // 96GB
-                        "p150a" | "p150b" | "p150c" => 144 * 1024 * 1024 * 1024, // 144GB
-                        "p300a" | "p300b" | "p300c" => 288 * 1024 * 1024 * 1024, // 288GB
-                        "galaxy-blackhole" => 576 * 1024 * 1024 * 1024, // 576GB
-                        _ => {
-                            // Try to extract from DDR speed if available
-                            if let Some(_ddr_speed) = telemetry.ddr_speed {
-                                // DDR speed field might contain memory size info
-                                // This is a conservative estimate
-                                match telemetry.arch {
-                                    Arch::Grayskull => 16 * 1024 * 1024 * 1024,
-                                    Arch::Wormhole => 32 * 1024 * 1024 * 1024,
-                                    Arch::Blackhole => 96 * 1024 * 1024 * 1024,
-                                }
-                            } else {
-                                0
-                            }
-                        }
-                    };
+                    // Get memory information using the telemetry helper
+                    let total_mem = telemetry.get_board_memory_size();
 
                     // For used memory, we can estimate based on power consumption
                     // Higher power typically indicates more memory activity
@@ -667,16 +616,29 @@ impl TenstorrentReader {
 
                         // Generate device name from board type
                         let device_name = match device.board_info.board_type.as_str() {
+                            // Grayskull boards
+                            "e75" => "Tenstorrent Grayskull e75",
                             "e150" => "Tenstorrent Grayskull e150",
                             "e300" => "Tenstorrent Grayskull e300",
-                            "e75" => "Tenstorrent Grayskull e75",
-                            "n300 L" | "n300 R" => "Tenstorrent Wormhole n300",
+                            "E300_R2" => "Tenstorrent Grayskull e300 R2",
+                            "E300_R3" => "Tenstorrent Grayskull e300 R3",
+                            "GALAXY" => "Tenstorrent Grayskull Galaxy",
+                            // Wormhole boards
                             "n150" => "Tenstorrent Wormhole n150",
-                            "nb_cb" => "Tenstorrent Wormhole NB CB",
+                            "n300" | "n300 L" | "n300 R" => "Tenstorrent Wormhole n300",
+                            "NEBULA_CB" | "nb_cb" => "Tenstorrent Wormhole Nebula CB",
                             "wh_4u" => "Tenstorrent Wormhole 4U",
+                            "galaxy-wormhole" => "Tenstorrent Wormhole Galaxy",
+                            // Blackhole boards
+                            "p100" => "Tenstorrent Blackhole p100",
                             "p100a" => "Tenstorrent Blackhole p100a",
                             "p150a" => "Tenstorrent Blackhole p150a",
                             "p150b" => "Tenstorrent Blackhole p150b",
+                            "p150c" => "Tenstorrent Blackhole p150c",
+                            "p300a" => "Tenstorrent Blackhole p300a",
+                            "p300b" => "Tenstorrent Blackhole p300b",
+                            "p300c" => "Tenstorrent Blackhole p300c",
+                            "galaxy-blackhole" => "Tenstorrent Blackhole Galaxy",
                             _ => "Tenstorrent Unknown",
                         };
 

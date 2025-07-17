@@ -166,7 +166,66 @@ impl Telemetry {
         Some(output)
     }
 
+    /// Get board-specific TDP (Thermal Design Power) in watts
+    pub fn get_board_tdp(&self) -> f64 {
+        match self.try_board_type() {
+            // Grayskull boards
+            Some("e75") => 75.0,
+            Some("e150") => 75.0,
+            Some("e300") | Some("E300_R2") | Some("E300_R3") => 100.0,
+            Some("GALAXY") => 300.0, // Grayskull Galaxy
+            // Wormhole boards
+            Some("n150") => 150.0,
+            Some("n300") => 160.0,
+            Some("NEBULA_CB") => 150.0,
+            Some("galaxy-wormhole") => 200.0,
+            // Blackhole boards
+            Some("p100") | Some("p100a") => 300.0,
+            Some("p150a") | Some("p150b") | Some("p150c") => 350.0,
+            Some("p300a") | Some("p300b") | Some("p300c") => 400.0,
+            Some("galaxy-blackhole") => 450.0,
+            _ => {
+                // Fallback based on architecture
+                match self.arch {
+                    Arch::Grayskull => 75.0,
+                    Arch::Wormhole => 160.0,
+                    Arch::Blackhole => 350.0,
+                }
+            }
+        }
+    }
+
+    /// Get board-specific memory size in bytes
+    pub fn get_board_memory_size(&self) -> u64 {
+        match self.try_board_type() {
+            // Grayskull boards
+            Some("e75") => 16 * 1024 * 1024 * 1024,  // 16GB
+            Some("e150") => 32 * 1024 * 1024 * 1024, // 32GB
+            Some("e300") | Some("E300_R2") | Some("E300_R3") => 48 * 1024 * 1024 * 1024, // 48GB
+            Some("GALAXY") => 128 * 1024 * 1024 * 1024, // 128GB (Galaxy with multiple chips)
+            // Wormhole boards
+            Some("n150") => 32 * 1024 * 1024 * 1024, // 32GB
+            Some("n300") => 64 * 1024 * 1024 * 1024, // 64GB
+            Some("NEBULA_CB") => 32 * 1024 * 1024 * 1024, // 32GB
+            Some("galaxy-wormhole") => 96 * 1024 * 1024 * 1024, // 96GB per board
+            // Blackhole boards
+            Some("p100") | Some("p100a") => 96 * 1024 * 1024 * 1024, // 96GB
+            Some("p150a") | Some("p150b") | Some("p150c") => 144 * 1024 * 1024 * 1024, // 144GB
+            Some("p300a") | Some("p300b") | Some("p300c") => 288 * 1024 * 1024 * 1024, // 288GB
+            Some("galaxy-blackhole") => 576 * 1024 * 1024 * 1024,    // 576GB
+            _ => {
+                // Conservative fallback based on architecture
+                match self.arch {
+                    Arch::Grayskull => 16 * 1024 * 1024 * 1024,
+                    Arch::Wormhole => 32 * 1024 * 1024 * 1024,
+                    Arch::Blackhole => 96 * 1024 * 1024 * 1024,
+                }
+            }
+        }
+    }
+
     /// Return the board type or "UNSUPPORTED"
+    #[allow(dead_code)]
     pub fn board_type(&self) -> &'static str {
         self.try_board_type().unwrap_or("UNSUPPORTED")
     }

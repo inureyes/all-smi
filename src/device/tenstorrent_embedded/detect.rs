@@ -88,21 +88,24 @@ impl ChipImpl for MinimalChip {
         };
 
         // Set board_id based on architecture - this helps identify board type
-        match self.arch {
-            Arch::Grayskull => {
-                // Set board_id for e75 (0x7 << 36)
-                telemetry.board_id_high = 0x0007;
-                telemetry.board_id_low = 0x00000001;
-            }
-            Arch::Wormhole => {
-                // Set board_id for n300 (0x14 << 36)
-                telemetry.board_id_high = 0x0014;
-                telemetry.board_id_low = 0x00000001;
-            }
-            Arch::Blackhole => {
-                // Set board_id for p100 (0x36 << 36)
-                telemetry.board_id_high = 0x0036;
-                telemetry.board_id_low = 0x00000001;
+        // If we already have a valid board_id from telemetry reading, keep it
+        if telemetry.board_id_high == 0 && telemetry.board_id_low == 0 {
+            match self.arch {
+                Arch::Grayskull => {
+                    // Set board_id for e75 (0x7 << 36) as default
+                    telemetry.board_id_high = 0x0007;
+                    telemetry.board_id_low = 0x00000001;
+                }
+                Arch::Wormhole => {
+                    // Set board_id for n300 (0x14 << 36) as default
+                    telemetry.board_id_high = 0x0014;
+                    telemetry.board_id_low = 0x00000001;
+                }
+                Arch::Blackhole => {
+                    // Set board_id for p100 (0x36 << 36) as default
+                    telemetry.board_id_high = 0x0036;
+                    telemetry.board_id_low = 0x00000001;
+                }
             }
         }
 
@@ -113,7 +116,13 @@ impl ChipImpl for MinimalChip {
         telemetry.tdc = 0; // 0A indicates no real measurement
         telemetry.asic_temperature = 25 << 4; // Room temp as placeholder
         telemetry.ddr_status = 1;
-        telemetry.ddr_speed = Some(6400);
+
+        // Set DDR speed based on architecture
+        telemetry.ddr_speed = match self.arch {
+            Arch::Grayskull => Some(1600), // DDR4
+            Arch::Wormhole => Some(6400),  // GDDR6
+            Arch::Blackhole => Some(8000), // HBM3
+        };
 
         Ok(telemetry)
     }
@@ -483,6 +492,7 @@ fn get_device_arch(device_id: usize) -> Option<Arch> {
     let sysfs_paths = [
         format!("/sys/class/tenstorrent/{device_id}/device_id"),
         format!("/sys/class/tenstorrent/{device_id}/device/device"),
+        format!("/sys/class/tenstorrent/tenstorrent{device_id}/device_id"),
     ];
 
     for path in &sysfs_paths {
@@ -526,10 +536,30 @@ fn get_device_arch(device_id: usize) -> Option<Arch> {
         }
     }
 
-    // Method 3: Check if device file exists and make educated guess based on system
+    // Method 3: Try to read architecture from device driver info
+    let driver_arch_path = format!("/sys/class/tenstorrent/{device_id}/arch");
+    if let Ok(arch_str) = fs::read_to_string(&driver_arch_path) {
+        match arch_str.trim().to_lowercase().as_str() {
+            "grayskull" => return Some(Arch::Grayskull),
+            "wormhole" => return Some(Arch::Wormhole),
+            "blackhole" => return Some(Arch::Blackhole),
+            _ => {}
+        }
+    }
+
+    // Method 4: Check if device file exists and make educated guess based on system
     // This is a last resort - we found a device but can't determine its type
     let dev_file = format!("/dev/tenstorrent/{device_id}");
     if Path::new(&dev_file).exists() {
+        // Try to determine from system characteristics
+        // Check for hints in /proc/cpuinfo or DMI info
+        if let Ok(cpuinfo) = fs::read_to_string("/proc/cpuinfo") {
+            if cpuinfo.contains("Intel") || cpuinfo.contains("AMD") {
+                // x86 systems most commonly have Wormhole or Blackhole
+                return Some(Arch::Wormhole); // Conservative default
+            }
+        }
+
         // Default to Wormhole as it's the most common
         return Some(Arch::Wormhole);
     }
