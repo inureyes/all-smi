@@ -59,7 +59,3 @@ mock = []
 name = "all-smi-mock-server"
 path = "src/bin/all-smi-mock-server.rs"
 required-features = ["mock"]
-
-[[bin]]
-name = "debug-disks"
-path = "src/bin/debug-disks.rs"
