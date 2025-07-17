@@ -360,6 +360,28 @@ impl TenstorrentReader {
                 let power = telemetry.power(); // Returns watts as f64
                 let frequency = telemetry.ai_clk(); // Use luwen's ai_clk() method
 
+                // Calculate utilization based on power consumption vs TDP
+                // This is a proxy metric since Tenstorrent doesn't provide direct utilization
+                // We use the ratio of current power to TDP (Thermal Design Power) limit
+                // Note: This assumes the device scales power linearly with load, which is
+                // a reasonable approximation for AI accelerators
+                let utilization = {
+                    let tdp_watts = (telemetry.tdp & 0xffff) as f64;
+                    if tdp_watts > 0.0 {
+                        // Clamp to 100% max as power can temporarily exceed TDP
+                        ((power / tdp_watts) * 100.0).min(100.0)
+                    } else {
+                        // Fallback: estimate based on typical TDP values if not available
+                        // Grayskull: ~75W, Wormhole: ~160W, Blackhole: ~350W
+                        let estimated_tdp = match telemetry.arch {
+                            luwen_core::Arch::Grayskull => 75.0,
+                            luwen_core::Arch::Wormhole => 160.0,
+                            luwen_core::Arch::Blackhole => 350.0,
+                        };
+                        ((power / estimated_tdp) * 100.0).min(100.0)
+                    }
+                };
+
                 // Add raw telemetry values for debugging
                 detail.insert("power_watts".to_string(), format!("{power:.2}"));
                 detail.insert("aiclk_mhz".to_string(), format!("{frequency}"));
@@ -426,7 +448,7 @@ impl TenstorrentReader {
                     device_type: "NPU".to_string(),
                     hostname: hostname.clone(),
                     instance: format!("tt{index}"),
-                    utilization: 0.0, // Utilization not available from telemetry
+                    utilization,
                     ane_utilization: 0.0,
                     dla_utilization: None,
                     temperature,
@@ -526,6 +548,45 @@ impl TenstorrentReader {
                         let power = telemetry.power.parse::<f64>().unwrap_or(0.0);
                         let frequency = telemetry.aiclk.parse::<u32>().unwrap_or(0);
 
+                        // Calculate utilization based on power consumption vs TDP
+                        // This is a proxy metric since Tenstorrent doesn't provide direct utilization
+                        // We use the ratio of current power to TDP (Thermal Design Power) limit
+                        let utilization = if let Some(ref limits) = device.limits {
+                            if let Some(ref tdp_str) = limits.tdp_limit {
+                                if let Ok(tdp_watts) = tdp_str.parse::<f64>() {
+                                    if tdp_watts > 0.0 {
+                                        // Clamp to 100% max as power can temporarily exceed TDP
+                                        ((power / tdp_watts) * 100.0).min(100.0)
+                                    } else {
+                                        0.0
+                                    }
+                                } else {
+                                    0.0
+                                }
+                            } else {
+                                0.0
+                            }
+                        } else {
+                            // Fallback: estimate based on typical TDP values if limits not available
+                            // These are conservative estimates based on known Tenstorrent boards
+                            let estimated_tdp = match device.board_info.board_type.as_str() {
+                                // Grayskull boards
+                                "e75" => 75.0,
+                                "e150" => 75.0,
+                                "e300" => 100.0,
+                                // Wormhole boards
+                                "n150" => 150.0,
+                                "n300 L" | "n300 R" => 160.0,
+                                "nb_cb" => 150.0,
+                                "wh_4u" => 200.0,
+                                // Blackhole boards
+                                "p100a" => 300.0,
+                                "p150a" | "p150b" => 350.0,
+                                _ => 150.0, // Conservative default
+                            };
+                            ((power / estimated_tdp) * 100.0).min(100.0)
+                        };
+
                         // Calculate memory usage - extract from DRAM status and board type
                         let (used_memory, total_memory) = if device.board_info.dram_status == "Y" {
                             // First try to extract from dram_speed field if it contains size info
@@ -607,7 +668,7 @@ impl TenstorrentReader {
                             device_type: "NPU".to_string(),
                             hostname: hostname.clone(),
                             instance: format!("tt{idx}"),
-                            utilization: 0.0, // Not directly available from tt-smi
+                            utilization,
                             ane_utilization: 0.0,
                             dla_utilization: None,
                             temperature,
@@ -635,6 +696,7 @@ impl TenstorrentReader {
         let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
 
         // Placeholder implementation
+        // TODO: Parse actual tensix-stat output when format is known
         vec![GpuInfo {
             uuid: "TT-PLACEHOLDER-UUID".to_string(),
             time,
@@ -642,7 +704,7 @@ impl TenstorrentReader {
             device_type: "NPU".to_string(),
             hostname: hostname.clone(),
             instance: "wh0".to_string(),
-            utilization: 0.0,
+            utilization: 0.0, // Will need to calculate from power/TDP when implemented
             ane_utilization: 0.0,
             dla_utilization: None,
             temperature: 0,
