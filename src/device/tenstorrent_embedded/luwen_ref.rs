@@ -387,7 +387,11 @@ impl ChipImpl for LuwenChip {
     }
 
     fn get_telemetry(&self) -> Result<Telemetry, PlatformError> {
-        Ok(Telemetry::default())
+        // Return a telemetry struct with at least the correct architecture
+        Ok(Telemetry {
+            arch: self.arch,
+            ..Default::default()
+        })
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
