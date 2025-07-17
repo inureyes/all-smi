@@ -98,6 +98,18 @@ impl PciDevice {
             }
         }
 
+        // First try opening with read-only
+        eprintln!("[DEBUG] Trying to open with read-only permissions...");
+        let fd_readonly = std::fs::OpenOptions::new()
+            .read(true)
+            .write(false)
+            .open(&device_path);
+
+        match fd_readonly {
+            Ok(_) => eprintln!("[DEBUG] Read-only open succeeded! Now trying read-write..."),
+            Err(e) => eprintln!("[DEBUG] Read-only open failed: {}", e),
+        }
+
         let fd = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -106,10 +118,26 @@ impl PciDevice {
             Ok(fd) => fd,
             Err(err) => {
                 eprintln!("[DEBUG] Failed to open '{}': {}", device_path, err);
-                return Err(PciOpenError::DeviceOpenFailed {
-                    id: device_id,
-                    source: err,
-                });
+
+                // Let's try using a raw file descriptor approach
+                eprintln!("[DEBUG] Trying raw open() syscall...");
+                use std::ffi::CString;
+                use std::os::unix::io::FromRawFd;
+
+                let c_path = CString::new(device_path.as_str()).unwrap();
+                let raw_fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR) };
+
+                if raw_fd >= 0 {
+                    eprintln!("[DEBUG] Raw open() succeeded with fd: {}", raw_fd);
+                    unsafe { std::fs::File::from_raw_fd(raw_fd) }
+                } else {
+                    let errno = std::io::Error::last_os_error();
+                    eprintln!("[DEBUG] Raw open() failed with error: {}", errno);
+                    return Err(PciOpenError::DeviceOpenFailed {
+                        id: device_id,
+                        source: err,
+                    });
+                }
             }
         };
 
