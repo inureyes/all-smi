@@ -4,7 +4,7 @@
 use std::os::fd::{AsRawFd, RawFd};
 
 use super::{
-    error::PciError,
+    error::{PciError, PciOpenError},
     ioctl,
     kmdif::{self, BarMapping, DmaBuffer, PossibleTlbAllocation, TlbAllocation},
     PciDevice,
@@ -33,7 +33,7 @@ pub(crate) fn read_bar0_base(config_space: &std::fs::File) -> u64 {
     u64::from_ne_bytes(bar01) & BAR_ADDRESS_MASK
 }
 
-impl BarMapping {
+impl super::kmdif::BarMapping {
     unsafe fn register_address_mut<T>(&self, mut register_addr: u32) -> *mut T {
         let reg_mapping: *mut u8;
 
@@ -275,6 +275,9 @@ impl PciDevice {
         // To avoid needing a warmup when performing the first dma access, try to allocate the
         // buffers now.
         device.allocate_transfer_buffers();
+
+        // Initialize BAR mapping
+        device.map_bar()?;
 
         Ok(device)
     }
@@ -663,6 +666,205 @@ impl PciDevice {
             self.detect_ffffffff_read(Some(unsafe { (data.as_ptr() as *const u32).read() }))?;
         }
 
+        Ok(())
+    }
+
+    /// Map the PCI BARs for memory-mapped I/O
+    fn map_bar(&mut self) -> Result<(), PciOpenError> {
+        eprintln!("[DEBUG] map_bar() called for device {}", self.id);
+
+        // Query mappings from the kernel driver
+        let mut mappings = super::ioctl::QueryMappings::<8>::default();
+
+        if let Err(errno) =
+            unsafe { super::ioctl::query_mappings(self.device_fd.as_raw_fd(), &mut mappings) }
+        {
+            eprintln!("[DEBUG] query_mappings ioctl failed: {:?}", errno);
+            return Err(PciOpenError::IoctlError {
+                name: "query_mappings".to_string(),
+                id: self.id,
+                source: errno,
+            });
+        }
+
+        eprintln!(
+            "[DEBUG] query_mappings returned {} mappings",
+            mappings.input.output_mapping_count
+        );
+
+        let mut bar0_uc_mapping = None;
+        let mut bar0_wc_mapping = None;
+        let mut bar1_uc_mapping = None;
+        let mut bar2_uc_mapping = None;
+
+        // Process all mappings
+        for i in 0..mappings.input.output_mapping_count as usize {
+            let mapping = &mappings.output.mappings[i];
+            eprintln!(
+                "[DEBUG] Mapping {}: id={}, base=0x{:x}, size=0x{:x}",
+                i, mapping.mapping_id, mapping.mapping_base, mapping.mapping_size
+            );
+
+            match mapping.mapping_id {
+                0 => bar0_uc_mapping = Some(mapping.clone()), // Resource0Uc
+                1 => bar0_wc_mapping = Some(mapping.clone()), // Resource0Wc
+                2 => bar1_uc_mapping = Some(mapping.clone()), // Resource1Uc
+                4 => bar2_uc_mapping = Some(mapping.clone()), // Resource2Uc
+                _ => {}
+            }
+        }
+
+        // Ensure we have at least BAR0 UC mapping
+        let bar0_uc_mapping = bar0_uc_mapping.ok_or_else(|| {
+            eprintln!("[DEBUG] No BAR0 UC mapping found");
+            PciOpenError::BarMappingError {
+                name: "bar0_uc_mapping".to_string(),
+                id: self.id,
+            }
+        })?;
+
+        eprintln!(
+            "[DEBUG] Mapping BAR0 UC: offset=0x{:x}, size=0x{:x}",
+            bar0_uc_mapping.mapping_base, bar0_uc_mapping.mapping_size
+        );
+
+        // Map the BAR0 UC region
+        let bar0_uc = unsafe {
+            memmap2::MmapOptions::default()
+                .len(bar0_uc_mapping.mapping_size as usize)
+                .offset(bar0_uc_mapping.mapping_base)
+                .map_mut(self.device_fd.as_raw_fd())
+        }
+        .map_err(|err| {
+            eprintln!("[DEBUG] mmap failed for BAR0 UC: {:?}", err);
+            PciOpenError::BarMappingError {
+                name: format!("bar0_uc mmap: {}", err),
+                id: self.id,
+            }
+        })?;
+
+        eprintln!("[DEBUG] BAR0 UC mapped successfully");
+
+        // Map BAR0 WC if available
+        let bar0_wc = if let Some(mapping) = bar0_wc_mapping {
+            eprintln!(
+                "[DEBUG] Mapping BAR0 WC: offset=0x{:x}, size=0x{:x}",
+                mapping.mapping_base, mapping.mapping_size
+            );
+            Some(
+                unsafe {
+                    memmap2::MmapOptions::default()
+                        .len(mapping.mapping_size as usize)
+                        .offset(mapping.mapping_base)
+                        .map_mut(self.device_fd.as_raw_fd())
+                }
+                .map_err(|err| {
+                    eprintln!("[DEBUG] mmap failed for BAR0 WC: {:?}", err);
+                    PciOpenError::BarMappingError {
+                        name: format!("bar0_wc mmap: {}", err),
+                        id: self.id,
+                    }
+                })?,
+            )
+        } else {
+            None
+        };
+
+        // Map BAR1 UC if available (for Blackhole)
+        let (bar1_uc, bar1_uc_size) = if let Some(mapping) = bar1_uc_mapping {
+            if self.arch.is_blackhole() {
+                eprintln!(
+                    "[DEBUG] Mapping BAR1 UC for Blackhole: offset=0x{:x}, size=0x{:x}",
+                    mapping.mapping_base, mapping.mapping_size
+                );
+                let mmap = unsafe {
+                    memmap2::MmapOptions::default()
+                        .len(mapping.mapping_size as usize)
+                        .offset(mapping.mapping_base)
+                        .map_mut(self.device_fd.as_raw_fd())
+                }
+                .map_err(|err| {
+                    eprintln!("[DEBUG] mmap failed for BAR1 UC: {:?}", err);
+                    PciOpenError::BarMappingError {
+                        name: format!("bar1_uc mmap: {}", err),
+                        id: self.id,
+                    }
+                })?;
+                (Some(mmap), mapping.mapping_size)
+            } else {
+                (None, 0)
+            }
+        } else {
+            (None, 0)
+        };
+
+        // Handle system register mapping for Wormhole
+        let (
+            system_reg_mapping,
+            system_reg_mapping_size,
+            system_reg_start_offset,
+            system_reg_offset_adjust,
+        ) = if self.arch.is_wormhole() {
+            if let Some(bar2_mapping) = bar2_uc_mapping {
+                eprintln!(
+                    "[DEBUG] Mapping system registers for Wormhole: offset=0x{:x}, size=0x{:x}",
+                    bar2_mapping.mapping_base, bar2_mapping.mapping_size
+                );
+                let mmap = unsafe {
+                    memmap2::MmapOptions::default()
+                        .len(bar2_mapping.mapping_size as usize)
+                        .offset(bar2_mapping.mapping_base)
+                        .map_mut(self.device_fd.as_raw_fd())
+                }
+                .map_err(|err| {
+                    eprintln!("[DEBUG] mmap failed for system registers: {:?}", err);
+                    PciOpenError::BarMappingError {
+                        name: format!("system_reg mmap: {}", err),
+                        id: self.id,
+                    }
+                })?;
+
+                // Wormhole-specific offsets
+                let start_offset = (512 - 16) * 1024 * 1024;
+                let offset_adjust = (512 - 32) * 1024 * 1024;
+
+                (
+                    Some(mmap),
+                    bar2_mapping.mapping_size as usize,
+                    start_offset,
+                    offset_adjust,
+                )
+            } else {
+                (None, 0, 0, 0)
+            }
+        } else {
+            (None, 0, 0, 0)
+        };
+
+        // Create the BarMapping structure
+        self.pci_bar = Some(super::kmdif::BarMapping {
+            bar_addr: read_bar0_base(&self.config_space),
+            bar_size_bytes: bar0_uc_mapping.mapping_size,
+
+            bar0_uc,
+            bar0_uc_size: bar0_uc_mapping.mapping_size,
+            bar0_uc_offset: 0,
+
+            bar0_wc,
+            bar0_wc_size: bar0_wc_mapping
+                .as_ref()
+                .map(|m| m.mapping_size)
+                .unwrap_or(0),
+            bar1_uc,
+            bar1_uc_size,
+
+            system_reg_mapping,
+            system_reg_mapping_size,
+            system_reg_start_offset,
+            system_reg_offset_adjust,
+        });
+
+        eprintln!("[DEBUG] map_bar() completed successfully");
         Ok(())
     }
 
