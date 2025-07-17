@@ -4,6 +4,7 @@ use chrono::Local;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::Mutex;
 
 /// Collection method for Tenstorrent NPU metrics
 #[derive(Debug, Clone, Copy)]
@@ -114,6 +115,9 @@ impl Default for TenstorrentConfig {
     }
 }
 
+// Global status for error messages
+static TENSTORRENT_STATUS: Mutex<Option<String>> = Mutex::new(None);
+
 pub struct TenstorrentReader {
     config: TenstorrentConfig,
 }
@@ -125,6 +129,13 @@ impl TenstorrentReader {
 
     pub fn with_config(config: TenstorrentConfig) -> Self {
         TenstorrentReader { config }
+    }
+
+    /// Store an error message in the global status
+    fn set_status(message: String) {
+        if let Ok(mut status) = TENSTORRENT_STATUS.lock() {
+            *status = Some(message);
+        }
     }
 
     /// Extract base device name from Tenstorrent device string
@@ -145,10 +156,7 @@ impl TenstorrentReader {
         // If primary method failed and we have a fallback, try it
         if result.is_empty() {
             if let Some(fallback) = self.config.fallback_method {
-                eprintln!(
-                    "Primary method {:?} failed, trying fallback {:?}",
-                    self.config.primary_method, fallback
-                );
+                // Don't log here, as we're trying fallback
                 result = match fallback {
                     CollectionMethod::TtSmi => self.collect_via_tt_smi(),
                     CollectionMethod::DeviceFile => self.collect_via_device_files(),
@@ -171,14 +179,23 @@ impl TenstorrentReader {
                     let output_str = String::from_utf8_lossy(&output.stdout);
                     return self.parse_tt_smi_output(&output_str);
                 } else {
-                    eprintln!(
-                        "tt-smi command failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    // Check for Python environment message
+                    if stderr.contains("Python versions") {
+                        Self::set_status("tt-smi requires Python environment setup".to_string());
+                    } else {
+                        Self::set_status(format!("tt-smi command failed: {stderr}"));
+                    }
                 }
             }
             Err(e) => {
-                eprintln!("Failed to execute tt-smi: {e}");
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    Self::set_status(
+                        "tt-smi not found - Tenstorrent tools not installed".to_string(),
+                    );
+                } else {
+                    Self::set_status(format!("Failed to execute tt-smi: {e}"));
+                }
             }
         }
 
@@ -189,15 +206,12 @@ impl TenstorrentReader {
                     let output_str = String::from_utf8_lossy(&output.stdout);
                     self.parse_tensix_stat_output(&output_str)
                 } else {
-                    eprintln!(
-                        "tensix-stat command failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
+                    // Don't update status here, keep the tt-smi error
                     vec![]
                 }
             }
-            Err(e) => {
-                eprintln!("Failed to execute tensix-stat: {e}");
+            Err(_) => {
+                // tensix-stat not found is expected if tt-smi is the primary tool
                 vec![]
             }
         }
@@ -205,10 +219,89 @@ impl TenstorrentReader {
 
     /// Collect NPU information by reading device files
     fn collect_via_device_files(&self) -> Vec<GpuInfo> {
-        // TODO: Implement device file reading
-        // This will read from /dev/tenstorrent* or similar device files
-        eprintln!("Device file collection not yet implemented for Tenstorrent");
-        vec![]
+        use std::fs;
+        use std::path::Path;
+
+        let mut devices = Vec::new();
+        let dev_path = Path::new("/dev/tenstorrent");
+
+        // Check if /dev/tenstorrent directory exists
+        if !dev_path.exists() {
+            Self::set_status("Tenstorrent device directory /dev/tenstorrent not found".to_string());
+            return vec![];
+        }
+
+        // Enumerate device files in /dev/tenstorrent/
+        match fs::read_dir(dev_path) {
+            Ok(entries) => {
+                for (idx, entry) in entries.enumerate() {
+                    if let Ok(entry) = entry {
+                        let path = entry.path();
+                        // Device files should be named as numbers (0, 1, 2, etc.)
+                        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                            if file_name.chars().all(|c| c.is_numeric()) {
+                                // Found a device file
+                                if let Some(info) = self.read_device_info(&path, idx) {
+                                    devices.push(info);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                Self::set_status(format!("Failed to read /dev/tenstorrent directory: {e}"));
+            }
+        }
+
+        if devices.is_empty() {
+            Self::set_status("No Tenstorrent devices found in /dev/tenstorrent".to_string());
+        } else {
+            // Clear any previous error status
+            if let Ok(mut status) = TENSTORRENT_STATUS.lock() {
+                *status = None;
+            }
+        }
+
+        devices
+    }
+
+    /// Read device information from a specific device file
+    fn read_device_info(&self, device_path: &std::path::Path, index: usize) -> Option<GpuInfo> {
+        // For now, we can only detect the presence of the device
+        // Actual metrics would require ioctl calls or a proper Rust binding to the driver
+        let hostname = get_hostname();
+        let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+
+        let device_name = if let Some(file_name) = device_path.file_name().and_then(|n| n.to_str())
+        {
+            format!("Tenstorrent Device {file_name}")
+        } else {
+            format!("Tenstorrent Device {index}")
+        };
+
+        Some(GpuInfo {
+            uuid: format!("TT-DEV-{index}"),
+            time,
+            name: device_name,
+            device_type: "NPU".to_string(),
+            hostname: hostname.clone(),
+            instance: format!("tt{index}"),
+            utilization: 0.0,
+            ane_utilization: 0.0,
+            dla_utilization: None,
+            temperature: 0,
+            used_memory: 0,
+            total_memory: 0,
+            frequency: 0,
+            power_consumption: 0.0,
+            detail: {
+                let mut detail = HashMap::new();
+                detail.insert("device_path".to_string(), device_path.display().to_string());
+                detail.insert("collection_method".to_string(), "device_file".to_string());
+                detail
+            },
+        })
     }
 
     /// Parse tt-smi output
@@ -218,6 +311,11 @@ impl TenstorrentReader {
             Ok(tt_output) => {
                 let hostname = get_hostname();
                 let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+
+                // Clear any previous error status on successful parsing
+                if let Ok(mut status) = TENSTORRENT_STATUS.lock() {
+                    *status = None;
+                }
 
                 tt_output
                     .device_info
@@ -345,7 +443,7 @@ impl TenstorrentReader {
                     .collect()
             }
             Err(e) => {
-                eprintln!("Failed to parse tt-smi JSON output: {e}");
+                Self::set_status(format!("Failed to parse tt-smi output: {e}"));
                 vec![]
             }
         }
@@ -420,4 +518,9 @@ impl GpuReader for TenstorrentReader {
     fn get_process_info(&self) -> Vec<ProcessInfo> {
         self.collect_process_info()
     }
+}
+
+/// Get the current Tenstorrent status message (if any)
+pub fn get_tenstorrent_status_message() -> Option<String> {
+    TENSTORRENT_STATUS.lock().ok()?.clone()
 }

@@ -11,8 +11,8 @@ use crate::app_state::AppState;
 use crate::cli::ViewArgs;
 use crate::common::config::{AppConfig, EnvConfig};
 use crate::device::{
-    get_cpu_readers, get_gpu_readers, get_memory_readers, get_nvml_status_message, CpuInfo,
-    GpuInfo, MemoryInfo, ProcessInfo,
+    get_cpu_readers, get_gpu_readers, get_memory_readers, get_nvml_status_message,
+    get_tenstorrent_status_message, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo,
 };
 use crate::network::NetworkClient;
 use crate::storage::info::StorageInfo;
@@ -240,6 +240,16 @@ impl DataCollector {
                     eprintln!("Failed to show NVML notification: {e}");
                 }
                 state.nvml_notification_shown = true;
+            }
+        }
+
+        // Check for Tenstorrent status message and show as notification once
+        if let Some(tt_message) = get_tenstorrent_status_message() {
+            if !state.tenstorrent_notification_shown {
+                if let Err(e) = state.notifications.warning(tt_message) {
+                    eprintln!("Failed to show Tenstorrent notification: {e}");
+                }
+                state.tenstorrent_notification_shown = true;
             }
         }
 

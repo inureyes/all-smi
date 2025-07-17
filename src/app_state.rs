@@ -85,6 +85,7 @@ pub struct AppState {
     pub temperature_history: VecDeque<f64>,
     pub notifications: NotificationManager,
     pub nvml_notification_shown: bool,
+    pub tenstorrent_notification_shown: bool,
     // Connection status tracking for remote mode
     pub connection_status: HashMap<String, ConnectionStatus>,
     pub known_hosts: Vec<String>,
@@ -155,6 +156,7 @@ impl AppState {
             temperature_history: VecDeque::new(),
             notifications: NotificationManager::new(),
             nvml_notification_shown: false,
+            tenstorrent_notification_shown: false,
             // Connection status tracking for remote mode
             connection_status: HashMap::new(),
             known_hosts: Vec::new(),

@@ -178,6 +178,7 @@ mod tests {
             temperature_history: VecDeque::new(),
             notifications: crate::ui::notification::NotificationManager::new(),
             nvml_notification_shown: false,
+            tenstorrent_notification_shown: false,
             connection_status: HashMap::new(),
             known_hosts: Vec::new(),
         }
