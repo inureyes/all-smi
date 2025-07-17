@@ -187,13 +187,8 @@ impl TenstorrentReader {
                     let output_str = String::from_utf8_lossy(&output.stdout);
                     return self.parse_tt_smi_output(&output_str);
                 } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    // Check for Python environment message
-                    if stderr.contains("Python versions") {
-                        Self::set_status("tt-smi requires Python environment setup".to_string());
-                    } else {
-                        Self::set_status(format!("tt-smi command failed: {stderr}"));
-                    }
+                    // Don't set status for tt-smi failures since it's just a fallback
+                    // The embedded telemetry reading should work without it
                 }
             }
             Err(e) => {
@@ -361,6 +356,12 @@ impl TenstorrentReader {
                 let temperature = telemetry.asic_temperature().round() as u32; // Returns float in Celsius
                 let power = telemetry.power(); // Returns watts as f64
                 let frequency = telemetry.ai_clk(); // Use luwen's ai_clk() method
+
+                // Debug logging to understand power reading
+                if power == 0.0 {
+                    eprintln!("Warning: Tenstorrent device {} has 0W power reading. Raw tdp value: 0x{:08x}", 
+                        index, telemetry.tdp);
+                }
 
                 // Calculate utilization based on power consumption vs TDP
                 // This is a proxy metric since Tenstorrent doesn't provide direct utilization

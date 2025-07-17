@@ -76,7 +76,28 @@ impl ChipImpl for MinimalChip {
 
     fn get_telemetry(&self) -> Result<Telemetry, PlatformError> {
         // Try to get real telemetry from sysfs or tt-smi first
-        if let Some(real_telemetry) = self.try_read_real_telemetry() {
+        if let Some(mut real_telemetry) = self.try_read_real_telemetry() {
+            // Ensure architecture is correct based on board_id
+            if real_telemetry.board_id_high != 0 || real_telemetry.board_id_low != 0 {
+                let board_pattern = (real_telemetry.board_serial_number() >> 36) & 0xFFFFF;
+                match board_pattern {
+                    0x1 | 0x3 | 0x7 | 0x8 | 0xA | 0xB => {
+                        // Grayskull boards: E300 variants, e150, e75, NEBULA_CB, e300, GALAXY
+                        real_telemetry.arch = Arch::Grayskull;
+                    }
+                    0x14 | 0x18 | 0x35 => {
+                        // Wormhole boards: n300, n150, galaxy-wormhole
+                        real_telemetry.arch = Arch::Wormhole;
+                    }
+                    0x36 | 0x40 | 0x41 | 0x42 | 0x43 | 0x44 | 0x45 | 0x46 | 0x47 => {
+                        // Blackhole boards: p100, p150, p300 variants, galaxy-blackhole
+                        real_telemetry.arch = Arch::Blackhole;
+                    }
+                    _ => {
+                        // Keep the detected architecture
+                    }
+                }
+            }
             return Ok(real_telemetry);
         }
 
@@ -135,19 +156,22 @@ impl ChipImpl for MinimalChip {
 impl MinimalChip {
     /// Try to read real telemetry values from available sources
     fn try_read_real_telemetry(&self) -> Option<Telemetry> {
-        // Method 1: Try to read directly from hardware registers via AXI
-        if let Some(telemetry) = self.read_telemetry_from_hardware() {
-            return Some(telemetry);
-        }
-
-        // Method 2: Try to read from sysfs if driver exposes telemetry
+        // Method 1: Try to read from sysfs first (no external tools needed)
         if let Some(telemetry) = self.read_telemetry_from_sysfs() {
             return Some(telemetry);
         }
 
-        // Method 3: Try to parse tt-smi output if available
-        if let Some(telemetry) = self.read_telemetry_from_tt_smi() {
+        // Method 2: Try to read directly from hardware registers via tools
+        if let Some(telemetry) = self.read_telemetry_from_hardware() {
             return Some(telemetry);
+        }
+
+        // Method 3: Only try tt-smi as last resort (requires Python)
+        // Check if DISABLE_TT_SMI env var is set to skip this
+        if std::env::var("DISABLE_TT_SMI").is_err() {
+            if let Some(telemetry) = self.read_telemetry_from_tt_smi() {
+                return Some(telemetry);
+            }
         }
 
         // No real telemetry available
