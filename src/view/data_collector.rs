@@ -152,7 +152,14 @@ impl DataCollector {
         let hostname = get_hostname();
 
         // Use Docker-aware filtering
-        let filtered_disks = filter_docker_aware_disks(&disks);
+        let mut filtered_disks = filter_docker_aware_disks(&disks);
+
+        // Sort disks by mount point for consistent ordering
+        filtered_disks.sort_by(|a, b| {
+            a.mount_point()
+                .to_string_lossy()
+                .cmp(&b.mount_point().to_string_lossy())
+        });
 
         for (index, disk) in filtered_disks.iter().enumerate() {
             let mount_point_str = disk.mount_point().to_string_lossy();
@@ -284,7 +291,13 @@ impl DataCollector {
             let dedup_key = format!("{}:{}", storage.hostname, storage.mount_point);
             deduplicated_storage.insert(dedup_key, storage);
         }
-        let final_storage_info: Vec<StorageInfo> = deduplicated_storage.into_values().collect();
+        let mut final_storage_info: Vec<StorageInfo> = deduplicated_storage.into_values().collect();
+
+        // Sort by hostname first, then by mount point for consistent ordering
+        final_storage_info.sort_by(|a, b| match a.hostname.cmp(&b.hostname) {
+            std::cmp::Ordering::Equal => a.mount_point.cmp(&b.mount_point),
+            other => other,
+        });
 
         let mut state = self.app_state.lock().await;
 

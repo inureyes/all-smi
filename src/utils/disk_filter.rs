@@ -85,7 +85,12 @@ impl DiskFilter {
         prefixes.insert("/var/tmp/");
         prefixes.insert("/var/spool/");
 
+        // Docker-specific paths
+        prefixes.insert("/var/lib/docker/");
+        exact.insert("/var/lib/docker");
+
         exact.insert("/boot");
+        exact.insert("/boot/efi");
         exact.insert("/tmp");
         exact.insert("/bin");
         exact.insert("/sbin");
@@ -286,6 +291,9 @@ mod tests {
         assert!(!filter.should_include("/run/user/1000"));
         assert!(!filter.should_include("/usr/bin"));
         assert!(!filter.should_include("/var/log/syslog"));
+        assert!(!filter.should_include("/var/lib/docker"));
+        assert!(!filter.should_include("/var/lib/docker/volumes"));
+        assert!(!filter.should_include("/boot/efi"));
 
         // Should include user and data paths
         assert!(filter.should_include("/home/user"));
