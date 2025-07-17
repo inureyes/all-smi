@@ -118,6 +118,18 @@ impl PciDevice {
             Ok(fd) => fd,
             Err(err) => {
                 eprintln!("[DEBUG] Failed to open '{}': {}", device_path, err);
+                eprintln!("[DEBUG] Error kind: {:?}", err.kind());
+                eprintln!("[DEBUG] Raw OS error: {:?}", err.raw_os_error());
+
+                // Let's check if this is actually a symlink
+                if let Ok(metadata) = std::fs::symlink_metadata(&device_path) {
+                    eprintln!("[DEBUG] Is symlink: {}", metadata.file_type().is_symlink());
+                    if metadata.file_type().is_symlink() {
+                        if let Ok(target) = std::fs::read_link(&device_path) {
+                            eprintln!("[DEBUG] Symlink target: {:?}", target);
+                        }
+                    }
+                }
 
                 // Let's try using a raw file descriptor approach
                 eprintln!("[DEBUG] Trying raw open() syscall...");
@@ -133,6 +145,14 @@ impl PciDevice {
                 } else {
                     let errno = std::io::Error::last_os_error();
                     eprintln!("[DEBUG] Raw open() failed with error: {}", errno);
+                    eprintln!("[DEBUG] errno code: {}", errno.raw_os_error().unwrap_or(-1));
+
+                    // Common errno values:
+                    // ENOENT (2): No such file or directory
+                    // EACCES (13): Permission denied
+                    // EBUSY (16): Device or resource busy
+                    // EINVAL (22): Invalid argument
+
                     return Err(PciOpenError::DeviceOpenFailed {
                         id: device_id,
                         source: err,
