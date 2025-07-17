@@ -49,6 +49,7 @@ dependencies = [
  "regex",
  "reqwest",
  "serde",
+ "serde_json",
  "sysinfo",
  "tokio",
  "tower-http",
