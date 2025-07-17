@@ -220,7 +220,7 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
             }
         }
 
-        // NPU-specific metrics (Furiosa)
+        // NPU-specific metrics
         if info.device_type == "NPU" {
             // Add NPU-specific firmware version as a dedicated metric
             if let Some(firmware) = info.detail.get("firmware") {
@@ -230,6 +230,302 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
                     "all_smi_npu_firmware_info{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", firmware=\"{}\"}} 1\n",
                     info.name, info.instance, info.uuid, i, firmware
                 ));
+            }
+
+            // Tenstorrent-specific metrics
+            if info.name.contains("Tenstorrent") {
+                // Tenstorrent firmware versions
+                if let Some(arc_fw) = info.detail.get("arc_fw_version") {
+                    metrics.push_str(
+                        "# HELP all_smi_tenstorrent_arc_firmware_info ARC firmware version\n",
+                    );
+                    metrics.push_str("# TYPE all_smi_tenstorrent_arc_firmware_info info\n");
+                    metrics.push_str(&format!(
+                        "all_smi_tenstorrent_arc_firmware_info{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", version=\"{}\"}} 1\n",
+                        info.name, info.instance, info.uuid, i, arc_fw
+                    ));
+                }
+
+                if let Some(eth_fw) = info.detail.get("eth_fw_version") {
+                    metrics.push_str(
+                        "# HELP all_smi_tenstorrent_eth_firmware_info Ethernet firmware version\n",
+                    );
+                    metrics.push_str("# TYPE all_smi_tenstorrent_eth_firmware_info info\n");
+                    metrics.push_str(&format!(
+                        "all_smi_tenstorrent_eth_firmware_info{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", version=\"{}\"}} 1\n",
+                        info.name, info.instance, info.uuid, i, eth_fw
+                    ));
+                }
+
+                if let Some(fw_date) = info.detail.get("fw_date") {
+                    metrics.push_str(
+                        "# HELP all_smi_tenstorrent_firmware_date_info Firmware build date\n",
+                    );
+                    metrics.push_str("# TYPE all_smi_tenstorrent_firmware_date_info info\n");
+                    metrics.push_str(&format!(
+                        "all_smi_tenstorrent_firmware_date_info{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", date=\"{}\"}} 1\n",
+                        info.name, info.instance, info.uuid, i, fw_date
+                    ));
+                }
+                // Additional temperature sensors
+                if let Some(vreg_temp) = info.detail.get("vreg_temperature") {
+                    if let Ok(temp) = vreg_temp.parse::<f64>() {
+                        metrics.push_str("# HELP all_smi_tenstorrent_vreg_temperature_celsius Voltage regulator temperature in celsius\n");
+                        metrics.push_str(
+                            "# TYPE all_smi_tenstorrent_vreg_temperature_celsius gauge\n",
+                        );
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_vreg_temperature_celsius{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, temp
+                        ));
+                    }
+                }
+
+                if let Some(inlet_temp) = info.detail.get("inlet_temperature") {
+                    if let Ok(temp) = inlet_temp.parse::<f64>() {
+                        metrics.push_str("# HELP all_smi_tenstorrent_inlet_temperature_celsius Inlet temperature in celsius\n");
+                        metrics.push_str(
+                            "# TYPE all_smi_tenstorrent_inlet_temperature_celsius gauge\n",
+                        );
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_inlet_temperature_celsius{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, temp
+                        ));
+                    }
+                }
+
+                if let Some(outlet_temp1) = info.detail.get("outlet_temperature1") {
+                    if let Ok(temp) = outlet_temp1.parse::<f64>() {
+                        metrics.push_str("# HELP all_smi_tenstorrent_outlet1_temperature_celsius Outlet 1 temperature in celsius\n");
+                        metrics.push_str(
+                            "# TYPE all_smi_tenstorrent_outlet1_temperature_celsius gauge\n",
+                        );
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_outlet1_temperature_celsius{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, temp
+                        ));
+                    }
+                }
+
+                if let Some(outlet_temp2) = info.detail.get("outlet_temperature2") {
+                    if let Ok(temp) = outlet_temp2.parse::<f64>() {
+                        metrics.push_str("# HELP all_smi_tenstorrent_outlet2_temperature_celsius Outlet 2 temperature in celsius\n");
+                        metrics.push_str(
+                            "# TYPE all_smi_tenstorrent_outlet2_temperature_celsius gauge\n",
+                        );
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_outlet2_temperature_celsius{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, temp
+                        ));
+                    }
+                }
+
+                // Clock frequencies
+                if let Some(aiclk) = info.detail.get("aiclk_mhz") {
+                    if let Ok(freq) = aiclk.parse::<f64>() {
+                        metrics.push_str(
+                            "# HELP all_smi_tenstorrent_aiclk_mhz AI clock frequency in MHz\n",
+                        );
+                        metrics.push_str("# TYPE all_smi_tenstorrent_aiclk_mhz gauge\n");
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_aiclk_mhz{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, freq
+                        ));
+                    }
+                }
+
+                if let Some(axiclk) = info.detail.get("axiclk_mhz") {
+                    if let Ok(freq) = axiclk.parse::<f64>() {
+                        metrics.push_str(
+                            "# HELP all_smi_tenstorrent_axiclk_mhz AXI clock frequency in MHz\n",
+                        );
+                        metrics.push_str("# TYPE all_smi_tenstorrent_axiclk_mhz gauge\n");
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_axiclk_mhz{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, freq
+                        ));
+                    }
+                }
+
+                if let Some(arcclk) = info.detail.get("arcclk_mhz") {
+                    if let Ok(freq) = arcclk.parse::<f64>() {
+                        metrics.push_str(
+                            "# HELP all_smi_tenstorrent_arcclk_mhz ARC clock frequency in MHz\n",
+                        );
+                        metrics.push_str("# TYPE all_smi_tenstorrent_arcclk_mhz gauge\n");
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_arcclk_mhz{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, freq
+                        ));
+                    }
+                }
+
+                // Voltage and current
+                if let Some(voltage) = info.detail.get("voltage") {
+                    if let Ok(v) = voltage.parse::<f64>() {
+                        metrics.push_str(
+                            "# HELP all_smi_tenstorrent_voltage_volts Core voltage in volts\n",
+                        );
+                        metrics.push_str("# TYPE all_smi_tenstorrent_voltage_volts gauge\n");
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_voltage_volts{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, v
+                        ));
+                    }
+                }
+
+                if let Some(current) = info.detail.get("current") {
+                    if let Ok(c) = current.parse::<f64>() {
+                        metrics.push_str(
+                            "# HELP all_smi_tenstorrent_current_amperes Current in amperes\n",
+                        );
+                        metrics.push_str("# TYPE all_smi_tenstorrent_current_amperes gauge\n");
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_current_amperes{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, c
+                        ));
+                    }
+                }
+
+                // Power limits
+                if let Some(tdp_limit) = info.detail.get("power_limit_tdp") {
+                    if let Ok(power) = tdp_limit.parse::<f64>() {
+                        metrics.push_str("# HELP all_smi_tenstorrent_power_limit_tdp_watts TDP power limit in watts\n");
+                        metrics
+                            .push_str("# TYPE all_smi_tenstorrent_power_limit_tdp_watts gauge\n");
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_power_limit_tdp_watts{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, power
+                        ));
+                    }
+                }
+
+                if let Some(tdc_limit) = info.detail.get("power_limit_tdc") {
+                    if let Ok(current) = tdc_limit.parse::<f64>() {
+                        metrics.push_str("# HELP all_smi_tenstorrent_power_limit_tdc_amperes TDC current limit in amperes\n");
+                        metrics
+                            .push_str("# TYPE all_smi_tenstorrent_power_limit_tdc_amperes gauge\n");
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_power_limit_tdc_amperes{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, current
+                        ));
+                    }
+                }
+
+                // Thermal limit
+                if let Some(thermal_limit) = info.detail.get("thermal_limit") {
+                    if let Ok(temp) = thermal_limit.parse::<f64>() {
+                        metrics.push_str("# HELP all_smi_tenstorrent_thermal_limit_celsius Thermal limit in celsius\n");
+                        metrics
+                            .push_str("# TYPE all_smi_tenstorrent_thermal_limit_celsius gauge\n");
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_thermal_limit_celsius{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, temp
+                        ));
+                    }
+                }
+
+                // Heartbeat (device health indicator)
+                if let Some(heartbeat) = info.detail.get("heartbeat") {
+                    if let Ok(hb) = heartbeat.parse::<f64>() {
+                        metrics.push_str(
+                            "# HELP all_smi_tenstorrent_heartbeat Device heartbeat counter\n",
+                        );
+                        metrics.push_str("# TYPE all_smi_tenstorrent_heartbeat counter\n");
+                        metrics.push_str(&format!(
+                            "all_smi_tenstorrent_heartbeat{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                            info.name, info.instance, info.uuid, i, hb
+                        ));
+                    }
+                }
+
+                // Board and architecture info
+                if let Some(board_type) = info.detail.get("board_type") {
+                    metrics.push_str(
+                        "# HELP all_smi_tenstorrent_board_info Tenstorrent board information\n",
+                    );
+                    metrics.push_str("# TYPE all_smi_tenstorrent_board_info info\n");
+
+                    let arch = if info.name.contains("Grayskull") {
+                        "grayskull"
+                    } else if info.name.contains("Wormhole") {
+                        "wormhole"
+                    } else if info.name.contains("Blackhole") {
+                        "blackhole"
+                    } else {
+                        "unknown"
+                    };
+
+                    metrics.push_str(&format!(
+                        "all_smi_tenstorrent_board_info{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", board_type=\"{}\", architecture=\"{}\"}} 1\n",
+                        info.name, info.instance, info.uuid, i, board_type, arch
+                    ));
+                }
+
+                // Collection method info
+                if let Some(method) = info.detail.get("collection_method") {
+                    metrics.push_str("# HELP all_smi_tenstorrent_collection_method_info Data collection method used\n");
+                    metrics.push_str("# TYPE all_smi_tenstorrent_collection_method_info info\n");
+                    metrics.push_str(&format!(
+                        "all_smi_tenstorrent_collection_method_info{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", method=\"{}\"}} 1\n",
+                        info.name, info.instance, info.uuid, i, method
+                    ));
+                }
+
+                // PCIe information
+                if let Some(pcie_speed) = info.detail.get("pcie_speed") {
+                    // Extract generation number from "GenX" format
+                    if let Some(gen_str) = pcie_speed.strip_prefix("Gen") {
+                        if let Ok(gen) = gen_str.parse::<f64>() {
+                            metrics.push_str(
+                                "# HELP all_smi_tenstorrent_pcie_generation PCIe generation\n",
+                            );
+                            metrics.push_str("# TYPE all_smi_tenstorrent_pcie_generation gauge\n");
+                            metrics.push_str(&format!(
+                                "all_smi_tenstorrent_pcie_generation{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                                info.name, info.instance, info.uuid, i, gen
+                            ));
+                        }
+                    }
+                }
+
+                if let Some(pcie_width) = info.detail.get("pcie_width") {
+                    // Extract width number from "xN" format
+                    if let Some(width_str) = pcie_width.strip_prefix("x") {
+                        if let Ok(width) = width_str.parse::<f64>() {
+                            metrics.push_str(
+                                "# HELP all_smi_tenstorrent_pcie_width PCIe link width\n",
+                            );
+                            metrics.push_str("# TYPE all_smi_tenstorrent_pcie_width gauge\n");
+                            metrics.push_str(&format!(
+                                "all_smi_tenstorrent_pcie_width{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                                info.name, info.instance, info.uuid, i, width
+                            ));
+                        }
+                    }
+                }
+
+                // DRAM status
+                if let Some(dram_status) = info.detail.get("dram_status") {
+                    let dram_enabled = if dram_status == "Y" { 1.0 } else { 0.0 };
+                    metrics.push_str("# HELP all_smi_tenstorrent_dram_enabled DRAM enabled status (1=enabled, 0=disabled)\n");
+                    metrics.push_str("# TYPE all_smi_tenstorrent_dram_enabled gauge\n");
+                    metrics.push_str(&format!(
+                        "all_smi_tenstorrent_dram_enabled{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"}} {}\n",
+                        info.name, info.instance, info.uuid, i, dram_enabled
+                    ));
+                }
+
+                if let Some(dram_speed) = info.detail.get("dram_speed") {
+                    metrics.push_str(
+                        "# HELP all_smi_tenstorrent_dram_info DRAM configuration information\n",
+                    );
+                    metrics.push_str("# TYPE all_smi_tenstorrent_dram_info info\n");
+                    metrics.push_str(&format!(
+                        "all_smi_tenstorrent_dram_info{{npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", speed=\"{}\"}} 1\n",
+                        info.name, info.instance, info.uuid, i, dram_speed
+                    ));
+                }
             }
         }
     }
