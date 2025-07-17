@@ -1,6 +1,7 @@
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
+use luwen_if::chip::{Chip, ChipImpl};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
@@ -45,7 +46,7 @@ struct HostInfo {
 #[derive(Debug, Deserialize)]
 struct DeviceInfo {
     board_info: BoardInfo,
-    telemetry: Telemetry,
+    telemetry: TtSmiTelemetry,
     #[serde(default)]
     firmwares: Option<Firmwares>,
     #[serde(default)]
@@ -65,7 +66,7 @@ struct BoardInfo {
 }
 
 #[derive(Debug, Deserialize)]
-struct Telemetry {
+struct TtSmiTelemetry {
     voltage: String,
     current: String,
     aiclk: String,
@@ -219,90 +220,129 @@ impl TenstorrentReader {
 
     /// Collect NPU information by reading device files
     fn collect_via_device_files(&self) -> Vec<GpuInfo> {
-        use std::fs;
-        use std::path::Path;
+        // Try to detect Tenstorrent chips using luwen
+        // Using local only detection as we're reading from device files
+        match luwen_ref::detect_local_chips() {
+            Ok(chips) => {
+                let mut devices = Vec::new();
 
-        let mut devices = Vec::new();
-        let dev_path = Path::new("/dev/tenstorrent");
-
-        // Check if /dev/tenstorrent directory exists
-        if !dev_path.exists() {
-            Self::set_status("Tenstorrent device directory /dev/tenstorrent not found".to_string());
-            return vec![];
-        }
-
-        // Enumerate device files in /dev/tenstorrent/
-        match fs::read_dir(dev_path) {
-            Ok(entries) => {
-                for (idx, entry) in entries.enumerate() {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        // Device files should be named as numbers (0, 1, 2, etc.)
-                        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                            if file_name.chars().all(|c| c.is_numeric()) {
-                                // Found a device file
-                                if let Some(info) = self.read_device_info(&path, idx) {
-                                    devices.push(info);
-                                }
-                            }
-                        }
+                for (idx, chip) in chips.into_iter().enumerate() {
+                    if let Some(info) = self.read_device_info_luwen(chip, idx) {
+                        devices.push(info);
                     }
                 }
+
+                if devices.is_empty() {
+                    Self::set_status("No Tenstorrent devices found".to_string());
+                } else {
+                    // Clear any previous error status
+                    if let Ok(mut status) = TENSTORRENT_STATUS.lock() {
+                        *status = None;
+                    }
+                }
+
+                devices
             }
             Err(e) => {
-                Self::set_status(format!("Failed to read /dev/tenstorrent directory: {e}"));
+                Self::set_status(format!("Failed to detect Tenstorrent devices: {e}"));
+                vec![]
             }
         }
-
-        if devices.is_empty() {
-            Self::set_status("No Tenstorrent devices found in /dev/tenstorrent".to_string());
-        } else {
-            // Clear any previous error status
-            if let Ok(mut status) = TENSTORRENT_STATUS.lock() {
-                *status = None;
-            }
-        }
-
-        devices
     }
 
-    /// Read device information from a specific device file
-    fn read_device_info(&self, device_path: &std::path::Path, index: usize) -> Option<GpuInfo> {
-        // For now, we can only detect the presence of the device
-        // Actual metrics would require ioctl calls or a proper Rust binding to the driver
-        let hostname = get_hostname();
-        let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+    /// Read device information using luwen
+    fn read_device_info_luwen(&self, chip: Chip, index: usize) -> Option<GpuInfo> {
+        // Try to get telemetry from the chip
+        match chip.get_telemetry() {
+            Ok(telemetry) => {
+                let hostname = get_hostname();
+                let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
 
-        let device_name = if let Some(file_name) = device_path.file_name().and_then(|n| n.to_str())
-        {
-            format!("Tenstorrent Device {file_name}")
-        } else {
-            format!("Tenstorrent Device {index}")
-        };
+                // Get board type name
+                let board_type = telemetry.try_board_type().unwrap_or("Unknown");
+                let device_name = format!(
+                    "Tenstorrent {} {}",
+                    match telemetry.arch {
+                        luwen_core::Arch::Grayskull => "Grayskull",
+                        luwen_core::Arch::Wormhole => "Wormhole",
+                        luwen_core::Arch::Blackhole => "Blackhole",
+                    },
+                    board_type
+                );
 
-        Some(GpuInfo {
-            uuid: format!("TT-DEV-{index}"),
-            time,
-            name: device_name,
-            device_type: "NPU".to_string(),
-            hostname: hostname.clone(),
-            instance: format!("tt{index}"),
-            utilization: -1.0, // Use -1 to indicate N/A
-            ane_utilization: 0.0,
-            dla_utilization: None,
-            temperature: 0, // 0 will display as 0°C
-            used_memory: 0,
-            total_memory: 1, // Set to 1 to avoid division by zero, will show as 0.0/0GB
-            frequency: 0,
-            power_consumption: -1.0, // Use -1 to indicate N/A
-            detail: {
                 let mut detail = HashMap::new();
-                detail.insert("device_path".to_string(), device_path.display().to_string());
-                detail.insert("collection_method".to_string(), "device_file".to_string());
-                detail.insert("metrics_available".to_string(), "false".to_string());
-                detail
-            },
-        })
+                detail.insert("board_type".to_string(), board_type.to_string());
+                detail.insert("board_id".to_string(), telemetry.board_serial_number_hex());
+                detail.insert("collection_method".to_string(), "luwen".to_string());
+
+                // Add firmware versions
+                detail.insert("arc_fw_version".to_string(), telemetry.arc_fw_version());
+                detail.insert("eth_fw_version".to_string(), telemetry.eth_fw_version());
+                detail.insert("fw_date".to_string(), telemetry.firmware_date());
+
+                // Add detailed power/thermal info
+                detail.insert(
+                    "voltage".to_string(),
+                    format!("{:.2}", telemetry.vcore as f64 / 1000.0),
+                );
+                detail.insert(
+                    "current".to_string(),
+                    format!("{:.1}", (telemetry.tdc & 0xFFFF) as f64),
+                );
+
+                // Extract temperature (different handling per architecture)
+                let temperature = match telemetry.arch {
+                    luwen_core::Arch::Grayskull | luwen_core::Arch::Wormhole => {
+                        // Temperature is in 16.4 fixed point format
+                        (telemetry.asic_temperature & 0xFFFF) / 16
+                    }
+                    luwen_core::Arch::Blackhole => {
+                        // For Blackhole, might be different format
+                        telemetry.asic_temperature
+                    }
+                };
+
+                // Calculate power consumption
+                let power = (telemetry.tdp & 0xFFFF) as f64;
+                let frequency = telemetry.aiclk & 0xFFFF;
+
+                // DDR memory info (if available)
+                let (used_memory, total_memory) = if telemetry.ddr_status != 0 {
+                    // Extract memory size from ddr_speed if available
+                    if let Some(_ddr_speed) = telemetry.ddr_speed {
+                        // Assuming DDR speed encoding contains memory size info
+                        // This is a placeholder - actual implementation would need proper decoding
+                        (0, 16 * 1024 * 1024 * 1024) // 16GB default
+                    } else {
+                        (0, 0)
+                    }
+                } else {
+                    (0, 0)
+                };
+
+                Some(GpuInfo {
+                    uuid: telemetry.board_serial_number_hex(),
+                    time,
+                    name: device_name,
+                    device_type: "NPU".to_string(),
+                    hostname: hostname.clone(),
+                    instance: format!("tt{index}"),
+                    utilization: 0.0, // Utilization not available from telemetry
+                    ane_utilization: 0.0,
+                    dla_utilization: None,
+                    temperature,
+                    used_memory,
+                    total_memory,
+                    frequency,
+                    power_consumption: power,
+                    detail,
+                })
+            }
+            Err(e) => {
+                eprintln!("Failed to get telemetry for device {index}: {e}");
+                None
+            }
+        }
     }
 
     /// Parse tt-smi output
