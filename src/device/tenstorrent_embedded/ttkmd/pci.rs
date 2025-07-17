@@ -701,11 +701,20 @@ impl PciDevice {
                 i, mapping.mapping_id, mapping.mapping_base, mapping.mapping_size
             );
 
+            // Based on luwen reference, mapping IDs are:
+            // id=0: Unused
+            // id=1: Resource0Uc (BAR0 UC)
+            // id=2: Resource0Wc (BAR0 WC)
+            // id=3: Resource1Uc (BAR1 UC)
+            // id=4: Resource1Wc (BAR1 WC)
+            // id=5: Resource2Uc (BAR2 UC)
+            // id=6: Resource2Wc (BAR2 WC)
             match mapping.mapping_id {
-                0 => bar0_uc_mapping = Some(*mapping), // Resource0Uc
-                1 => bar0_wc_mapping = Some(*mapping), // Resource0Wc
-                2 => bar1_uc_mapping = Some(*mapping), // Resource1Uc
-                4 => bar2_uc_mapping = Some(*mapping), // Resource2Uc
+                0 => {}                                // Skip unused mapping
+                1 => bar0_uc_mapping = Some(*mapping), // Resource0Uc
+                2 => bar0_wc_mapping = Some(*mapping), // Resource0Wc
+                3 => bar1_uc_mapping = Some(*mapping), // Resource1Uc
+                5 => bar2_uc_mapping = Some(*mapping), // Resource2Uc
                 _ => {}
             }
         }
@@ -725,6 +734,13 @@ impl PciDevice {
         );
 
         // Map the BAR0 UC region
+        // Note: mapping_base of 0x0 is valid - it means mapping from the beginning of the device file
+        eprintln!(
+            "[DEBUG] About to mmap BAR0 UC with fd={}, offset=0x{:x}, size=0x{:x}",
+            self.device_fd.as_raw_fd(),
+            bar0_uc_mapping.mapping_base,
+            bar0_uc_mapping.mapping_size
+        );
         let bar0_uc = unsafe {
             memmap2::MmapOptions::default()
                 .len(bar0_uc_mapping.mapping_size as usize)
@@ -733,6 +749,7 @@ impl PciDevice {
         }
         .map_err(|err| {
             eprintln!("[DEBUG] mmap failed for BAR0 UC: {err:?}");
+            eprintln!("[DEBUG] errno: {:?}", err.raw_os_error());
             PciOpenError::BarMappingError {
                 name: format!("bar0_uc mmap: {err}"),
                 id: self.id,
