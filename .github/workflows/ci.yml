@@ -23,6 +23,11 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Install system dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y protobuf-compiler
+
       - name: Run tests
         run: cargo test --verbose
 
