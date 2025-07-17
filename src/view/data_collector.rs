@@ -12,7 +12,9 @@ use crate::cli::ViewArgs;
 use crate::common::config::{AppConfig, EnvConfig};
 use crate::device::{
     get_cpu_readers, get_gpu_readers, get_memory_readers, get_nvml_status_message,
-    get_tenstorrent_status_message, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo,
+    get_tenstorrent_status_message,
+    platform_detection::{has_nvidia, has_tenstorrent},
+    CpuInfo, GpuInfo, MemoryInfo, ProcessInfo,
 };
 use crate::network::NetworkClient;
 use crate::storage::info::StorageInfo;
@@ -233,23 +235,27 @@ impl DataCollector {
         // Update notifications (remove expired ones)
         state.notifications.update();
 
-        // Check for NVML status message and show as notification once
-        if let Some(nvml_message) = get_nvml_status_message() {
-            if !state.nvml_notification_shown {
-                if let Err(e) = state.notifications.warning(nvml_message) {
-                    eprintln!("Failed to show NVML notification: {e}");
+        // Only check NVML status if we're trying to monitor NVIDIA devices
+        if has_nvidia() {
+            if let Some(nvml_message) = get_nvml_status_message() {
+                if !state.nvml_notification_shown {
+                    if let Err(e) = state.notifications.warning(nvml_message) {
+                        eprintln!("Failed to show NVML notification: {e}");
+                    }
+                    state.nvml_notification_shown = true;
                 }
-                state.nvml_notification_shown = true;
             }
         }
 
-        // Check for Tenstorrent status message and show as notification once
-        if let Some(tt_message) = get_tenstorrent_status_message() {
-            if !state.tenstorrent_notification_shown {
-                if let Err(e) = state.notifications.warning(tt_message) {
-                    eprintln!("Failed to show Tenstorrent notification: {e}");
+        // Only check Tenstorrent status if we're trying to monitor Tenstorrent devices
+        if has_tenstorrent() {
+            if let Some(tt_message) = get_tenstorrent_status_message() {
+                if !state.tenstorrent_notification_shown {
+                    if let Err(e) = state.notifications.warning(tt_message) {
+                        eprintln!("Failed to show Tenstorrent notification: {e}");
+                    }
+                    state.tenstorrent_notification_shown = true;
                 }
-                state.tenstorrent_notification_shown = true;
             }
         }
 

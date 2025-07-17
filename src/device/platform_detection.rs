@@ -1,13 +1,70 @@
 use std::process::Command;
 
 pub fn has_nvidia() -> bool {
-    // Check if nvidia-smi can actually list GPUs
+    // On macOS, use system_profiler to check for NVIDIA devices
+    if std::env::consts::OS == "macos" {
+        // First check system_profiler for NVIDIA PCI devices
+        if let Ok(output) = Command::new("system_profiler")
+            .arg("SPPCIDataType")
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                // Look for NVIDIA in the output - could be in Type field or device name
+                if output_str.contains("NVIDIA") {
+                    return true;
+                }
+            }
+        }
+
+        // Fallback to nvidia-smi check
+        if let Ok(output) = Command::new("nvidia-smi").args(["-L"]).output() {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                // nvidia-smi -L outputs lines like "GPU 0: NVIDIA GeForce..."
+                return output_str
+                    .lines()
+                    .any(|line| line.trim().starts_with("GPU"));
+            }
+        }
+        return false;
+    }
+
+    // On Linux, first try lspci to check for NVIDIA VGA/3D controllers
+    if let Ok(output) = Command::new("lspci").output() {
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            // Look for NVIDIA VGA or 3D controllers
+            for line in output_str.lines() {
+                if (line.contains("VGA") || line.contains("3D")) && line.contains("NVIDIA") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Fallback: Check if nvidia-smi can actually list GPUs
     if let Ok(output) = Command::new("nvidia-smi").args(["-L"]).output() {
-        // Check if the command succeeded and has GPU output
+        // Check both exit status and output content
         if output.status.success() {
             let output_str = String::from_utf8_lossy(&output.stdout);
             // nvidia-smi -L outputs lines like "GPU 0: NVIDIA GeForce..."
-            return output_str.contains("GPU");
+            // Make sure we have actual GPU lines, not just an empty output
+            let has_gpu = output_str.lines().any(|line| {
+                let trimmed = line.trim();
+                trimmed.starts_with("GPU") && trimmed.contains(":")
+            });
+            if has_gpu {
+                return true;
+            }
+        }
+
+        // Also check stderr for "No devices were found" message
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+        if stderr_str.contains("No devices were found")
+            || stderr_str.contains("Failed to initialize NVML")
+        {
+            return false;
         }
     }
     false
@@ -41,6 +98,21 @@ pub fn has_furiosa() -> bool {
         return true;
     }
 
+    // On macOS, use system_profiler
+    if std::env::consts::OS == "macos" {
+        if let Ok(output) = Command::new("system_profiler")
+            .arg("SPPCIDataType")
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                if output_str.contains("Furiosa") || output_str.contains("FuriosaAI") {
+                    return true;
+                }
+            }
+        }
+    }
+
     // Check if furiosactl can list devices
     if let Ok(output) = Command::new("furiosactl").args(["list"]).output() {
         if output.status.success() {
@@ -59,7 +131,33 @@ pub fn has_tenstorrent() -> bool {
         return true;
     }
 
-    // If not, check if tt-smi can actually list devices
+    // On macOS, use system_profiler
+    if std::env::consts::OS == "macos" {
+        if let Ok(output) = Command::new("system_profiler")
+            .arg("SPPCIDataType")
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                if output_str.contains("Tenstorrent") {
+                    return true;
+                }
+            }
+        }
+    } else {
+        // On Linux, try lspci to check for Tenstorrent devices
+        if let Ok(output) = Command::new("lspci").output() {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                // Look for Tenstorrent devices
+                if output_str.contains("Tenstorrent") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Last resort: check if tt-smi can actually list devices
     if let Ok(output) = Command::new("tt-smi")
         .args(["-s", "--snapshot_no_tty"])
         .output()

@@ -26,8 +26,9 @@ impl GpuReader for NvidiaGpuReader {
                 }
                 self.get_gpu_info_nvml(&nvml)
             }
-            Err(_) => {
-                // Don't print to stderr, status will be handled by get_nvml_status_message
+            Err(e) => {
+                // Store the error status for notification
+                set_nvml_status(e);
                 self.get_gpu_info_nvidia_smi()
             }
         }
@@ -57,8 +58,9 @@ impl NvidiaGpuReader {
         // Try NVML first
         match Nvml::init() {
             Ok(nvml) => self.get_gpu_processes_nvml(&nvml),
-            Err(_) => {
-                // Don't print to stderr, errors are handled by notifications
+            Err(e) => {
+                // Store the error status for notification
+                set_nvml_status(e);
                 self.get_gpu_processes_nvidia_smi()
             }
         }
@@ -467,32 +469,24 @@ impl NvidiaGpuReader {
 
 /// Get a user-friendly message about NVML status
 pub fn get_nvml_status_message() -> Option<String> {
-    // First check if we already have a stored status
+    // Only return the stored status, don't try to initialize NVML here
     if let Ok(status) = NVML_STATUS.lock() {
-        if status.is_some() {
-            return status.clone();
-        }
+        status.clone()
+    } else {
+        None
     }
+}
 
-    // Otherwise check NVML status
-    match Nvml::init() {
-        Ok(_) => None, // No message when NVML works
-        Err(e) => {
-            let message = match e {
-                NvmlError::LibloadingError(_) => {
-                    "NVML unavailable - using nvidia-smi fallback".to_string()
-                }
-                NvmlError::DriverNotLoaded => "NVIDIA driver not loaded".to_string(),
-                NvmlError::NoPermission => "Insufficient permissions for NVML".to_string(),
-                _ => "NVML unavailable - using nvidia-smi fallback".to_string(),
-            };
+/// Store NVML error status
+fn set_nvml_status(error: NvmlError) {
+    let message = match error {
+        NvmlError::LibloadingError(_) => "NVML unavailable - using nvidia-smi fallback".to_string(),
+        NvmlError::DriverNotLoaded => "NVIDIA driver not loaded".to_string(),
+        NvmlError::NoPermission => "Insufficient permissions for NVML".to_string(),
+        _ => "NVML unavailable - using nvidia-smi fallback".to_string(),
+    };
 
-            // Store the status for future use
-            if let Ok(mut status) = NVML_STATUS.lock() {
-                *status = Some(message.clone());
-            }
-
-            Some(message)
-        }
+    if let Ok(mut status) = NVML_STATUS.lock() {
+        *status = Some(message);
     }
 }
