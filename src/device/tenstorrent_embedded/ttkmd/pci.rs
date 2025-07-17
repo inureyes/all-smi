@@ -64,17 +64,52 @@ impl PciDevice {
         use super::error::PciOpenError;
         use super::ioctl::GetDeviceInfo;
 
+        let device_path = format!("/dev/tenstorrent/{device_id}");
+        eprintln!(
+            "[DEBUG] PciDevice::open() trying to open: '{}'",
+            device_path
+        );
+        eprintln!(
+            "[DEBUG] Current user: uid={}, euid={}",
+            unsafe { libc::getuid() },
+            unsafe { libc::geteuid() }
+        );
+
+        // Check if file exists first
+        if let Ok(metadata) = std::fs::metadata(&device_path) {
+            eprintln!("[DEBUG] File exists: {:?}", metadata.file_type());
+            eprintln!("[DEBUG] Is file: {}", metadata.is_file());
+            eprintln!("[DEBUG] Is dir: {}", metadata.is_dir());
+
+            // Try to check permissions
+            use std::os::unix::fs::PermissionsExt;
+            eprintln!("[DEBUG] File mode: {:o}", metadata.permissions().mode());
+        } else {
+            eprintln!("[DEBUG] Cannot get metadata for '{}'", device_path);
+
+            // Let's check what we can see in the parent directory
+            if let Ok(entries) = std::fs::read_dir("/dev/tenstorrent") {
+                eprintln!("[DEBUG] Contents of /dev/tenstorrent:");
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        eprintln!("[DEBUG]   - {:?}", entry.path());
+                    }
+                }
+            }
+        }
+
         let fd = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .open(format!("/dev/tenstorrent/{device_id}"));
+            .open(&device_path);
         let fd = match fd {
             Ok(fd) => fd,
             Err(err) => {
+                eprintln!("[DEBUG] Failed to open '{}': {}", device_path, err);
                 return Err(PciOpenError::DeviceOpenFailed {
                     id: device_id,
                     source: err,
-                })
+                });
             }
         };
 
@@ -674,11 +709,12 @@ impl PciDevice {
     }
 
     pub fn scan() -> Vec<usize> {
+        eprintln!("[DEBUG] PciDevice::scan() called");
         let output = std::fs::read_dir("/dev/tenstorrent");
         let output = match output {
             Ok(output) => output,
             Err(err) => {
-                tracing::debug!("When reading /dev/tenstorrent for a scan hit error: {err}");
+                eprintln!("[DEBUG] When reading /dev/tenstorrent for a scan hit error: {err}");
                 return Vec::new();
             }
         };
@@ -686,10 +722,15 @@ impl PciDevice {
         let mut output = output
             .flatten()
             .filter_map(|f| {
+                eprintln!("[DEBUG] Found entry: {:?}", f.path());
                 if let Some(name) = f.file_name().to_str() {
+                    eprintln!("[DEBUG] Entry name: '{}'", name);
                     // The device files are just numeric IDs, not prefixed with "tenstorrent-"
                     if let Ok(id) = name.parse::<usize>() {
+                        eprintln!("[DEBUG] Parsed as device ID: {}", id);
                         return Some(id);
+                    } else {
+                        eprintln!("[DEBUG] Failed to parse '{}' as number", name);
                     }
                 }
                 None
@@ -697,6 +738,7 @@ impl PciDevice {
             .collect::<Vec<_>>();
 
         output.sort_unstable();
+        eprintln!("[DEBUG] Total devices found: {:?}", output);
         output
     }
 }
