@@ -6,7 +6,7 @@ use std::os::fd::{AsRawFd, RawFd};
 use super::{
     error::{PciError, PciOpenError},
     ioctl,
-    kmdif::{self, BarMapping, DmaBuffer, PossibleTlbAllocation, TlbAllocation},
+    kmdif::{self, DmaBuffer, PossibleTlbAllocation, TlbAllocation},
     PciDevice,
 };
 
@@ -65,10 +65,7 @@ impl PciDevice {
         use super::ioctl::GetDeviceInfo;
 
         let device_path = format!("/dev/tenstorrent/{device_id}");
-        eprintln!(
-            "[DEBUG] PciDevice::open() trying to open: '{}'",
-            device_path
-        );
+        eprintln!("[DEBUG] PciDevice::open() trying to open: '{device_path}'");
         eprintln!(
             "[DEBUG] Current user: uid={}, euid={}",
             unsafe { libc::getuid() },
@@ -85,7 +82,7 @@ impl PciDevice {
             use std::os::unix::fs::PermissionsExt;
             eprintln!("[DEBUG] File mode: {:o}", metadata.permissions().mode());
         } else {
-            eprintln!("[DEBUG] Cannot get metadata for '{}'", device_path);
+            eprintln!("[DEBUG] Cannot get metadata for '{device_path}'");
 
             // Let's check what we can see in the parent directory
             if let Ok(entries) = std::fs::read_dir("/dev/tenstorrent") {
@@ -107,7 +104,7 @@ impl PciDevice {
 
         match fd_readonly {
             Ok(_) => eprintln!("[DEBUG] Read-only open succeeded! Now trying read-write..."),
-            Err(e) => eprintln!("[DEBUG] Read-only open failed: {}", e),
+            Err(e) => eprintln!("[DEBUG] Read-only open failed: {e}"),
         }
 
         let fd = std::fs::OpenOptions::new()
@@ -120,7 +117,7 @@ impl PciDevice {
                 fd
             }
             Err(err) => {
-                eprintln!("[DEBUG] Failed to open '{}': {}", device_path, err);
+                eprintln!("[DEBUG] Failed to open '{device_path}': {err}");
                 eprintln!("[DEBUG] Error kind: {:?}", err.kind());
                 eprintln!("[DEBUG] Raw OS error: {:?}", err.raw_os_error());
 
@@ -129,7 +126,7 @@ impl PciDevice {
                     eprintln!("[DEBUG] Is symlink: {}", metadata.file_type().is_symlink());
                     if metadata.file_type().is_symlink() {
                         if let Ok(target) = std::fs::read_link(&device_path) {
-                            eprintln!("[DEBUG] Symlink target: {:?}", target);
+                            eprintln!("[DEBUG] Symlink target: {target:?}");
                         }
                     }
                 }
@@ -143,11 +140,11 @@ impl PciDevice {
                 let raw_fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR) };
 
                 if raw_fd >= 0 {
-                    eprintln!("[DEBUG] Raw open() succeeded with fd: {}", raw_fd);
+                    eprintln!("[DEBUG] Raw open() succeeded with fd: {raw_fd}");
                     unsafe { std::fs::File::from_raw_fd(raw_fd) }
                 } else {
                     let errno = std::io::Error::last_os_error();
-                    eprintln!("[DEBUG] Raw open() failed with error: {}", errno);
+                    eprintln!("[DEBUG] Raw open() failed with error: {errno}");
                     eprintln!("[DEBUG] errno code: {}", errno.raw_os_error().unwrap_or(-1));
 
                     // Common errno values:
@@ -167,7 +164,7 @@ impl PciDevice {
         eprintln!("[DEBUG] About to call get_device_info ioctl...");
         let mut device_info = GetDeviceInfo::default();
         if let Err(errorno) = unsafe { ioctl::get_device_info(fd.as_raw_fd(), &mut device_info) } {
-            eprintln!("[DEBUG] get_device_info ioctl FAILED: {}", errorno);
+            eprintln!("[DEBUG] get_device_info ioctl FAILED: {errorno}");
             return Err(PciOpenError::IoctlError {
                 name: "get_device_info".to_string(),
                 id: device_id,
@@ -183,8 +180,7 @@ impl PciDevice {
         let pci_domain = device_info.output.pci_domain;
 
         eprintln!(
-            "[DEBUG] Opening config space from sysfs: /sys/bus/pci/devices/{:04x}:{:02x}:{:02x}.{:01x}/config",
-            pci_domain, pci_bus, slot, pci_function
+            "[DEBUG] Opening config space from sysfs: /sys/bus/pci/devices/{pci_domain:04x}:{pci_bus:02x}:{slot:02x}.{pci_function:01x}/config"
         );
         let config_space = std::fs::OpenOptions::new()
             .read(true)
@@ -198,7 +194,7 @@ impl PciDevice {
                 fd
             }
             Err(err) => {
-                eprintln!("[DEBUG] Failed to open config space from sysfs: {}", err);
+                eprintln!("[DEBUG] Failed to open config space from sysfs: {err}");
                 return Err(PciOpenError::DeviceOpenFailed {
                     id: device_id,
                     source: err,
@@ -224,14 +220,14 @@ impl PciDevice {
 
         // Extract bus, device, function from bus_dev_fn field
         let bus_dev_fn = device_info.output.bus_dev_fn;
-        let pci_function = (bus_dev_fn & 0x7) as u16;
-        let slot = ((bus_dev_fn >> 3) & 0x1f) as u16;
-        let pci_bus = ((bus_dev_fn >> 8) & 0xff) as u16;
+        let pci_function = bus_dev_fn & 0x7;
+        let slot = (bus_dev_fn >> 3) & 0x1f;
+        let pci_bus = (bus_dev_fn >> 8) & 0xff;
 
         // Get driver version separately
         let mut driver_info = super::ioctl::GetDriverInfo::default();
         let driver_version =
-            if let Ok(_) = unsafe { ioctl::get_driver_info(fd.as_raw_fd(), &mut driver_info) } {
+            if unsafe { ioctl::get_driver_info(fd.as_raw_fd(), &mut driver_info) }.is_ok() {
                 driver_info.output.driver_version
             } else {
                 0 // Default if we can't get driver info
@@ -262,7 +258,7 @@ impl PciDevice {
 
             config_space,
 
-            max_dma_buf_size_log2: device_info.output.max_dma_buf_size_log2 as u16,
+            max_dma_buf_size_log2: device_info.output.max_dma_buf_size_log2,
 
             dma_buffer_mappings: Vec::new(),
             completion_flag_buffer: None,
@@ -679,7 +675,7 @@ impl PciDevice {
         if let Err(errno) =
             unsafe { super::ioctl::query_mappings(self.device_fd.as_raw_fd(), &mut mappings) }
         {
-            eprintln!("[DEBUG] query_mappings ioctl failed: {:?}", errno);
+            eprintln!("[DEBUG] query_mappings ioctl failed: {errno:?}");
             return Err(PciOpenError::IoctlError {
                 name: "query_mappings".to_string(),
                 id: self.id,
@@ -706,10 +702,10 @@ impl PciDevice {
             );
 
             match mapping.mapping_id {
-                0 => bar0_uc_mapping = Some(mapping.clone()), // Resource0Uc
-                1 => bar0_wc_mapping = Some(mapping.clone()), // Resource0Wc
-                2 => bar1_uc_mapping = Some(mapping.clone()), // Resource1Uc
-                4 => bar2_uc_mapping = Some(mapping.clone()), // Resource2Uc
+                0 => bar0_uc_mapping = Some(*mapping), // Resource0Uc
+                1 => bar0_wc_mapping = Some(*mapping), // Resource0Wc
+                2 => bar1_uc_mapping = Some(*mapping), // Resource1Uc
+                4 => bar2_uc_mapping = Some(*mapping), // Resource2Uc
                 _ => {}
             }
         }
@@ -736,9 +732,9 @@ impl PciDevice {
                 .map_mut(self.device_fd.as_raw_fd())
         }
         .map_err(|err| {
-            eprintln!("[DEBUG] mmap failed for BAR0 UC: {:?}", err);
+            eprintln!("[DEBUG] mmap failed for BAR0 UC: {err:?}");
             PciOpenError::BarMappingError {
-                name: format!("bar0_uc mmap: {}", err),
+                name: format!("bar0_uc mmap: {err}"),
                 id: self.id,
             }
         })?;
@@ -759,9 +755,9 @@ impl PciDevice {
                         .map_mut(self.device_fd.as_raw_fd())
                 }
                 .map_err(|err| {
-                    eprintln!("[DEBUG] mmap failed for BAR0 WC: {:?}", err);
+                    eprintln!("[DEBUG] mmap failed for BAR0 WC: {err:?}");
                     PciOpenError::BarMappingError {
-                        name: format!("bar0_wc mmap: {}", err),
+                        name: format!("bar0_wc mmap: {err}"),
                         id: self.id,
                     }
                 })?,
@@ -784,9 +780,9 @@ impl PciDevice {
                         .map_mut(self.device_fd.as_raw_fd())
                 }
                 .map_err(|err| {
-                    eprintln!("[DEBUG] mmap failed for BAR1 UC: {:?}", err);
+                    eprintln!("[DEBUG] mmap failed for BAR1 UC: {err:?}");
                     PciOpenError::BarMappingError {
-                        name: format!("bar1_uc mmap: {}", err),
+                        name: format!("bar1_uc mmap: {err}"),
                         id: self.id,
                     }
                 })?;
@@ -817,9 +813,9 @@ impl PciDevice {
                         .map_mut(self.device_fd.as_raw_fd())
                 }
                 .map_err(|err| {
-                    eprintln!("[DEBUG] mmap failed for system registers: {:?}", err);
+                    eprintln!("[DEBUG] mmap failed for system registers: {err:?}");
                     PciOpenError::BarMappingError {
-                        name: format!("system_reg mmap: {}", err),
+                        name: format!("system_reg mmap: {err}"),
                         id: self.id,
                     }
                 })?;
@@ -929,7 +925,7 @@ impl PciDevice {
     }
 
     pub fn allocate_tlb(&self, size: u64) -> Result<TlbAllocation, PciError> {
-        eprintln!("[DEBUG] allocate_tlb called with size: {}", size);
+        eprintln!("[DEBUG] allocate_tlb called with size: {size}");
         let mut data = ioctl::AllocateTlb {
             input: ioctl::AllocateTlbIn {
                 size,
@@ -940,7 +936,7 @@ impl PciDevice {
         eprintln!("[DEBUG] Calling allocate_tlb ioctl");
         let result =
             unsafe { ioctl::allocate_tlb(self.device_fd.as_raw_fd(), (&mut data) as *mut _) };
-        eprintln!("[DEBUG] allocate_tlb ioctl returned: {:?}", result);
+        eprintln!("[DEBUG] allocate_tlb ioctl returned: {result:?}");
 
         eprintln!(
             "[DEBUG] Attempting to mmap uc buffer with offset: {}, size: {}",
@@ -953,8 +949,8 @@ impl PciDevice {
                 .map_mut(self.device_fd.as_raw_fd())
         }
         .map_err(|err| {
-            eprintln!("[DEBUG] mmap failed: {:?}", err);
-            PciError::TlbAllocationError(format!("Failed to map uc buffer: {:?}", err))
+            eprintln!("[DEBUG] mmap failed: {err:?}");
+            PciError::TlbAllocationError(format!("Failed to map uc buffer: {err:?}"))
         })?;
         eprintln!("[DEBUG] mmap succeeded");
 
@@ -969,12 +965,12 @@ impl PciDevice {
                     })
                 }
                 errno => {
-                    eprintln!("[DEBUG] TLB allocation failed with errno: {}", errno);
+                    eprintln!("[DEBUG] TLB allocation failed with errno: {errno}");
                     Err(PciError::IoctlError(nix::errno::Errno::from_raw(errno)))
                 }
             },
             Err(errno) => {
-                eprintln!("[DEBUG] TLB allocation ioctl failed: {:?}", errno);
+                eprintln!("[DEBUG] TLB allocation ioctl failed: {errno:?}");
                 Err(PciError::IoctlError(errno))
             }
         }
@@ -1020,13 +1016,13 @@ impl PciDevice {
             .filter_map(|f| {
                 eprintln!("[DEBUG] Found entry: {:?}", f.path());
                 if let Some(name) = f.file_name().to_str() {
-                    eprintln!("[DEBUG] Entry name: '{}'", name);
+                    eprintln!("[DEBUG] Entry name: '{name}'");
                     // The device files are just numeric IDs, not prefixed with "tenstorrent-"
                     if let Ok(id) = name.parse::<usize>() {
-                        eprintln!("[DEBUG] Parsed as device ID: {}", id);
+                        eprintln!("[DEBUG] Parsed as device ID: {id}");
                         return Some(id);
                     } else {
-                        eprintln!("[DEBUG] Failed to parse '{}' as number", name);
+                        eprintln!("[DEBUG] Failed to parse '{name}' as number");
                     }
                 }
                 None
@@ -1034,7 +1030,7 @@ impl PciDevice {
             .collect::<Vec<_>>();
 
         output.sort_unstable();
-        eprintln!("[DEBUG] Total devices found: {:?}", output);
+        eprintln!("[DEBUG] Total devices found: {output:?}");
         output
     }
 }

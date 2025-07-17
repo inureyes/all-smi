@@ -61,23 +61,23 @@ pub fn detect_chips_silent(_options: ChipDetectOptions) -> Result<Vec<UninitChip
         device_ids.len()
     );
     for device_id in device_ids {
-        eprintln!("[DEBUG] Processing device ID: {}", device_id);
-        eprintln!("[DEBUG] Opening ExtendedPciDevice for device {}", device_id);
+        eprintln!("[DEBUG] Processing device ID: {device_id}");
+        eprintln!("[DEBUG] Opening ExtendedPciDevice for device {device_id}");
         let ud = match ExtendedPciDevice::open(device_id) {
             Ok(ud) => {
                 eprintln!("[DEBUG] ExtendedPciDevice opened successfully");
                 ud
             }
             Err(e) => {
-                eprintln!("[DEBUG] ExtendedPciDevice::open failed: {:?}", e);
+                eprintln!("[DEBUG] ExtendedPciDevice::open failed: {e:?}");
                 return Err(PlatformError::from(e));
             }
         };
 
         let arch = ud.borrow().device.arch;
-        eprintln!("[DEBUG] Device architecture: {:?}", arch);
+        eprintln!("[DEBUG] Device architecture: {arch:?}");
 
-        eprintln!("[DEBUG] Opening Chip with arch {:?}", arch);
+        eprintln!("[DEBUG] Opening Chip with arch {arch:?}");
         let chip = match Chip::open(
             arch,
             crate::device::tenstorrent_embedded::interface::CallbackStorage::new(
@@ -90,7 +90,7 @@ pub fn detect_chips_silent(_options: ChipDetectOptions) -> Result<Vec<UninitChip
                 chip
             }
             Err(e) => {
-                eprintln!("[DEBUG] Chip::open failed: {:?}", e);
+                eprintln!("[DEBUG] Chip::open failed: {e:?}");
                 return Err(e);
             }
         };
@@ -104,13 +104,10 @@ pub fn detect_chips_silent(_options: ChipDetectOptions) -> Result<Vec<UninitChip
         } else {
             "ARC_RESET.SCRATCH[0]"
         };
-        eprintln!(
-            "[DEBUG] Testing PCIe communication by reading {}",
-            scratch_0
-        );
+        eprintln!("[DEBUG] Testing PCIe communication by reading {scratch_0}");
         let result = chip.axi_sread32(scratch_0);
         if let Err(err) = result {
-            eprintln!("[DEBUG] PCIe communication test failed: {:?}", err);
+            eprintln!("[DEBUG] PCIe communication test failed: {err:?}");
             // Basic comms have failed... we should output a nice error message on the console
             chips.push(UninitChip::Partially {
                 status: Box::new(err.to_string()),

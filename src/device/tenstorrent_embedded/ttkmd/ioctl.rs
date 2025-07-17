@@ -99,11 +99,12 @@ impl<const N: usize> Default for QueryMappings<N> {
 /// You must make sure that data is a valid pointer and that the file descriptor is valid
 pub unsafe fn query_mappings<const N: usize>(
     fd: nix::libc::c_int,
-    _data: *mut QueryMappings<N>,
+    data: *mut QueryMappings<N>,
 ) -> nix::Result<nix::libc::c_int> {
     nix::convert_ioctl_res!(nix::libc::ioctl(
         fd,
-        request_code_none!(TENSTORRENT_IOCTL_MAGIC, 2) as u64
+        request_code_none!(TENSTORRENT_IOCTL_MAGIC, 2) as nix::sys::ioctl::ioctl_num_type,
+        data
     ))
 }
 

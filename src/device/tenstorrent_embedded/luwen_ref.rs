@@ -60,10 +60,7 @@ pub struct ExtendedPciDevice {
 
 impl ExtendedPciDevice {
     pub fn open(pci_interface: usize) -> Result<ExtendedPciDeviceWrapper, PciError> {
-        eprintln!(
-            "[DEBUG] ExtendedPciDevice::open() called with interface {}",
-            pci_interface
-        );
+        eprintln!("[DEBUG] ExtendedPciDevice::open() called with interface {pci_interface}");
         let device = PciDevice::open(pci_interface)?;
         eprintln!(
             "[DEBUG] PciDevice::open() succeeded, arch: {:?}, driver_version: {}",
@@ -75,7 +72,7 @@ impl ExtendedPciDevice {
             Arch::Wormhole => (10, 12),
             Arch::Blackhole => (17, 12),
         };
-        eprintln!("[DEBUG] Grid size: {}x{}", grid_size_x, grid_size_y);
+        eprintln!("[DEBUG] Grid size: {grid_size_x}x{grid_size_y}");
 
         let default_tlb;
 
@@ -96,19 +93,18 @@ impl ExtendedPciDevice {
                 }
             };
 
-            eprintln!("[DEBUG] Attempting to allocate TLB of size: {}", size);
+            eprintln!("[DEBUG] Attempting to allocate TLB of size: {size}");
             match device.allocate_tlb(size) {
                 Ok(tlb) => {
                     eprintln!("[DEBUG] TLB allocation succeeded");
                     default_tlb = PossibleTlbAllocation::Allocation(tlb);
                 }
                 Err(e) => {
-                    eprintln!("[DEBUG] TLB allocation failed: {:?}", e);
+                    eprintln!("[DEBUG] TLB allocation failed: {e:?}");
                     // Couldn't get a tlb... ideally at this point we would fallback to using a slower but useable read/write API
                     // for now though, we will just fail
                     return Err(PciError::TlbAllocationError(format!(
-                        "Failed to find a free tlb: {:?}",
-                        e
+                        "Failed to find a free tlb: {e:?}"
                     )));
                 }
             }
@@ -118,7 +114,7 @@ impl ExtendedPciDevice {
                 Arch::Grayskull | Arch::Wormhole => 184,
                 Arch::Blackhole => 190,
             };
-            eprintln!("[DEBUG] Using hardcoded TLB: {}", hardcoded_tlb);
+            eprintln!("[DEBUG] Using hardcoded TLB: {hardcoded_tlb}");
             default_tlb = PossibleTlbAllocation::Hardcoded(hardcoded_tlb);
         }
 
