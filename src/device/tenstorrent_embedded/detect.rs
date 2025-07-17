@@ -73,63 +73,191 @@ impl ChipImpl for MinimalChip {
     }
 
     fn get_telemetry(&self) -> Result<Telemetry, PlatformError> {
-        // Return minimal telemetry - this would normally come from hardware
+        // Try to get real telemetry from sysfs or tt-smi first
+        if let Some(real_telemetry) = self.try_read_real_telemetry() {
+            return Ok(real_telemetry);
+        }
+
+        // Fallback to minimal telemetry with placeholder values
         let mut telemetry = Telemetry::default();
         telemetry.arch = self.arch;
-
-        // Set some basic values that are expected
         telemetry.device_id = self.device_id as u32;
 
-        // Set realistic default values based on architecture
+        // Set board_id based on architecture - this helps identify board type
         match self.arch {
             Arch::Grayskull => {
-                telemetry.aiclk = 1200; // 1.2GHz typical
-                telemetry.vcore = 750; // 0.75V typical
-                telemetry.tdp = 75; // 75W TDP
-                telemetry.tdc = 100; // 100A current
-                                     // Set board_id for e75 (0x7 << 36)
+                // Set board_id for e75 (0x7 << 36)
                 telemetry.board_id_high = 0x0007;
-                telemetry.board_id_low = 0x00000001; // Add serial number
+                telemetry.board_id_low = 0x00000001;
             }
             Arch::Wormhole => {
-                telemetry.aiclk = 1000; // 1GHz typical
-                telemetry.vcore = 750; // 0.75V typical
-                telemetry.tdp = 160; // 160W TDP
-                telemetry.tdc = 200; // 200A current
-                                     // Set board_id for n300 (0x14 << 36)
+                // Set board_id for n300 (0x14 << 36)
                 telemetry.board_id_high = 0x0014;
                 telemetry.board_id_low = 0x00000001;
             }
             Arch::Blackhole => {
-                telemetry.aiclk = 900; // 900MHz typical
-                telemetry.vcore = 800; // 0.8V typical
-                telemetry.tdp = 350; // 350W TDP
-                telemetry.tdc = 400; // 400A current
-                                     // Set board_id for p100 (0x36 << 36)
+                // Set board_id for p100 (0x36 << 36)
                 telemetry.board_id_high = 0x0036;
                 telemetry.board_id_low = 0x00000001;
             }
         }
 
-        // Common values
-        telemetry.asic_temperature = 45 << 4; // 45C typical operating temp
-        telemetry.vreg_temperature = 50; // 50C VRM temp
-        telemetry.board_temperature = (40 << 16) | (45 << 8) | 42; // Inlet/Outlet temps
-
-        // Set some version numbers
-        telemetry.arc0_fw_version = 0x010203; // 1.2.3
-        telemetry.eth_fw_version = 0x0102003; // 1.2.3
-        telemetry.wh_fw_date = 0x50180000; // 2025-01-24
-
-        // DDR status
-        telemetry.ddr_status = 1; // Initialized
-        telemetry.ddr_speed = Some(6400); // DDR speed
+        // Set minimal placeholder values - actual values should come from hardware
+        telemetry.aiclk = 1000; // Placeholder
+        telemetry.vcore = 750; // Placeholder
+        telemetry.tdp = 0; // 0W indicates no real measurement
+        telemetry.tdc = 0; // 0A indicates no real measurement
+        telemetry.asic_temperature = 25 << 4; // Room temp as placeholder
+        telemetry.ddr_status = 1;
+        telemetry.ddr_speed = Some(6400);
 
         Ok(telemetry)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+impl MinimalChip {
+    /// Try to read real telemetry values from available sources
+    fn try_read_real_telemetry(&self) -> Option<Telemetry> {
+        // Method 1: Try to read from sysfs if driver exposes telemetry
+        if let Some(telemetry) = self.read_telemetry_from_sysfs() {
+            return Some(telemetry);
+        }
+
+        // Method 2: Try to parse tt-smi output if available
+        if let Some(telemetry) = self.read_telemetry_from_tt_smi() {
+            return Some(telemetry);
+        }
+
+        // No real telemetry available
+        None
+    }
+
+    /// Try to read telemetry from sysfs
+    fn read_telemetry_from_sysfs(&self) -> Option<Telemetry> {
+        // Check if driver exposes telemetry in sysfs
+        // Paths like /sys/class/tenstorrent/<device_id>/telemetry/*
+        let base_path = format!("/sys/class/tenstorrent/{}/telemetry", self.device_id);
+
+        if !Path::new(&base_path).exists() {
+            return None;
+        }
+
+        let mut telemetry = Telemetry::default();
+        telemetry.arch = self.arch;
+        telemetry.device_id = self.device_id as u32;
+
+        // Try to read various telemetry values
+        if let Ok(contents) = fs::read_to_string(format!("{base_path}/power_watts")) {
+            if let Ok(power) = contents.trim().parse::<f64>() {
+                telemetry.tdp = (power * 1.0) as u32; // Convert to integer watts
+            }
+        }
+
+        if let Ok(contents) = fs::read_to_string(format!("{base_path}/temperature_celsius")) {
+            if let Ok(temp) = contents.trim().parse::<f64>() {
+                telemetry.asic_temperature = (temp * 16.0) as u32; // Convert to expected format
+            }
+        }
+
+        if let Ok(contents) = fs::read_to_string(format!("{base_path}/voltage_mv")) {
+            if let Ok(voltage_mv) = contents.trim().parse::<u32>() {
+                telemetry.vcore = voltage_mv; // Already in millivolts
+            }
+        }
+
+        if let Ok(contents) = fs::read_to_string(format!("{base_path}/frequency_mhz")) {
+            if let Ok(freq) = contents.trim().parse::<u32>() {
+                telemetry.aiclk = freq;
+            }
+        }
+
+        // If we got at least power reading, consider it valid
+        if telemetry.tdp > 0 {
+            Some(telemetry)
+        } else {
+            None
+        }
+    }
+
+    /// Try to parse tt-smi output
+    fn read_telemetry_from_tt_smi(&self) -> Option<Telemetry> {
+        // Try to run tt-smi -j and parse output
+        use std::process::Command;
+
+        let output = Command::new("tt-smi")
+            .arg("-j")
+            .arg("-d")
+            .arg(self.device_id.to_string())
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        // Parse JSON output
+        let json_str = String::from_utf8(output.stdout).ok()?;
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_str) {
+            if let Some(devices) = json.get("device_info").and_then(|v| v.as_array()) {
+                if let Some(device) = devices.first() {
+                    let mut telemetry = Telemetry::default();
+                    telemetry.arch = self.arch;
+                    telemetry.device_id = self.device_id as u32;
+
+                    // Parse telemetry values
+                    if let Some(telem) = device.get("telemetry") {
+                        if let Some(power) = telem.get("power").and_then(|v| v.as_str()) {
+                            if let Ok(p) = power.trim_end_matches('W').parse::<f64>() {
+                                telemetry.tdp = p as u32;
+                            }
+                        }
+
+                        if let Some(temp) = telem.get("asic_temperature").and_then(|v| v.as_str()) {
+                            if let Ok(t) = temp.trim_end_matches("°C").parse::<f64>() {
+                                telemetry.asic_temperature = (t * 16.0) as u32;
+                            }
+                        }
+
+                        if let Some(voltage) = telem.get("voltage").and_then(|v| v.as_str()) {
+                            if let Ok(v) = voltage.trim_end_matches('V').parse::<f64>() {
+                                telemetry.vcore = (v * 1000.0) as u32; // Convert to millivolts
+                            }
+                        }
+
+                        if let Some(current) = telem.get("current").and_then(|v| v.as_str()) {
+                            if let Ok(c) = current.trim_end_matches('A').parse::<f64>() {
+                                telemetry.tdc = c as u32;
+                            }
+                        }
+
+                        if let Some(freq) = telem.get("aiclk").and_then(|v| v.as_u64()) {
+                            telemetry.aiclk = freq as u32;
+                        }
+                    }
+
+                    // Parse board info
+                    if let Some(board_info) = device.get("board_info") {
+                        if let Some(board_id) = board_info.get("board_id").and_then(|v| v.as_str())
+                        {
+                            if let Ok(id) =
+                                u64::from_str_radix(board_id.trim_start_matches("0x"), 16)
+                            {
+                                telemetry.board_id_high = (id >> 32) as u32;
+                                telemetry.board_id_low = (id & 0xFFFFFFFF) as u32;
+                            }
+                        }
+                    }
+
+                    return Some(telemetry);
+                }
+            }
+        }
+
+        None
     }
 }
 

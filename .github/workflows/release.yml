@@ -104,7 +104,17 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y musl-tools gcc-aarch64-linux-gnu
-    
+
+    - name: Install protobuf compiler
+      if: matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'
+      # Install protobuf compiler for Linux builds
+      # macOS does not require protobuf for the current build
+      # as it uses system libraries for Apple Silicon.
+      # This step is skipped for macOS builds.
+      run: |
+        sudo apt update
+        sudo apt install -y protobuf-compiler
+        
     # ───────────────────────────────────────────────────────────────
     # Step 3: Setup Rust toolchain
     # ───────────────────────────────────────────────────────────────
@@ -114,7 +124,7 @@ jobs:
         profile: minimal
         toolchain: stable
         override: true
-    
+       
     - name: Add target architecture
       run: rustup target add ${{ matrix.target }}
     
@@ -132,8 +142,6 @@ jobs:
     # ───────────────────────────────────────────────────────────────
     - name: Build release binary
       run: |
-        sudo apt update
-        sudo apt install -y protobuf-compiler
         if [[ "${{ matrix.cross }}" == "true" ]]; then
           cross build --release --target ${{ matrix.target }} --locked
         else
