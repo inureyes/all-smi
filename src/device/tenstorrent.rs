@@ -365,21 +365,38 @@ impl TenstorrentReader {
                 // We use the ratio of current power to TDP (Thermal Design Power) limit
                 // Note: This assumes the device scales power linearly with load, which is
                 // a reasonable approximation for AI accelerators
+                //
+                // IMPORTANT: telemetry.tdp actually contains current power consumption, not TDP limit!
+                // Since the actual TDP limit is not directly available in telemetry, we use
+                // board-specific estimates based on Tenstorrent specifications
                 let utilization = {
-                    let tdp_watts = (telemetry.tdp & 0xffff) as f64;
-                    if tdp_watts > 0.0 {
-                        // Clamp to 100% max as power can temporarily exceed TDP
-                        ((power / tdp_watts) * 100.0).min(100.0)
-                    } else {
-                        // Fallback: estimate based on typical TDP values if not available
-                        // Grayskull: ~75W, Wormhole: ~160W, Blackhole: ~350W
-                        let estimated_tdp = match telemetry.arch {
-                            luwen_core::Arch::Grayskull => 75.0,
-                            luwen_core::Arch::Wormhole => 160.0,
-                            luwen_core::Arch::Blackhole => 350.0,
-                        };
-                        ((power / estimated_tdp) * 100.0).min(100.0)
-                    }
+                    // Get board-specific TDP based on board type
+                    let tdp_limit = match telemetry.board_type() {
+                        // Grayskull boards
+                        "e75" => 75.0,
+                        "e150" => 75.0,
+                        "e300" | "e300_R2" | "e300_R3" => 100.0,
+                        // Wormhole boards
+                        "n150" => 150.0,
+                        "n300" => 160.0,
+                        "galaxy-wormhole" => 200.0,
+                        // Blackhole boards
+                        "p100" | "p100a" => 300.0,
+                        "p150a" | "p150b" | "p150c" => 350.0,
+                        "p300a" | "p300b" | "p300c" => 400.0,
+                        "galaxy-blackhole" => 450.0,
+                        _ => {
+                            // Fallback based on architecture
+                            match telemetry.arch {
+                                luwen_core::Arch::Grayskull => 75.0,
+                                luwen_core::Arch::Wormhole => 160.0,
+                                luwen_core::Arch::Blackhole => 350.0,
+                            }
+                        }
+                    };
+
+                    // Calculate utilization percentage
+                    ((power / tdp_limit) * 100.0).min(100.0)
                 };
 
                 // Add raw telemetry values for debugging
