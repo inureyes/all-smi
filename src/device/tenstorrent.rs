@@ -324,28 +324,47 @@ impl TenstorrentReader {
                 // Add detailed power/thermal info
                 detail.insert(
                     "voltage".to_string(),
-                    format!("{:.2}", telemetry.vcore as f64 / 1000.0),
+                    format!("{:.2}", telemetry.voltage()), // Use luwen's voltage() method
                 );
                 detail.insert(
                     "current".to_string(),
-                    format!("{:.1}", (telemetry.tdc & 0xFFFF) as f64),
+                    format!("{:.1}", telemetry.current()), // Use luwen's current() method
                 );
 
-                // Extract temperature (different handling per architecture)
-                let temperature = match telemetry.arch {
-                    luwen_core::Arch::Grayskull | luwen_core::Arch::Wormhole => {
-                        // Temperature is in 16.4 fixed point format
-                        (telemetry.asic_temperature & 0xFFFF) / 16
-                    }
-                    luwen_core::Arch::Blackhole => {
-                        // For Blackhole, might be different format
-                        telemetry.asic_temperature
-                    }
-                };
+                // Add additional temperature readings
+                detail.insert(
+                    "asic_temperature".to_string(),
+                    format!("{:.1}", telemetry.asic_temperature()),
+                );
+                detail.insert(
+                    "vreg_temperature".to_string(),
+                    format!("{:.1}", telemetry.vreg_temperature()),
+                );
+                if telemetry.board_temperature != 0 {
+                    detail.insert(
+                        "inlet_temperature".to_string(),
+                        format!("{:.1}", telemetry.inlet_temperature()),
+                    );
+                    detail.insert(
+                        "outlet_temperature1".to_string(),
+                        format!("{:.1}", telemetry.outlet_temperature1()),
+                    );
+                    detail.insert(
+                        "outlet_temperature2".to_string(),
+                        format!("{:.1}", telemetry.outlet_temperature2()),
+                    );
+                }
 
-                // Calculate power consumption
-                let power = (telemetry.tdp & 0xFFFF) as f64;
-                let frequency = telemetry.aiclk & 0xFFFF;
+                // Use luwen's built-in methods for proper temperature and power extraction
+                let temperature = telemetry.asic_temperature().round() as u32; // Returns float in Celsius
+                let power = telemetry.power(); // Returns watts as f64
+                let frequency = telemetry.ai_clk(); // Use luwen's ai_clk() method
+
+                // Add raw telemetry values for debugging
+                detail.insert("power_watts".to_string(), format!("{power:.2}"));
+                detail.insert("aiclk_mhz".to_string(), format!("{frequency}"));
+                detail.insert("axiclk_mhz".to_string(), format!("{}", telemetry.axi_clk()));
+                detail.insert("arcclk_mhz".to_string(), format!("{}", telemetry.arc_clk()));
 
                 // DDR memory info (if available)
                 let (used_memory, total_memory) = if telemetry.ddr_status != 0 {
@@ -498,8 +517,12 @@ impl TenstorrentReader {
 
                         // Extract telemetry metrics
                         let telemetry = &device.telemetry;
-                        let temperature =
-                            telemetry.asic_temperature.parse::<f64>().unwrap_or(0.0) as u32;
+                        // Parse temperature as float and round to nearest integer
+                        let temperature = telemetry
+                            .asic_temperature
+                            .parse::<f64>()
+                            .unwrap_or(0.0)
+                            .round() as u32;
                         let power = telemetry.power.parse::<f64>().unwrap_or(0.0);
                         let frequency = telemetry.aiclk.parse::<u32>().unwrap_or(0);
 
