@@ -176,21 +176,29 @@ impl PciDevice {
         }
         eprintln!("[DEBUG] get_device_info ioctl succeeded");
 
+        // Get PCI bus information from device_info for sysfs config space path
+        let pci_bus = device_info.output.bus_dev_fn >> 8;
+        let slot = ((device_info.output.bus_dev_fn) >> 3) & 0x1f; // The definition of PCI_SLOT from include/uapi/linux/pci.h
+        let pci_function = (device_info.output.bus_dev_fn) & 0x7; // The definition of PCI_FUNC from include/uapi/linux/pci.h
+        let pci_domain = device_info.output.pci_domain;
+
         eprintln!(
-            "[DEBUG] Trying to open config space: /dev/tenstorrent/{}_config",
-            device_id
+            "[DEBUG] Opening config space from sysfs: /sys/bus/pci/devices/{:04x}:{:02x}:{:02x}.{:01x}/config",
+            pci_domain, pci_bus, slot, pci_function
         );
         let config_space = std::fs::OpenOptions::new()
             .read(true)
-            .write(true)
-            .open(format!("/dev/tenstorrent/{device_id}_config"));
+            .write(false)
+            .open(format!(
+                "/sys/bus/pci/devices/{pci_domain:04x}:{pci_bus:02x}:{slot:02x}.{pci_function:01x}/config"
+            ));
         let config_space = match config_space {
             Ok(fd) => {
-                eprintln!("[DEBUG] Config space opened successfully");
+                eprintln!("[DEBUG] Config space opened successfully from sysfs");
                 fd
             }
             Err(err) => {
-                eprintln!("[DEBUG] Failed to open config space: {}", err);
+                eprintln!("[DEBUG] Failed to open config space from sysfs: {}", err);
                 return Err(PciOpenError::DeviceOpenFailed {
                     id: device_id,
                     source: err,
