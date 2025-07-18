@@ -460,11 +460,33 @@ impl ChipImpl for LuwenChip {
             );
             eprintln!("[DEBUG] Reading telemetry from offset: 0x{telemetry_struct_offset:x}");
 
+            // Also try reading the telemetry address as if it contains a pointer
+            let potential_pointer = self.comms.axi_read32(telemetry_struct_offset)?;
+            eprintln!(
+                "[DEBUG] Value at telemetry offset (potential pointer): 0x{potential_pointer:x}"
+            );
+            if potential_pointer != 0 && potential_pointer != telemetry_addr {
+                eprintln!(
+                    "[DEBUG] Might be a pointer, trying to read from 0x{:x}",
+                    csm_offset + (potential_pointer - 0x10000000)
+                );
+            }
+
             // Read telemetry fields
             let enum_version = self.comms.axi_read32(telemetry_struct_offset)?;
             eprintln!(
                 "[DEBUG] enum_version at offset 0x{telemetry_struct_offset:x}: 0x{enum_version:x}"
             );
+
+            // Check if telemetry structure is initialized
+            if enum_version == 0 {
+                eprintln!("[DEBUG] Telemetry structure not initialized (enum_version=0)");
+                // Try reading from the raw telemetry address without adjustment
+                let raw_offset = telemetry_addr;
+                eprintln!("[DEBUG] Trying raw telemetry address: 0x{raw_offset:x}");
+                let test_read = self.comms.axi_read32(raw_offset)?;
+                eprintln!("[DEBUG] Value at raw address: 0x{test_read:x}");
+            }
 
             let device_id = self.comms.axi_read32(telemetry_struct_offset + 4)?;
             eprintln!(
