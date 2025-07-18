@@ -115,6 +115,24 @@ pub fn detect_chips_silent(_options: ChipDetectOptions) -> Result<Vec<UninitChip
             });
         } else {
             eprintln!("[DEBUG] PCIe communication test passed");
+
+            // Try to wait for initialization before adding the chip
+            eprintln!("[DEBUG] Attempting chip initialization...");
+            if let Some(luwen_chip) = chip
+                .inner
+                .as_any()
+                .downcast_ref::<super::luwen_ref::LuwenChip>()
+            {
+                match luwen_chip.wait_for_init() {
+                    Ok(()) => {
+                        eprintln!("[DEBUG] Chip initialization successful");
+                    }
+                    Err(e) => {
+                        eprintln!("[DEBUG] Chip initialization failed (continuing anyway): {e}");
+                    }
+                }
+            }
+
             chips.push(UninitChip::Initialized(chip));
         }
     }

@@ -382,6 +382,152 @@ impl LuwenChip {
             comms: Box::new(ifc),
         })
     }
+
+    /// Wait for chip initialization to complete
+    pub fn wait_for_init(&self) -> Result<(), PlatformError> {
+        eprintln!("[DEBUG] Waiting for chip initialization...");
+
+        // Check ARC firmware is ready by reading scratch register
+        let scratch_reg = if self.arch.is_blackhole() {
+            "arc_ss.reset_unit.SCRATCH_0"
+        } else {
+            "ARC_RESET.SCRATCH[0]"
+        };
+
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(30); // 30 second timeout
+
+        loop {
+            match self.axi_sread32(scratch_reg) {
+                Ok(val) => {
+                    eprintln!("[DEBUG] Scratch register value: 0x{val:x}");
+                    // If we can read the register, ARC is responsive
+                    break;
+                }
+                Err(e) => {
+                    if start.elapsed() > timeout {
+                        return Err(PlatformError::Generic(
+                            format!("Timeout waiting for chip initialization: {e}"),
+                            super::error::BtWrapper::capture(),
+                        ));
+                    }
+                    eprintln!("[DEBUG] Waiting for ARC firmware... ({e})");
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        }
+
+        // For Wormhole/Blackhole, check if DDR training is complete
+        if self.arch == Arch::Wormhole || self.arch == Arch::Blackhole {
+            eprintln!("[DEBUG] Checking DDR training status...");
+            // Try to read telemetry to check DDR status
+            match self.get_telemetry_no_retry() {
+                Ok(telemetry) => {
+                    if telemetry.ddr_status != 0 {
+                        eprintln!(
+                            "[DEBUG] DDR training complete (status: 0x{:x})",
+                            telemetry.ddr_status
+                        );
+                    } else {
+                        eprintln!("[DEBUG] DDR not initialized, continuing anyway");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[DEBUG] Could not check DDR status: {e}, continuing");
+                }
+            }
+        }
+
+        eprintln!("[DEBUG] Chip initialization complete");
+        Ok(())
+    }
+
+    /// Get telemetry without retry logic (for internal use)
+    fn get_telemetry_no_retry(&self) -> Result<Telemetry, PlatformError> {
+        // For Wormhole, we need to send an ARC message to get the telemetry address
+        if self.arch == Arch::Wormhole || self.arch == Arch::Grayskull {
+            // Send GetSmbusTelemetryAddr message
+            let msg_options = super::arc_msg::ArcMsgOptions {
+                msg: super::arc_msg::ArcMsg::Typed(
+                    super::arc_msg::TypedArcMsg::GetSmbusTelemetryAddr,
+                ),
+                wait_for_done: true,
+                timeout: std::time::Duration::from_secs(1),
+                use_second_mailbox: false,
+                addrs: Some(super::arc_msg::ArcMsgAddr {
+                    scratch_base: 0x1ff30060,  // ARC_RESET.SCRATCH[0]
+                    arc_misc_cntl: 0x1ff30100, // ARC_RESET.ARC_MISC_CNTL
+                }),
+            };
+
+            // Arc message handling - simplified version
+            let (msg_reg, return_reg) = if msg_options.use_second_mailbox {
+                (2, 4)
+            } else {
+                (5, 3)
+            };
+
+            let telemetry_addr = match super::arc_msg::arc_msg(
+                self,
+                &msg_options.msg,
+                msg_options.wait_for_done,
+                msg_options.timeout,
+                msg_reg,
+                return_reg,
+                msg_options.addrs.as_ref().unwrap(),
+            ) {
+                Ok(super::arc_msg::ArcMsgOk::Ok { arg }) => {
+                    eprintln!("[DEBUG] ARC message returned telemetry address: 0x{arg:x}");
+                    arg
+                }
+                Ok(super::arc_msg::ArcMsgOk::OkNoWait) => {
+                    eprintln!("[DEBUG] ARC message returned OkNoWait (unexpected)");
+                    return Ok(Telemetry {
+                        arch: self.arch,
+                        ..Default::default()
+                    });
+                }
+                Err(e) => {
+                    eprintln!("[DEBUG] Failed to get telemetry address via ARC message: {e:?}");
+                    return Ok(Telemetry {
+                        arch: self.arch,
+                        ..Default::default()
+                    });
+                }
+            };
+
+            // Calculate CSM offset
+            let csm_offset = self.axi_translate("ARC_CSM.DATA[0]")?.addr;
+            let telemetry_struct_offset = csm_offset + (telemetry_addr - 0x10000000);
+
+            eprintln!("[DEBUG] CSM base offset: 0x{csm_offset:x}");
+            eprintln!(
+                "[DEBUG] Telemetry addr adjusted: 0x{:x}",
+                telemetry_addr - 0x10000000
+            );
+            eprintln!("[DEBUG] Reading telemetry from offset: 0x{telemetry_struct_offset:x}");
+
+            // Check if we're getting the magic number (uninitialized telemetry)
+            let first_word = self.comms.axi_read32(telemetry_struct_offset)?;
+            if first_word == 0 {
+                // Try the raw address
+                let first_word_raw = self.comms.axi_read32(telemetry_addr)?;
+                if first_word_raw == 0x66666666 {
+                    eprintln!(
+                        "[DEBUG] Detected telemetry magic number 0x66666666, telemetry not ready"
+                    );
+                    return self.read_telemetry_from_offset(telemetry_addr);
+                }
+            }
+
+            self.read_telemetry_from_offset(telemetry_struct_offset)
+        } else {
+            Err(PlatformError::Generic(
+                format!("Telemetry not implemented for arch {:?}", self.arch),
+                super::error::BtWrapper::capture(),
+            ))
+        }
+    }
 }
 
 impl LuwenChip {
@@ -526,13 +672,81 @@ impl ChipImpl for LuwenChip {
     }
 
     fn get_telemetry(&self) -> Result<Telemetry, PlatformError> {
-        // For Wormhole, we need to send an ARC message to get the telemetry address
-        if self.arch == Arch::Wormhole || self.arch == Arch::Grayskull {
-            // Send GetSmbusTelemetryAddr message
-            let msg_options = super::arc_msg::ArcMsgOptions {
-                msg: super::arc_msg::ArcMsg::Typed(
-                    super::arc_msg::TypedArcMsg::GetSmbusTelemetryAddr,
-                ),
+        // First try without retry
+        match self.get_telemetry_no_retry() {
+            Ok(telemetry) => {
+                // Check if we got valid telemetry (not magic number)
+                if telemetry.enum_version != 0x66666666 {
+                    return Ok(telemetry);
+                }
+                eprintln!("[DEBUG] Telemetry not ready (magic number), implementing retry logic");
+            }
+            Err(e) => {
+                eprintln!("[DEBUG] Initial telemetry read failed: {e}");
+            }
+        }
+
+        // Retry logic for uninitialized telemetry
+        let max_retries = 10;
+        let retry_delay = std::time::Duration::from_millis(500);
+        let mut last_heartbeat = 0u32;
+
+        for retry in 0..max_retries {
+            eprintln!(
+                "[DEBUG] Retry {}/{} for telemetry reading",
+                retry + 1,
+                max_retries
+            );
+            std::thread::sleep(retry_delay);
+
+            match self.get_telemetry_no_retry() {
+                Ok(telemetry) => {
+                    // Check if we got valid telemetry (not magic number)
+                    if telemetry.enum_version != 0x66666666 {
+                        // Verify heartbeat is changing
+                        let current_heartbeat = telemetry.telemetry_heartbeat();
+                        eprintln!(
+                            "[DEBUG] Heartbeat value: {current_heartbeat} (previous: {last_heartbeat})"
+                        );
+
+                        if retry > 0 && current_heartbeat == last_heartbeat {
+                            eprintln!(
+                                "[DEBUG] Warning: Heartbeat not changing, telemetry may be stale"
+                            );
+                        }
+
+                        eprintln!(
+                            "[DEBUG] Successfully got valid telemetry on retry {}",
+                            retry + 1
+                        );
+                        return Ok(telemetry);
+                    }
+                    eprintln!("[DEBUG] Still getting magic number on retry {}", retry + 1);
+
+                    // Update heartbeat even for magic number
+                    last_heartbeat = telemetry.telemetry_heartbeat();
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[DEBUG] Error reading telemetry on retry {}: {e}",
+                        retry + 1
+                    );
+                }
+            }
+        }
+
+        eprintln!("[DEBUG] Max retries reached, returning last telemetry state");
+        // Return whatever we have
+        self.get_telemetry_no_retry()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// Remove all orphaned code below
+/* ORPHANED CODE START
                 wait_for_done: true,
                 timeout: std::time::Duration::from_secs(1),
                 use_second_mailbox: false,
@@ -779,21 +993,12 @@ impl ChipImpl for LuwenChip {
                 arch: self.arch,
                 ..Default::default()
             })
-        }
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
         self
     }
 }
+ORPHANED CODE END */
 
-impl HlComms for LuwenChip {
-    fn comms_obj(&self) -> (&dyn super::chip::ChipComms, &dyn ChipInterface) {
-        (self, self.comms.as_ref())
-    }
-}
-
-impl super::chip::ChipComms for LuwenChip {
+impl ChipComms for LuwenChip {
     fn axi_sread32(&self, addr: &str) -> Result<u32, Box<dyn std::error::Error>> {
         self.comms.axi_sread32(addr)
     }
@@ -802,5 +1007,18 @@ impl super::chip::ChipComms for LuwenChip {
         let addr_data = axi_translate(addr)?;
         let data = value.to_le_bytes();
         self.comms.axi_write(addr_data.addr, &data)
+    }
+
+    fn axi_translate(
+        &self,
+        addr: &str,
+    ) -> Result<super::ttkmd::kmdif::AxiData, Box<dyn std::error::Error>> {
+        axi_translate(addr)
+    }
+}
+
+impl HlComms for LuwenChip {
+    fn comms_obj(&self) -> (&dyn super::chip::ChipComms, &dyn ChipInterface) {
+        (self, self.comms.as_ref())
     }
 }
