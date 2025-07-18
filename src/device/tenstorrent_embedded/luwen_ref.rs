@@ -527,18 +527,16 @@ impl LuwenChip {
                 "[DEBUG] First word at CSM offset 0x{telemetry_struct_offset:x}: 0x{first_word:x}"
             );
 
-            if first_word == 0 || first_word == 0x66666666 {
-                // Try the raw address
+            if first_word == 0 {
+                // Try the raw address if CSM offset gives us zero
                 let first_word_raw = self.comms.axi_read32(telemetry_addr)?;
                 eprintln!(
                     "[DEBUG] First word at raw address 0x{telemetry_addr:x}: 0x{first_word_raw:x}"
                 );
 
-                if first_word_raw == 0x66666666 || first_word == 0x66666666 {
-                    eprintln!(
-                        "[DEBUG] Detected telemetry magic number 0x66666666, telemetry not ready"
-                    );
-                    // Always use the raw address when we see magic number
+                // Use raw address if it has data
+                if first_word_raw != 0 {
+                    eprintln!("[DEBUG] Using raw telemetry address since CSM offset was zero");
                     return self.read_telemetry_from_offset(telemetry_addr);
                 }
             }
@@ -695,90 +693,34 @@ impl ChipImpl for LuwenChip {
     }
 
     fn get_telemetry(&self) -> Result<Telemetry, PlatformError> {
-        // First try without retry
+        // Just read telemetry and return it - tt-smi doesn't validate magic numbers
         match self.get_telemetry_no_retry() {
             Ok(telemetry) => {
-                // Check if we got valid telemetry (not magic number)
-                if telemetry.enum_version != 0x66666666 {
-                    return Ok(telemetry);
-                }
-                eprintln!("[DEBUG] Telemetry not ready (magic number), implementing retry logic");
+                eprintln!("[DEBUG] Got telemetry, processing values normally");
+
+                // Log some decoded values to verify they're being processed correctly
+                eprintln!("[DEBUG] Raw values: enum_version=0x{:x}, tdp=0x{:x}, tdc=0x{:x}, asic_temp=0x{:x}", 
+                    telemetry.enum_version,
+                    telemetry.tdp,
+                    telemetry.tdc,
+                    telemetry.asic_temperature
+                );
+
+                eprintln!(
+                    "[DEBUG] Decoded values: power={:.1}W, current={:.1}A, temp={:.1}C, freq={}MHz",
+                    telemetry.power(),
+                    telemetry.current(),
+                    telemetry.asic_temperature(),
+                    telemetry.ai_clk()
+                );
+
+                Ok(telemetry)
             }
             Err(e) => {
-                eprintln!("[DEBUG] Initial telemetry read failed: {e}");
+                eprintln!("[DEBUG] Telemetry read failed: {e}");
+                Err(e)
             }
         }
-
-        // Retry logic for uninitialized telemetry
-        // Increase retries and delay since firmware might need more time
-        let max_retries = 20;
-        let retry_delay = std::time::Duration::from_secs(1); // 1 second between retries
-        let mut last_heartbeat = 0u32;
-
-        eprintln!(
-            "[DEBUG] Starting telemetry retry loop (max {} retries, {} second delay)",
-            max_retries,
-            retry_delay.as_secs()
-        );
-
-        for retry in 0..max_retries {
-            eprintln!(
-                "[DEBUG] Retry {}/{} for telemetry reading",
-                retry + 1,
-                max_retries
-            );
-            std::thread::sleep(retry_delay);
-
-            match self.get_telemetry_no_retry() {
-                Ok(telemetry) => {
-                    // Check if we got valid telemetry (not magic number)
-                    if telemetry.enum_version != 0x66666666 {
-                        // Verify heartbeat is changing
-                        let current_heartbeat = telemetry.telemetry_heartbeat();
-                        eprintln!(
-                            "[DEBUG] Heartbeat value: {current_heartbeat} (previous: {last_heartbeat})"
-                        );
-
-                        if retry > 0 && current_heartbeat == last_heartbeat {
-                            eprintln!(
-                                "[DEBUG] Warning: Heartbeat not changing, telemetry may be stale"
-                            );
-                        }
-
-                        eprintln!(
-                            "[DEBUG] Successfully got valid telemetry on retry {}",
-                            retry + 1
-                        );
-                        return Ok(telemetry);
-                    }
-                    eprintln!("[DEBUG] Still getting magic number on retry {}", retry + 1);
-
-                    // If we've tried enough times, just return what we have
-                    // The GUI can handle showing partial/default data
-                    if retry >= 5 {
-                        eprintln!(
-                            "[DEBUG] Returning telemetry with magic number after {} retries",
-                            retry + 1
-                        );
-                        eprintln!("[DEBUG] Note: This might be normal if the device is idle or firmware telemetry updates are disabled");
-                        return Ok(telemetry);
-                    }
-
-                    // Update heartbeat even for magic number
-                    last_heartbeat = telemetry.telemetry_heartbeat();
-                }
-                Err(e) => {
-                    eprintln!(
-                        "[DEBUG] Error reading telemetry on retry {}: {e}",
-                        retry + 1
-                    );
-                }
-            }
-        }
-
-        eprintln!("[DEBUG] Max retries reached, returning last telemetry state");
-        // Return whatever we have
-        self.get_telemetry_no_retry()
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

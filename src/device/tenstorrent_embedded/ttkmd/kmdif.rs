@@ -47,6 +47,19 @@ pub fn getpagesize() -> Option<i64> {
         .flatten()
 }
 
+/// Device information structure
+#[derive(Debug, Default, Clone, Copy)]
+#[repr(C)]
+pub struct DeviceInfo {
+    pub vendor_id: u16,
+    pub device_id: u16,
+    pub subsystem_vendor_id: u16,
+    pub subsystem_id: u16,
+    pub bus_dev_fn: u16,
+    pub max_dma_buf_size_log2: u16,
+    pub pci_domain: u16,
+}
+
 #[bitfield_struct::bitfield(u32)]
 pub struct DmaPack {
     #[bits(28)]

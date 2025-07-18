@@ -78,6 +78,18 @@ pub enum PlatformError {
 
     #[error("{0}\n{1}")]
     GenericError(Box<dyn std::error::Error>, BtWrapper),
+
+    #[error("IO error: {0}")]
+    IoError(String),
+
+    #[error("Invalid parameter: {0}")]
+    InvalidParameter(String),
+
+    #[error("Chip communication error: {0}")]
+    ChipError(String),
+
+    #[error("Operation timed out: {0}")]
+    Timeout(String),
 }
 
 impl From<Box<dyn std::error::Error>> for PlatformError {

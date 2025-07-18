@@ -109,7 +109,7 @@ impl ChipComms for Chip {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Telemetry {
     pub arch: Arch,
     pub board_id: u64,
@@ -281,14 +281,14 @@ impl Telemetry {
     /// Return the ASIC temperature in degrees celsius.
     pub fn asic_temperature(&self) -> f64 {
         if self.arch.is_blackhole() {
-            let frac: f64 = (self.asic_temperature & 0xFFFF).into();
-            let frac = frac / 65536.0;
-
-            let int: f64 = (self.asic_temperature >> 16).into();
-
-            int + frac
+            // Blackhole uses signed 16.16 fixed-point format
+            let value = self.asic_temperature as i32;
+            let int_part = (value >> 16) as i16 as f64;
+            let frac_part = (value & 0xFFFF) as f64 / 65536.0;
+            int_part + frac_part
         } else {
-            ((self.asic_temperature & 0xffff) >> 4) as f64
+            // Wormhole/Grayskull: temperature is in lower 16 bits, divided by 16
+            ((self.asic_temperature & 0xffff) as f64) / 16.0
         }
     }
 
@@ -314,12 +314,26 @@ impl Telemetry {
 
     /// Return the power consumption in watts.
     pub fn power(&self) -> f64 {
+        // Extract lower 16 bits for current power value
         (self.tdp & 0xffff) as f64
     }
 
     /// Return the current consumption in amperes.
     pub fn current(&self) -> f64 {
+        // Extract lower 16 bits for current value
         (self.tdc & 0xffff) as f64
+    }
+
+    /// Return the TDP limit in watts.
+    pub fn tdp_limit(&self) -> f64 {
+        // Extract upper 16 bits for limit value
+        ((self.tdp >> 16) & 0xffff) as f64
+    }
+
+    /// Return the TDC limit in amperes.
+    pub fn tdc_limit(&self) -> f64 {
+        // Extract upper 16 bits for limit value
+        ((self.tdc >> 16) & 0xffff) as f64
     }
 
     pub fn telemetry_heartbeat(&self) -> u32 {

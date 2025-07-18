@@ -75,3 +75,12 @@ pub struct DeviceTlbInfo {
     pub address: u32,
     pub size: u32,
 }
+
+/// DMA buffer allocation structure for TLB mapping
+#[derive(Debug, Default, Clone, Copy)]
+#[repr(C)]
+pub struct AllocateDmaBuffer {
+    pub requested_size: usize,
+    pub physical_address: u64,
+    pub mapping_id: u32,
+}

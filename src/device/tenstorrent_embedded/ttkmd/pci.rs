@@ -10,6 +10,23 @@ use super::{
     PciDevice,
 };
 
+/// PCIe BAR mapping information
+#[derive(Debug, Default, Clone, Copy)]
+#[repr(C)]
+pub struct PciBarMapping {
+    pub mapping_id: u32,
+    pub base_address: u64,
+    pub mapping_size: u64,
+}
+
+/// Query mappings result structure
+#[derive(Debug, Default)]
+#[repr(C)]
+pub struct QueryMappings {
+    pub mappings: [PciBarMapping; 6],
+    pub mapping_count: u32,
+}
+
 const ERROR_VALUE: u32 = 0xffffffff;
 
 pub(crate) fn read_bar0_base(config_space: &std::fs::File) -> u64 {

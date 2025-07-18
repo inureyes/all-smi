@@ -45,6 +45,29 @@ nix::ioctl_readwrite_bad!(
     GetDeviceInfo
 );
 
+// Helper functions for easier use
+pub unsafe fn ioctl_get_device_info(
+    fd: nix::libc::c_int,
+    info: *mut super::kmdif::DeviceInfo,
+) -> nix::Result<()> {
+    let mut ioctl_data = GetDeviceInfo::default();
+    get_device_info(fd, &mut ioctl_data)?;
+
+    // Convert output to DeviceInfo
+    let device_info = super::kmdif::DeviceInfo {
+        vendor_id: ioctl_data.output.vendor_id,
+        device_id: ioctl_data.output.device_id,
+        subsystem_vendor_id: ioctl_data.output.subsystem_vendor_id,
+        subsystem_id: ioctl_data.output.subsystem_id,
+        bus_dev_fn: ioctl_data.output.bus_dev_fn,
+        max_dma_buf_size_log2: ioctl_data.output.max_dma_buf_size_log2,
+        pci_domain: ioctl_data.output.pci_domain,
+    };
+
+    std::ptr::write(info, device_info);
+    Ok(())
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 pub struct Mapping {
@@ -106,6 +129,36 @@ pub unsafe fn query_mappings<const N: usize>(
         request_code_none!(TENSTORRENT_IOCTL_MAGIC, 2) as nix::sys::ioctl::ioctl_num_type,
         data
     ))
+}
+
+// Helper function for QueryMappings to work with PciBarMapping
+pub unsafe fn ioctl_query_mappings(
+    fd: nix::libc::c_int,
+    mappings: *mut super::pci::QueryMappings,
+) -> nix::Result<()> {
+    const MAX_MAPPINGS: usize = 6;
+    let mut ioctl_data = QueryMappings::<MAX_MAPPINGS>::default();
+    query_mappings(fd, &mut ioctl_data)?;
+
+    // Convert to PciBarMapping format
+    let mut output = super::pci::QueryMappings::default();
+    let count = ioctl_data
+        .input
+        .output_mapping_count
+        .min(MAX_MAPPINGS as u32);
+    output.mapping_count = count;
+
+    for i in 0..count as usize {
+        let mapping = &ioctl_data.output.mappings[i];
+        output.mappings[i] = super::pci::PciBarMapping {
+            mapping_id: mapping.mapping_id,
+            base_address: mapping.mapping_base,
+            mapping_size: mapping.mapping_size,
+        };
+    }
+
+    std::ptr::write(mappings, output);
+    Ok(())
 }
 
 #[derive(Default)]
@@ -261,6 +314,31 @@ nix::ioctl_readwrite_bad!(
     request_code_none!(TENSTORRENT_IOCTL_MAGIC, 11),
     AllocateTlb
 );
+
+// Helper function for allocating TLB for BAR mapping
+pub unsafe fn ioctl_allocate_tlb(
+    fd: nix::libc::c_int,
+    buffer: *mut super::tlb::AllocateDmaBuffer,
+) -> nix::Result<()> {
+    let alloc_buffer = std::ptr::read(buffer);
+
+    let mut ioctl_data = AllocateTlb {
+        input: AllocateTlbIn {
+            size: alloc_buffer.requested_size as u64,
+            reserved: 0,
+        },
+        output: AllocateTlbOut::default(),
+    };
+
+    allocate_tlb(fd, &mut ioctl_data)?;
+
+    // Update the buffer with the result
+    let mut result = alloc_buffer;
+    result.physical_address = ioctl_data.output.mmap_offset_wc; // Use WC mapping offset
+
+    std::ptr::write(buffer, result);
+    Ok(())
+}
 
 #[derive(Default)]
 #[repr(C)]

@@ -5,9 +5,12 @@
 //! This module contains minimal functionality needed for tenstorrent device detection
 
 pub mod arc_msg;
+pub mod arc_protocol;
 pub mod arch;
+pub mod bar;
 pub mod chip;
 pub mod detect;
+pub mod device;
 pub mod error;
 pub mod interface;
 pub mod luwen_ref;

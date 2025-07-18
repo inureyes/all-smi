@@ -5,6 +5,7 @@ pub mod nvidia;
 pub mod nvidia_jetson;
 pub mod tenstorrent;
 pub mod tenstorrent_embedded;
+pub mod tenstorrent_v1;
 
 // Re-export status functions for UI
 pub use nvidia::get_nvml_status_message;
