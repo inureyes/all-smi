@@ -20,9 +20,6 @@ const PROT_WRITE: i32 = 0x2;
 /// Mapping flags for mmap
 const MAP_SHARED: i32 = 0x1;
 
-/// Size of each mapping region (256MB)
-const MAPPING_REGION_SIZE: i64 = 1 << 28;
-
 // External mmap function binding
 extern "C" {
     fn mmap(
@@ -102,9 +99,9 @@ impl BarManager {
                 mapping.mapping_id, mapping.base_address, mapping.mapping_size
             );
 
-            // Memory map the BAR directly - no TLB allocation needed for BAR mapping
-            // The offset is based on the mapping_id
-            let mmap_offset = mapping.mapping_id as i64 * MAPPING_REGION_SIZE;
+            // Memory map the BAR directly using the base_address from kernel driver
+            // The kernel driver provides the appropriate offset for mmap
+            let mmap_offset = mapping.base_address as i64;
             let ptr = unsafe {
                 mmap(
                     ptr::null_mut(),
@@ -116,10 +113,11 @@ impl BarManager {
                 )
             };
 
-            if ptr.is_null() || ptr as isize == -1 {
+            if ptr as isize == -1 {
+                let err = std::io::Error::last_os_error();
                 return Err(PlatformError::IoError(format!(
-                    "Failed to mmap BAR {}",
-                    mapping.mapping_id
+                    "Failed to mmap BAR {} at offset 0x{:x}, size 0x{:x}: {}",
+                    mapping.mapping_id, mmap_offset, mapping.mapping_size, err
                 )));
             }
 
