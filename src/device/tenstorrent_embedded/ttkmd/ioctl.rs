@@ -315,29 +315,26 @@ nix::ioctl_readwrite_bad!(
     AllocateTlb
 );
 
-// Helper function for allocating TLB for BAR mapping
-pub unsafe fn ioctl_allocate_tlb(
+// Helper function for allocating DMA buffer for BAR mapping
+pub unsafe fn ioctl_allocate_dma_buffer(
     fd: nix::libc::c_int,
-    buffer: *mut super::tlb::AllocateDmaBuffer,
-) -> nix::Result<()> {
-    let alloc_buffer = std::ptr::read(buffer);
-
-    let mut ioctl_data = AllocateTlb {
-        input: AllocateTlbIn {
-            size: alloc_buffer.requested_size as u64,
-            reserved: 0,
+    mapping_id: u32,
+    size: usize,
+) -> nix::Result<u64> {
+    let mut ioctl_data = AllocateDmaBuffer {
+        input: AllocateDmaBufferIn {
+            requested_size: size as u32,
+            buf_index: (mapping_id - 1) as u8, // mapping_id 1-6 maps to buf_index 0-5
+            _reserved0: [0; 3],
+            _reserved1: [0; 2],
         },
-        output: AllocateTlbOut::default(),
+        output: AllocateDmaBufferOut::default(),
     };
 
-    allocate_tlb(fd, &mut ioctl_data)?;
+    allocate_dma_buffer(fd, &mut ioctl_data)?;
 
-    // Update the buffer with the result
-    let mut result = alloc_buffer;
-    result.physical_address = ioctl_data.output.mmap_offset_wc; // Use WC mapping offset
-
-    std::ptr::write(buffer, result);
-    Ok(())
+    // Return the mapping offset for mmap
+    Ok(ioctl_data.output.mapping_offset)
 }
 
 #[derive(Default)]

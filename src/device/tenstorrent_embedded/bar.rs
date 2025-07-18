@@ -10,9 +10,8 @@ use std::os::unix::io::AsRawFd;
 use std::ptr;
 
 use super::error::PlatformError;
-use super::ttkmd::ioctl::{ioctl_allocate_tlb, ioctl_query_mappings};
+use super::ttkmd::ioctl::ioctl_query_mappings;
 use super::ttkmd::pci::QueryMappings;
-use super::ttkmd::tlb::AllocateDmaBuffer;
 
 /// Memory protection flags for mmap
 const PROT_READ: i32 = 0x1;
@@ -103,19 +102,8 @@ impl BarManager {
                 mapping.mapping_id, mapping.base_address, mapping.mapping_size
             );
 
-            // Allocate TLB for BAR mapping
-            let mut alloc = AllocateDmaBuffer {
-                requested_size: mapping.mapping_size as usize,
-                physical_address: 0,
-                mapping_id: mapping.mapping_id,
-            };
-
-            unsafe {
-                ioctl_allocate_tlb(self.device_file.as_raw_fd(), &mut alloc)
-                    .map_err(|e| PlatformError::IoError(format!("Failed to allocate TLB: {e}")))?;
-            }
-
-            // Memory map the BAR
+            // Memory map the BAR directly - no TLB allocation needed for BAR mapping
+            // The offset is based on the mapping_id
             let mmap_offset = mapping.mapping_id as i64 * MAPPING_REGION_SIZE;
             let ptr = unsafe {
                 mmap(

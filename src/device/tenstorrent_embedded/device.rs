@@ -339,14 +339,23 @@ impl TenstorrentDevice {
 
 impl ArcMessageHandler for TenstorrentDevice {
     fn axi_read32(&self, addr: u64) -> Result<u32, PlatformError> {
-        // For now, assume BAR 0 for AXI access
-        // In a real implementation, this would need proper BAR selection
-        self.bar_manager.read32(0, addr)
+        // For AXI access, we need to use the appropriate BAR based on the address
+        // Most register accesses go through BAR0 (mapping_id 1 or 2)
+        // Try mapping_id 2 first (BAR0 WC), then fall back to mapping_id 1 (BAR0 UC)
+        if let Ok(val) = self.bar_manager.read32(2, addr) {
+            return Ok(val);
+        }
+        self.bar_manager.read32(1, addr)
     }
 
     fn axi_write32(&self, addr: u64, value: u32) -> Result<(), PlatformError> {
-        // For now, assume BAR 0 for AXI access
-        self.bar_manager.write32(0, addr, value)
+        // For AXI access, we need to use the appropriate BAR based on the address
+        // Most register accesses go through BAR0 (mapping_id 1 or 2)
+        // Try mapping_id 2 first (BAR0 WC), then fall back to mapping_id 1 (BAR0 UC)
+        if let Ok(()) = self.bar_manager.write32(2, addr, value) {
+            return Ok(());
+        }
+        self.bar_manager.write32(1, addr, value)
     }
 
     fn get_scratch_base(&self) -> Result<&'static str, PlatformError> {
