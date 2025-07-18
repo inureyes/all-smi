@@ -31,8 +31,35 @@ impl Default for TenstorrentConfig {
 // Global status for error messages
 static TENSTORRENT_STATUS: Mutex<Option<String>> = Mutex::new(None);
 
-// Cache for initialized chips to avoid re-initialization on every measurement
-static INITIALIZED_CHIPS: Lazy<Mutex<Option<Vec<Chip>>>> = Lazy::new(|| Mutex::new(None));
+// Static device information that doesn't change after initialization
+#[derive(Clone)]
+struct StaticDeviceInfo {
+    uuid: String,
+    device_name: String,
+    board_type: String,
+    board_id: String,
+    pcie_address: Option<String>,
+    pcie_vendor_id: Option<String>,
+    pcie_device_id: Option<String>,
+    pcie_link_width: Option<String>,
+    pcie_link_gen: Option<String>,
+    arc_fw_version: String,
+    eth_fw_version: String,
+    fw_date: String,
+    ddr_fw_version: Option<String>,
+    spibootrom_fw_version: Option<String>,
+    total_memory: u64,
+    tdp_limit: f64,
+}
+
+// Cache entry containing both chip and its static info
+struct CachedChipInfo {
+    chip: Chip,
+    static_info: StaticDeviceInfo,
+}
+
+// Cache for initialized chips and their static info to avoid re-initialization on every measurement
+static INITIALIZED_CHIPS: Lazy<Mutex<Option<Vec<CachedChipInfo>>>> = Lazy::new(|| Mutex::new(None));
 
 pub struct TenstorrentReader {
     config: TenstorrentConfig,
@@ -74,11 +101,15 @@ impl TenstorrentReader {
     fn collect_via_device_files(&self) -> Vec<GpuInfo> {
         // Check if we have cached initialized chips
         if let Ok(cache) = INITIALIZED_CHIPS.lock() {
-            if let Some(ref chips) = *cache {
-                // Use cached chips
+            if let Some(ref cached_chips) = *cache {
+                // Use cached chips and their static info
                 let mut devices = Vec::new();
-                for (idx, chip) in chips.iter().enumerate() {
-                    if let Some(info) = self.read_device_info_luwen(chip, idx) {
+                for (idx, cached_info) in cached_chips.iter().enumerate() {
+                    if let Some(info) = self.read_device_info_with_cache(
+                        &cached_info.chip,
+                        &cached_info.static_info,
+                        idx,
+                    ) {
                         devices.push(info);
                     }
                 }
@@ -95,7 +126,7 @@ impl TenstorrentReader {
         // Use detect_chips_silent to avoid progress bars and messages
         match all_smi_luwen_ref::detect_chips_silent(options) {
             Ok(uninit_chips) => {
-                let mut initialized_chips = Vec::new();
+                let mut cached_chips = Vec::new();
                 let mut devices = Vec::new();
 
                 // Initialize each chip and collect info
@@ -103,10 +134,16 @@ impl TenstorrentReader {
                     // Initialize the chip without progress callbacks
                     match uninit_chip.init(&mut |_| Ok::<(), std::convert::Infallible>(())) {
                         Ok(chip) => {
-                            if let Some(info) = self.read_device_info_luwen(&chip, idx) {
-                                devices.push(info);
+                            // Extract static info on first initialization
+                            if let Some(static_info) = self.extract_static_info(&chip, idx) {
+                                // Read full device info for the first time
+                                if let Some(device_info) =
+                                    self.read_device_info_with_cache(&chip, &static_info, idx)
+                                {
+                                    devices.push(device_info);
+                                }
+                                cached_chips.push(CachedChipInfo { chip, static_info });
                             }
-                            initialized_chips.push(chip);
                         }
                         Err(_) => {
                             // This should never happen with Infallible error type
@@ -123,9 +160,9 @@ impl TenstorrentReader {
                         *status = None;
                     }
 
-                    // Cache the initialized chips for future use
+                    // Cache the initialized chips and their static info for future use
                     if let Ok(mut cache) = INITIALIZED_CHIPS.lock() {
-                        *cache = Some(initialized_chips);
+                        *cache = Some(cached_chips);
                     }
                 }
 
@@ -138,14 +175,11 @@ impl TenstorrentReader {
         }
     }
 
-    /// Read device information using luwen
-    fn read_device_info_luwen(&self, chip: &Chip, index: usize) -> Option<GpuInfo> {
+    /// Extract static device information that doesn't change after initialization
+    fn extract_static_info(&self, chip: &Chip, index: usize) -> Option<StaticDeviceInfo> {
         // Try to get telemetry from the chip
         match chip.get_telemetry() {
             Ok(telemetry) => {
-                let hostname = get_hostname();
-                let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-
                 // Get board type name
                 let board_type = telemetry.try_board_type().unwrap_or("Unknown");
                 let device_name = format!(
@@ -158,132 +192,85 @@ impl TenstorrentReader {
                     board_type
                 );
 
-                let mut detail = HashMap::new();
-                detail.insert("board_type".to_string(), board_type.to_string());
-                detail.insert("board_id".to_string(), telemetry.board_serial_number_hex());
-                detail.insert("collection_method".to_string(), "luwen".to_string());
+                // Extract PCIe information if available
+                let (pcie_address, pcie_vendor_id, pcie_device_id, pcie_link_width, pcie_link_gen) =
+                    if let Ok(Some(device_info)) = chip.get_device_info() {
+                        (
+                            Some(format!(
+                                "{:04x}:{:02x}:{:02x}.{:x}",
+                                device_info.domain,
+                                device_info.bus,
+                                device_info.slot,
+                                device_info.function
+                            )),
+                            Some(format!("0x{:04x}", device_info.vendor)),
+                            Some(format!("0x{:04x}", device_info.device_id)),
+                            Some(format!("x{}", device_info.pcie_current_link_width())),
+                            Some(format!("Gen{}", device_info.pcie_current_link_gen())),
+                        )
+                    } else {
+                        (None, None, None, None, None)
+                    };
 
-                // Add PCIe device information if available
-                if let Ok(Some(device_info)) = chip.get_device_info() {
-                    detail.insert(
-                        "pcie_address".to_string(),
-                        format!(
-                            "{:04x}:{:02x}:{:02x}.{:x}",
-                            device_info.domain,
-                            device_info.bus,
-                            device_info.slot,
-                            device_info.function
-                        ),
-                    );
-                    detail.insert(
-                        "pcie_vendor_id".to_string(),
-                        format!("0x{:04x}", device_info.vendor),
-                    );
-                    detail.insert(
-                        "pcie_device_id".to_string(),
-                        format!("0x{:04x}", device_info.device_id),
-                    );
+                // Extract firmware versions
+                let ddr_fw_version = if telemetry.ddr_fw_version != 0 {
+                    Some(format!(
+                        "{}.{}.{}",
+                        (telemetry.ddr_fw_version >> 16) & 0xFF,
+                        (telemetry.ddr_fw_version >> 8) & 0xFF,
+                        telemetry.ddr_fw_version & 0xFF
+                    ))
+                } else {
+                    None
+                };
 
-                    // Get PCIe link information
-                    detail.insert(
-                        "pcie_link_width".to_string(),
-                        format!("x{}", device_info.pcie_current_link_width()),
-                    );
-                    detail.insert(
-                        "pcie_link_gen".to_string(),
-                        format!("Gen{}", device_info.pcie_current_link_gen()),
-                    );
-                }
+                let spibootrom_fw_version = if telemetry.spibootrom_fw_version != 0 {
+                    Some(format!(
+                        "{}.{}.{}",
+                        (telemetry.spibootrom_fw_version >> 16) & 0xFF,
+                        (telemetry.spibootrom_fw_version >> 8) & 0xFF,
+                        telemetry.spibootrom_fw_version & 0xFF
+                    ))
+                } else {
+                    None
+                };
 
-                // Add firmware versions
-                detail.insert("arc_fw_version".to_string(), telemetry.arc_fw_version());
-                detail.insert("eth_fw_version".to_string(), telemetry.eth_fw_version());
-                detail.insert("fw_date".to_string(), telemetry.firmware_date());
+                // Calculate total memory based on board type
+                let total_memory = match telemetry.board_type() {
+                    // Grayskull boards
+                    "e75" => 16 * 1024 * 1024 * 1024,  // 16GB
+                    "e150" => 32 * 1024 * 1024 * 1024, // 32GB
+                    "e300" | "e300_R2" | "e300_R3" => 48 * 1024 * 1024 * 1024, // 48GB
+                    "GALAXY" => 96 * 1024 * 1024 * 1024, // 96GB (Galaxy has 2x48GB)
+                    // Wormhole boards
+                    "n150" => 32 * 1024 * 1024 * 1024,      // 32GB
+                    "n300" => 64 * 1024 * 1024 * 1024,      // 64GB
+                    "NEBULA_CB" => 32 * 1024 * 1024 * 1024, // 32GB
+                    "galaxy-wormhole" => 96 * 1024 * 1024 * 1024, // 96GB per board
+                    // Blackhole boards
+                    "p100" | "p100a" => 96 * 1024 * 1024 * 1024, // 96GB
+                    "p150a" | "p150b" | "p150c" => 144 * 1024 * 1024 * 1024, // 144GB
+                    "p300a" | "p300b" | "p300c" => 288 * 1024 * 1024 * 1024, // 288GB
+                    "galaxy-blackhole" => 576 * 1024 * 1024 * 1024, // 576GB
+                    _ => {
+                        // Conservative memory estimates based on architecture
+                        match telemetry.arch {
+                            all_smi_luwen_core::Arch::Grayskull => 16 * 1024 * 1024 * 1024,
+                            all_smi_luwen_core::Arch::Wormhole => 32 * 1024 * 1024 * 1024,
+                            all_smi_luwen_core::Arch::Blackhole => 96 * 1024 * 1024 * 1024,
+                        }
+                    }
+                };
 
-                // Add additional firmware versions from TT-REPORT.md
-                if telemetry.ddr_fw_version != 0 {
-                    detail.insert(
-                        "ddr_fw_version".to_string(),
-                        format!(
-                            "{}.{}.{}",
-                            (telemetry.ddr_fw_version >> 16) & 0xFF,
-                            (telemetry.ddr_fw_version >> 8) & 0xFF,
-                            telemetry.ddr_fw_version & 0xFF
-                        ),
-                    );
-                }
-                if telemetry.spibootrom_fw_version != 0 {
-                    detail.insert(
-                        "spibootrom_fw_version".to_string(),
-                        format!(
-                            "{}.{}.{}",
-                            (telemetry.spibootrom_fw_version >> 16) & 0xFF,
-                            (telemetry.spibootrom_fw_version >> 8) & 0xFF,
-                            telemetry.spibootrom_fw_version & 0xFF
-                        ),
-                    );
-                }
-
-                // Add detailed power/thermal info
-                detail.insert(
-                    "voltage".to_string(),
-                    format!("{:.2}", telemetry.voltage()), // Use luwen's voltage() method
-                );
-                detail.insert(
-                    "current".to_string(),
-                    format!("{:.1}", telemetry.current()), // Use luwen's current() method
-                );
-
-                // Add TDP/TDC limits from upper 16 bits as per TT-REPORT.md
-                let tdp_limit = ((telemetry.tdp >> 16) & 0xFFFF) as f64;
-                let tdc_limit = ((telemetry.tdc >> 16) & 0xFFFF) as f64;
-                if tdp_limit > 0.0 {
-                    detail.insert("tdp_limit".to_string(), format!("{tdp_limit:.0}"));
-                }
-                if tdc_limit > 0.0 {
-                    detail.insert("tdc_limit".to_string(), format!("{tdc_limit:.0}"));
-                }
-
-                // Add additional temperature readings
-                detail.insert(
-                    "asic_temperature".to_string(),
-                    format!("{:.1}", telemetry.asic_temperature()),
-                );
-                detail.insert(
-                    "vreg_temperature".to_string(),
-                    format!("{:.1}", telemetry.vreg_temperature()),
-                );
-                if telemetry.board_temperature != 0 {
-                    detail.insert(
-                        "inlet_temperature".to_string(),
-                        format!("{:.1}", telemetry.inlet_temperature()),
-                    );
-                    detail.insert(
-                        "outlet_temperature1".to_string(),
-                        format!("{:.1}", telemetry.outlet_temperature1()),
-                    );
-                    detail.insert(
-                        "outlet_temperature2".to_string(),
-                        format!("{:.1}", telemetry.outlet_temperature2()),
-                    );
-                }
-
-                // Use luwen's built-in methods for proper temperature and power extraction
-                let temperature = telemetry.asic_temperature().round() as u32; // Returns float in Celsius
-                let power = telemetry.power(); // Returns watts as f64
-                let frequency = telemetry.ai_clk(); // Use luwen's ai_clk() method
-
-                // Calculate utilization based on power consumption vs TDP
-                // TT-REPORT.md indicates that TDP limit is in upper 16 bits of tdp register
-                let utilization = {
+                // Calculate TDP limit
+                let tdp_limit = {
                     // First try to get TDP limit from telemetry (upper 16 bits)
                     let tdp_limit_from_telemetry = ((telemetry.tdp >> 16) & 0xFFFF) as f64;
 
-                    let tdp_limit = if tdp_limit_from_telemetry > 0.0 {
-                        // Use the actual TDP limit from device telemetry
+                    if tdp_limit_from_telemetry > 0.0 {
                         tdp_limit_from_telemetry
                     } else {
-                        // Fallback to board-specific TDP estimates based on TT-REPORT.md
+                        // Fallback to board-specific TDP estimates
                         match telemetry.board_type() {
                             // Grayskull boards
                             "e75" => 75.0,
@@ -309,19 +296,147 @@ impl TenstorrentReader {
                                 }
                             }
                         }
-                    };
-
-                    // Calculate utilization percentage
-                    ((power / tdp_limit) * 100.0).min(100.0)
+                    }
                 };
 
-                // Add raw telemetry values for debugging
+                Some(StaticDeviceInfo {
+                    uuid: telemetry.board_serial_number_hex(),
+                    device_name,
+                    board_type: board_type.to_string(),
+                    board_id: telemetry.board_serial_number_hex(),
+                    pcie_address,
+                    pcie_vendor_id,
+                    pcie_device_id,
+                    pcie_link_width,
+                    pcie_link_gen,
+                    arc_fw_version: telemetry.arc_fw_version(),
+                    eth_fw_version: telemetry.eth_fw_version(),
+                    fw_date: telemetry.firmware_date(),
+                    ddr_fw_version,
+                    spibootrom_fw_version,
+                    total_memory,
+                    tdp_limit,
+                })
+            }
+            Err(e) => {
+                eprintln!("Failed to get telemetry for device {index}: {e}");
+                None
+            }
+        }
+    }
+
+    /// Read device information using cached static info and current dynamic telemetry
+    fn read_device_info_with_cache(
+        &self,
+        chip: &Chip,
+        static_info: &StaticDeviceInfo,
+        index: usize,
+    ) -> Option<GpuInfo> {
+        // Try to get current telemetry from the chip
+        match chip.get_telemetry() {
+            Ok(telemetry) => {
+                let hostname = get_hostname();
+                let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+
+                let mut detail = HashMap::new();
+
+                // Add static information from cache
+                detail.insert("board_type".to_string(), static_info.board_type.clone());
+                detail.insert("board_id".to_string(), static_info.board_id.clone());
+                detail.insert("collection_method".to_string(), "luwen".to_string());
+
+                if let Some(ref pcie_address) = static_info.pcie_address {
+                    detail.insert("pcie_address".to_string(), pcie_address.clone());
+                }
+                if let Some(ref pcie_vendor_id) = static_info.pcie_vendor_id {
+                    detail.insert("pcie_vendor_id".to_string(), pcie_vendor_id.clone());
+                }
+                if let Some(ref pcie_device_id) = static_info.pcie_device_id {
+                    detail.insert("pcie_device_id".to_string(), pcie_device_id.clone());
+                }
+                if let Some(ref pcie_link_width) = static_info.pcie_link_width {
+                    detail.insert("pcie_link_width".to_string(), pcie_link_width.clone());
+                }
+                if let Some(ref pcie_link_gen) = static_info.pcie_link_gen {
+                    detail.insert("pcie_link_gen".to_string(), pcie_link_gen.clone());
+                }
+
+                // Add firmware versions from static cache
+                detail.insert(
+                    "arc_fw_version".to_string(),
+                    static_info.arc_fw_version.clone(),
+                );
+                detail.insert(
+                    "eth_fw_version".to_string(),
+                    static_info.eth_fw_version.clone(),
+                );
+                detail.insert("fw_date".to_string(), static_info.fw_date.clone());
+
+                if let Some(ref ddr_fw_version) = static_info.ddr_fw_version {
+                    detail.insert("ddr_fw_version".to_string(), ddr_fw_version.clone());
+                }
+                if let Some(ref spibootrom_fw_version) = static_info.spibootrom_fw_version {
+                    detail.insert(
+                        "spibootrom_fw_version".to_string(),
+                        spibootrom_fw_version.clone(),
+                    );
+                }
+
+                // Add dynamic telemetry data
+                detail.insert("voltage".to_string(), format!("{:.2}", telemetry.voltage()));
+                detail.insert("current".to_string(), format!("{:.1}", telemetry.current()));
+
+                // Add TDP/TDC limits if available
+                let tdc_limit = ((telemetry.tdc >> 16) & 0xFFFF) as f64;
+                if static_info.tdp_limit > 0.0 {
+                    detail.insert(
+                        "tdp_limit".to_string(),
+                        format!("{:.0}", static_info.tdp_limit),
+                    );
+                }
+                if tdc_limit > 0.0 {
+                    detail.insert("tdc_limit".to_string(), format!("{tdc_limit:.0}"));
+                }
+
+                // Add dynamic temperature readings
+                detail.insert(
+                    "asic_temperature".to_string(),
+                    format!("{:.1}", telemetry.asic_temperature()),
+                );
+                detail.insert(
+                    "vreg_temperature".to_string(),
+                    format!("{:.1}", telemetry.vreg_temperature()),
+                );
+                if telemetry.board_temperature != 0 {
+                    detail.insert(
+                        "inlet_temperature".to_string(),
+                        format!("{:.1}", telemetry.inlet_temperature()),
+                    );
+                    detail.insert(
+                        "outlet_temperature1".to_string(),
+                        format!("{:.1}", telemetry.outlet_temperature1()),
+                    );
+                    detail.insert(
+                        "outlet_temperature2".to_string(),
+                        format!("{:.1}", telemetry.outlet_temperature2()),
+                    );
+                }
+
+                // Get dynamic metrics
+                let temperature = telemetry.asic_temperature().round() as u32;
+                let power = telemetry.power();
+                let frequency = telemetry.ai_clk();
+
+                // Calculate utilization based on power consumption vs TDP
+                let utilization = ((power / static_info.tdp_limit) * 100.0).min(100.0);
+
+                // Add dynamic power and clock info
                 detail.insert("power_watts".to_string(), format!("{power:.2}"));
                 detail.insert("aiclk_mhz".to_string(), format!("{frequency}"));
                 detail.insert("axiclk_mhz".to_string(), format!("{}", telemetry.axi_clk()));
                 detail.insert("arcclk_mhz".to_string(), format!("{}", telemetry.arc_clk()));
 
-                // Add PCIe/Ethernet/DDR status fields as per TT-REPORT.md
+                // Add dynamic status fields
                 detail.insert(
                     "pcie_status".to_string(),
                     format!("0x{:08x}", telemetry.pcie_status),
@@ -339,7 +454,7 @@ impl TenstorrentReader {
                     format!("0x{:08x}", telemetry.ddr_status),
                 );
 
-                // Add health/heartbeat counters
+                // Add dynamic health/heartbeat counters
                 let heartbeat = telemetry.telemetry_heartbeat();
                 detail.insert("heartbeat".to_string(), format!("{heartbeat}"));
                 detail.insert(
@@ -351,7 +466,7 @@ impl TenstorrentReader {
                     format!("{}", telemetry.arc3_health),
                 );
 
-                // Add fault and throttler information
+                // Add dynamic fault and throttler information
                 if telemetry.faults != 0 {
                     detail.insert("faults".to_string(), format!("0x{:08x}", telemetry.faults));
                 }
@@ -362,7 +477,7 @@ impl TenstorrentReader {
                     );
                 }
 
-                // Add fan information if available
+                // Add dynamic fan information if available
                 if telemetry.fan_speed != 0 {
                     detail.insert("fan_speed".to_string(), format!("{}", telemetry.fan_speed));
                 }
@@ -370,73 +485,34 @@ impl TenstorrentReader {
                     detail.insert("fan_rpm".to_string(), format!("{}", telemetry.fan_rpm));
                 }
 
-                // DDR memory info (if available)
+                // Calculate dynamic memory usage
                 let (used_memory, total_memory) = if telemetry.ddr_status != 0 {
-                    // Get memory information based on board type
-                    // Memory sizes are based on Tenstorrent board specifications
-                    let total_mem = match telemetry.board_type() {
-                        // Grayskull boards
-                        "e75" => 16 * 1024 * 1024 * 1024,  // 16GB
-                        "e150" => 32 * 1024 * 1024 * 1024, // 32GB
-                        "e300" | "e300_R2" | "e300_R3" => 48 * 1024 * 1024 * 1024, // 48GB
-                        "GALAXY" => 96 * 1024 * 1024 * 1024, // 96GB (Galaxy has 2x48GB)
-                        // Wormhole boards
-                        "n150" => 32 * 1024 * 1024 * 1024, // 32GB
-                        "n300" => 64 * 1024 * 1024 * 1024, // 64GB
-                        "NEBULA_CB" => 32 * 1024 * 1024 * 1024, // 32GB
-                        "galaxy-wormhole" => 96 * 1024 * 1024 * 1024, // 96GB per board
-                        // Blackhole boards
-                        "p100" | "p100a" => 96 * 1024 * 1024 * 1024, // 96GB
-                        "p150a" | "p150b" | "p150c" => 144 * 1024 * 1024 * 1024, // 144GB
-                        "p300a" | "p300b" | "p300c" => 288 * 1024 * 1024 * 1024, // 288GB
-                        "galaxy-blackhole" => 576 * 1024 * 1024 * 1024, // 576GB
-                        _ => {
-                            // Try to extract from DDR speed if available
-                            if let Some(ddr_speed) = telemetry.ddr_speed {
-                                // Add DDR speed to details
-                                detail.insert("ddr_speed".to_string(), format!("{ddr_speed}"));
-                                // Conservative memory estimates based on architecture
-                                match telemetry.arch {
-                                    all_smi_luwen_core::Arch::Grayskull => 16 * 1024 * 1024 * 1024,
-                                    all_smi_luwen_core::Arch::Wormhole => 32 * 1024 * 1024 * 1024,
-                                    all_smi_luwen_core::Arch::Blackhole => 96 * 1024 * 1024 * 1024,
-                                }
-                            } else {
-                                0
-                            }
-                        }
-                    };
+                    // Add DDR speed if available
+                    if let Some(ddr_speed) = telemetry.ddr_speed {
+                        detail.insert("ddr_speed".to_string(), format!("{ddr_speed}"));
+                    }
 
-                    // Improved memory usage estimation based on multiple factors from TT-REPORT.md
-                    // Consider power consumption, throttler state, and utilization
+                    // Dynamic memory usage estimation
                     let memory_utilization_estimate = {
-                        // Start with power-based estimate
-                        let power_factor = (power / tdp_limit).min(1.0);
-
-                        // Adjust based on throttler state (non-zero indicates memory pressure)
+                        let power_factor = (power / static_info.tdp_limit).min(1.0);
                         let throttler_factor = if telemetry.throttler != 0 { 0.9 } else { 0.7 };
-
-                        // Consider AI clock frequency (higher frequency = more memory bandwidth usage)
-                        let freq_factor = (frequency as f64 / 1000.0).min(1.0); // Assuming 1000MHz as nominal
-
-                        // Combine factors with weights
+                        let freq_factor = (frequency as f64 / 1000.0).min(1.0);
                         let combined =
                             (power_factor * 0.5) + (freq_factor * 0.3) + (throttler_factor * 0.2);
-
-                        // Ensure reasonable bounds
                         combined.clamp(0.05, 0.95)
                     };
 
-                    let used_mem = (total_mem as f64 * memory_utilization_estimate) as u64;
-                    (used_mem, total_mem)
+                    let used_mem =
+                        (static_info.total_memory as f64 * memory_utilization_estimate) as u64;
+                    (used_mem, static_info.total_memory)
                 } else {
                     (0, 0)
                 };
 
                 Some(GpuInfo {
-                    uuid: telemetry.board_serial_number_hex(),
+                    uuid: static_info.uuid.clone(),
                     time,
-                    name: device_name,
+                    name: static_info.device_name.clone(),
                     device_type: "NPU".to_string(),
                     hostname: hostname.clone(),
                     instance: format!("tt{index}"),
