@@ -9,7 +9,7 @@ use std::{
 use thiserror::Error;
 
 use super::arch::Arch;
-use super::chip::{ChipImpl, HlComms, Telemetry};
+use super::chip::{ChipComms, ChipImpl, HlComms, Telemetry};
 use super::error::PlatformError;
 use super::interface::{FnDriver, FnOptions};
 use super::ttkmd::error::PciError;
@@ -354,6 +354,9 @@ pub fn axi_translate(addr_str: &str) -> Result<AxiData, Box<dyn std::error::Erro
         "arc_ss.reset_unit.SCRATCH_RAM[13]" => 0xffff0094,
         "arc_ss.reset_unit.ARC_MISC_CNTL" => 0xffff0100,
 
+        // CSM data register
+        "ARC_CSM.DATA[0]" => 0x1fef8000,
+
         // If not a known register name, try to parse as hex or decimal
         _ => {
             if let Some(hex_str) = addr_str.strip_prefix("0x") {
@@ -387,11 +390,151 @@ impl ChipImpl for LuwenChip {
     }
 
     fn get_telemetry(&self) -> Result<Telemetry, PlatformError> {
-        // Return a telemetry struct with at least the correct architecture
-        Ok(Telemetry {
-            arch: self.arch,
-            ..Default::default()
-        })
+        // For Wormhole, we need to send an ARC message to get the telemetry address
+        if self.arch == Arch::Wormhole || self.arch == Arch::Grayskull {
+            // Send GetSmbusTelemetryAddr message
+            let msg_options = super::arc_msg::ArcMsgOptions {
+                msg: super::arc_msg::ArcMsg::Typed(
+                    super::arc_msg::TypedArcMsg::GetSmbusTelemetryAddr,
+                ),
+                wait_for_done: true,
+                timeout: std::time::Duration::from_secs(1),
+                use_second_mailbox: false,
+                addrs: Some(super::arc_msg::ArcMsgAddr {
+                    scratch_base: 0x1ff30060,  // ARC_RESET.SCRATCH[0]
+                    arc_misc_cntl: 0x1ff30100, // ARC_RESET.ARC_MISC_CNTL
+                }),
+            };
+
+            // Arc message handling - simplified version
+            let (msg_reg, return_reg) = if msg_options.use_second_mailbox {
+                (2, 4)
+            } else {
+                (5, 3)
+            };
+
+            let telemetry_addr = match super::arc_msg::arc_msg(
+                self,
+                &msg_options.msg,
+                msg_options.wait_for_done,
+                msg_options.timeout,
+                msg_reg,
+                return_reg,
+                msg_options.addrs.as_ref().unwrap(),
+            ) {
+                Ok(super::arc_msg::ArcMsgOk::Ok { arg }) => arg,
+                _ => {
+                    eprintln!("[DEBUG] Failed to get telemetry address via ARC message");
+                    return Ok(Telemetry {
+                        arch: self.arch,
+                        ..Default::default()
+                    });
+                }
+            };
+
+            // Calculate CSM offset
+            let csm_offset = self.axi_translate("ARC_CSM.DATA[0]")?.addr;
+            let telemetry_struct_offset = csm_offset + (telemetry_addr & 0x00ffffff);
+
+            eprintln!("[DEBUG] Reading telemetry from offset: 0x{telemetry_struct_offset:x}");
+
+            // Read telemetry fields
+            let enum_version = self.comms.axi_read32(telemetry_struct_offset)?;
+            let device_id = self.comms.axi_read32(telemetry_struct_offset + 4)?;
+            let asic_ro = self.comms.axi_read32(telemetry_struct_offset + 8)?;
+            let asic_idd = self.comms.axi_read32(telemetry_struct_offset + 12)?;
+            let board_id_high = self.comms.axi_read32(telemetry_struct_offset + 16)?;
+            let board_id_low = self.comms.axi_read32(telemetry_struct_offset + 20)?;
+            let arc0_fw_version = self.comms.axi_read32(telemetry_struct_offset + 24)?;
+            let arc1_fw_version = self.comms.axi_read32(telemetry_struct_offset + 28)?;
+            let arc2_fw_version = self.comms.axi_read32(telemetry_struct_offset + 32)?;
+            let arc3_fw_version = self.comms.axi_read32(telemetry_struct_offset + 36)?;
+            let spibootrom_fw_version = self.comms.axi_read32(telemetry_struct_offset + 40)?;
+            let eth_fw_version = self.comms.axi_read32(telemetry_struct_offset + 44)?;
+            let m3_bl_fw_version = self.comms.axi_read32(telemetry_struct_offset + 48)?;
+            let m3_app_fw_version = self.comms.axi_read32(telemetry_struct_offset + 52)?;
+            let ddr_status = self.comms.axi_read32(telemetry_struct_offset + 56)?;
+            let eth_status0 = self.comms.axi_read32(telemetry_struct_offset + 60)?;
+            let eth_status1 = self.comms.axi_read32(telemetry_struct_offset + 64)?;
+            let pcie_status = self.comms.axi_read32(telemetry_struct_offset + 68)?;
+            let faults = self.comms.axi_read32(telemetry_struct_offset + 72)?;
+            let arc0_health = self.comms.axi_read32(telemetry_struct_offset + 76)?;
+            let arc1_health = self.comms.axi_read32(telemetry_struct_offset + 80)?;
+            let arc2_health = self.comms.axi_read32(telemetry_struct_offset + 84)?;
+            let arc3_health = self.comms.axi_read32(telemetry_struct_offset + 88)?;
+            let fan_speed = self.comms.axi_read32(telemetry_struct_offset + 92)?;
+            let aiclk = self.comms.axi_read32(telemetry_struct_offset + 96)?;
+            let axiclk = self.comms.axi_read32(telemetry_struct_offset + 100)?;
+            let arcclk = self.comms.axi_read32(telemetry_struct_offset + 104)?;
+            let throttler = self.comms.axi_read32(telemetry_struct_offset + 108)?;
+            let vcore = self.comms.axi_read32(telemetry_struct_offset + 112)?;
+            let asic_temperature = self.comms.axi_read32(telemetry_struct_offset + 116)?;
+            let vreg_temperature = self.comms.axi_read32(telemetry_struct_offset + 120)?;
+            let board_temperature = self.comms.axi_read32(telemetry_struct_offset + 124)?;
+            let tdp = self.comms.axi_read32(telemetry_struct_offset + 128)?;
+            let tdc = self.comms.axi_read32(telemetry_struct_offset + 132)?;
+            let vdd_limits = self.comms.axi_read32(telemetry_struct_offset + 136)?;
+            let thm_limits = self.comms.axi_read32(telemetry_struct_offset + 140)?;
+            let wh_fw_date = self.comms.axi_read32(telemetry_struct_offset + 144)?;
+            let asic_tmon0 = self.comms.axi_read32(telemetry_struct_offset + 148)?;
+            let asic_tmon1 = self.comms.axi_read32(telemetry_struct_offset + 152)?;
+
+            eprintln!(
+                "[DEBUG] Telemetry read: aiclk={aiclk}, vcore={vcore}, tdp={tdp}, temperature={asic_temperature}"
+            );
+
+            Ok(Telemetry {
+                arch: self.arch,
+                board_id: ((board_id_high as u64) << 32) | (board_id_low as u64),
+                enum_version,
+                device_id,
+                asic_ro,
+                asic_idd,
+                board_id_high,
+                board_id_low,
+                arc0_fw_version,
+                arc1_fw_version,
+                arc2_fw_version,
+                arc3_fw_version,
+                spibootrom_fw_version,
+                eth_fw_version,
+                m3_bl_fw_version,
+                m3_app_fw_version,
+                ddr_status,
+                eth_status0,
+                eth_status1,
+                pcie_status,
+                faults,
+                arc0_health,
+                arc1_health,
+                arc2_health,
+                arc3_health,
+                fan_speed,
+                aiclk,
+                axiclk,
+                arcclk,
+                throttler,
+                vcore,
+                asic_temperature,
+                vreg_temperature,
+                board_temperature,
+                tdp,
+                tdc,
+                vdd_limits,
+                thm_limits,
+                wh_fw_date,
+                asic_tmon0,
+                asic_tmon1,
+                timer_heartbeat: arc0_health,
+                ..Default::default()
+            })
+        } else {
+            // For other architectures, return default for now
+            Ok(Telemetry {
+                arch: self.arch,
+                ..Default::default()
+            })
+        }
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -408,5 +551,11 @@ impl HlComms for LuwenChip {
 impl super::chip::ChipComms for LuwenChip {
     fn axi_sread32(&self, addr: &str) -> Result<u32, Box<dyn std::error::Error>> {
         self.comms.axi_sread32(addr)
+    }
+
+    fn axi_write32(&self, addr: &str, value: u32) -> Result<(), Box<dyn std::error::Error>> {
+        let addr_data = axi_translate(addr)?;
+        let data = value.to_le_bytes();
+        self.comms.axi_write(addr_data.addr, &data)
     }
 }

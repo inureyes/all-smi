@@ -11,11 +11,34 @@ use crate::device::tenstorrent_embedded::{
 
 pub trait ChipComms {
     fn axi_sread32(&self, addr: &str) -> Result<u32, Box<dyn std::error::Error>>;
+    fn axi_write32(&self, addr: &str, value: u32) -> Result<(), Box<dyn std::error::Error>>;
+    fn axi_read32(
+        &self,
+        ifc: &dyn ChipInterface,
+        addr: u32,
+    ) -> Result<u32, Box<dyn std::error::Error>> {
+        ifc.axi_read32(addr)
+    }
+    fn axi_translate(
+        &self,
+        addr: &str,
+    ) -> Result<
+        crate::device::tenstorrent_embedded::ttkmd::kmdif::AxiData,
+        Box<dyn std::error::Error>,
+    > {
+        crate::device::tenstorrent_embedded::luwen_ref::axi_translate(addr)
+    }
 }
 
 impl<T: ChipInterface> ChipComms for T {
     fn axi_sread32(&self, addr: &str) -> Result<u32, Box<dyn std::error::Error>> {
         self.axi_sread32(addr)
+    }
+
+    fn axi_write32(&self, addr: &str, value: u32) -> Result<(), Box<dyn std::error::Error>> {
+        let addr_data = crate::device::tenstorrent_embedded::luwen_ref::axi_translate(addr)?;
+        let data = value.to_le_bytes();
+        self.axi_write(addr_data.addr, &data)
     }
 }
 
@@ -78,6 +101,11 @@ impl ChipComms for Chip {
     fn axi_sread32(&self, addr: &str) -> Result<u32, Box<dyn std::error::Error>> {
         let (comms, _) = self.comms_obj();
         comms.axi_sread32(addr)
+    }
+
+    fn axi_write32(&self, addr: &str, value: u32) -> Result<(), Box<dyn std::error::Error>> {
+        let (comms, _) = self.comms_obj();
+        comms.axi_write32(addr, value)
     }
 }
 

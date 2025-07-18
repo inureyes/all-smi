@@ -4,6 +4,7 @@
 //! Embedded Tenstorrent support extracted from luwen library
 //! This module contains minimal functionality needed for tenstorrent device detection
 
+pub mod arc_msg;
 pub mod arch;
 pub mod chip;
 pub mod detect;

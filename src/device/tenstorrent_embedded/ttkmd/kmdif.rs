@@ -183,6 +183,12 @@ pub trait ChipInterface: Send + Sync {
         )?;
         Ok(u32::from_le_bytes(data))
     }
+
+    fn axi_read32(&self, addr: u32) -> Result<u32, Box<dyn std::error::Error>> {
+        let mut data = [0u8; 4];
+        self.axi_read(addr, &mut data)?;
+        Ok(u32::from_le_bytes(data))
+    }
 }
 
 impl<T: ChipInterface> ChipInterface for &T {
