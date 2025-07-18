@@ -420,16 +420,30 @@ impl LuwenChip {
         // For Wormhole/Blackhole, check if DDR training is complete
         if self.arch == Arch::Wormhole || self.arch == Arch::Blackhole {
             eprintln!("[DEBUG] Checking DDR training status...");
+
+            // Read some additional status registers to understand chip state
+            match self.axi_sread32("ARC_RESET.POST_CODE") {
+                Ok(post_code) => {
+                    eprintln!("[DEBUG] ARC POST_CODE: 0x{post_code:x}");
+                }
+                Err(e) => {
+                    eprintln!("[DEBUG] Could not read POST_CODE: {e}");
+                }
+            }
+
             // Try to read telemetry to check DDR status
             match self.get_telemetry_no_retry() {
                 Ok(telemetry) => {
-                    if telemetry.ddr_status != 0 {
+                    if telemetry.ddr_status != 0 && telemetry.ddr_status != 0x66666666 {
                         eprintln!(
                             "[DEBUG] DDR training complete (status: 0x{:x})",
                             telemetry.ddr_status
                         );
                     } else {
-                        eprintln!("[DEBUG] DDR not initialized, continuing anyway");
+                        eprintln!(
+                            "[DEBUG] DDR not initialized or telemetry not ready (status: 0x{:x})",
+                            telemetry.ddr_status
+                        );
                     }
                 }
                 Err(e) => {
@@ -509,13 +523,22 @@ impl LuwenChip {
 
             // Check if we're getting the magic number (uninitialized telemetry)
             let first_word = self.comms.axi_read32(telemetry_struct_offset)?;
-            if first_word == 0 {
+            eprintln!(
+                "[DEBUG] First word at CSM offset 0x{telemetry_struct_offset:x}: 0x{first_word:x}"
+            );
+
+            if first_word == 0 || first_word == 0x66666666 {
                 // Try the raw address
                 let first_word_raw = self.comms.axi_read32(telemetry_addr)?;
-                if first_word_raw == 0x66666666 {
+                eprintln!(
+                    "[DEBUG] First word at raw address 0x{telemetry_addr:x}: 0x{first_word_raw:x}"
+                );
+
+                if first_word_raw == 0x66666666 || first_word == 0x66666666 {
                     eprintln!(
                         "[DEBUG] Detected telemetry magic number 0x66666666, telemetry not ready"
                     );
+                    // Always use the raw address when we see magic number
                     return self.read_telemetry_from_offset(telemetry_addr);
                 }
             }
@@ -687,9 +710,16 @@ impl ChipImpl for LuwenChip {
         }
 
         // Retry logic for uninitialized telemetry
-        let max_retries = 10;
-        let retry_delay = std::time::Duration::from_millis(500);
+        // Increase retries and delay since firmware might need more time
+        let max_retries = 20;
+        let retry_delay = std::time::Duration::from_secs(1); // 1 second between retries
         let mut last_heartbeat = 0u32;
+
+        eprintln!(
+            "[DEBUG] Starting telemetry retry loop (max {} retries, {} second delay)",
+            max_retries,
+            retry_delay.as_secs()
+        );
 
         for retry in 0..max_retries {
             eprintln!(
@@ -722,6 +752,17 @@ impl ChipImpl for LuwenChip {
                         return Ok(telemetry);
                     }
                     eprintln!("[DEBUG] Still getting magic number on retry {}", retry + 1);
+
+                    // If we've tried enough times, just return what we have
+                    // The GUI can handle showing partial/default data
+                    if retry >= 5 {
+                        eprintln!(
+                            "[DEBUG] Returning telemetry with magic number after {} retries",
+                            retry + 1
+                        );
+                        eprintln!("[DEBUG] Note: This might be normal if the device is idle or firmware telemetry updates are disabled");
+                        return Ok(telemetry);
+                    }
 
                     // Update heartbeat even for magic number
                     last_heartbeat = telemetry.telemetry_heartbeat();
