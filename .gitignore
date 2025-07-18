@@ -2,4 +2,5 @@
 *.csv
 *.md
 .*
+.vendor
 /references

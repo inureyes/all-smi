@@ -1,8 +1,8 @@
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
+use all_smi_luwen_if::chip::{Chip, ChipImpl};
+use all_smi_luwen_if::ChipDetectOptions;
 use chrono::Local;
-use luwen_if::chip::{Chip, ChipImpl};
-use luwen_if::ChipDetectOptions;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -246,7 +246,7 @@ impl TenstorrentReader {
         };
 
         // Use detect_chips_silent to avoid progress bars and messages
-        match luwen_ref::detect_chips_silent(options) {
+        match all_smi_luwen_ref::detect_chips_silent(options) {
             Ok(uninit_chips) => {
                 let mut initialized_chips = Vec::new();
                 let mut devices = Vec::new();
@@ -304,9 +304,9 @@ impl TenstorrentReader {
                 let device_name = format!(
                     "Tenstorrent {} {}",
                     match telemetry.arch {
-                        luwen_core::Arch::Grayskull => "Grayskull",
-                        luwen_core::Arch::Wormhole => "Wormhole",
-                        luwen_core::Arch::Blackhole => "Blackhole",
+                        all_smi_luwen_core::Arch::Grayskull => "Grayskull",
+                        all_smi_luwen_core::Arch::Wormhole => "Wormhole",
+                        all_smi_luwen_core::Arch::Blackhole => "Blackhole",
                     },
                     board_type
                 );
@@ -388,9 +388,9 @@ impl TenstorrentReader {
                         _ => {
                             // Fallback based on architecture
                             match telemetry.arch {
-                                luwen_core::Arch::Grayskull => 75.0,
-                                luwen_core::Arch::Wormhole => 160.0,
-                                luwen_core::Arch::Blackhole => 350.0,
+                                all_smi_luwen_core::Arch::Grayskull => 75.0,
+                                all_smi_luwen_core::Arch::Wormhole => 160.0,
+                                all_smi_luwen_core::Arch::Blackhole => 350.0,
                             }
                         }
                     };
@@ -429,9 +429,9 @@ impl TenstorrentReader {
                                 // DDR speed field might contain memory size info
                                 // This is a conservative estimate
                                 match telemetry.arch {
-                                    luwen_core::Arch::Grayskull => 16 * 1024 * 1024 * 1024,
-                                    luwen_core::Arch::Wormhole => 32 * 1024 * 1024 * 1024,
-                                    luwen_core::Arch::Blackhole => 96 * 1024 * 1024 * 1024,
+                                    all_smi_luwen_core::Arch::Grayskull => 16 * 1024 * 1024 * 1024,
+                                    all_smi_luwen_core::Arch::Wormhole => 32 * 1024 * 1024 * 1024,
+                                    all_smi_luwen_core::Arch::Blackhole => 96 * 1024 * 1024 * 1024,
                                 }
                             } else {
                                 0
