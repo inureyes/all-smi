@@ -1,11 +1,13 @@
+use crate::device::process_list::{get_all_processes, merge_gpu_processes};
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use all_smi_luwen_if::chip::{Chip, ChipImpl};
 use all_smi_luwen_if::ChipDetectOptions;
 use chrono::Local;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+use sysinfo::System;
 
 /// Collection method for Tenstorrent NPU metrics
 #[derive(Debug, Clone, Copy)]
@@ -535,20 +537,191 @@ impl TenstorrentReader {
     }
 
     /// Get processes using Tenstorrent NPUs via device files
-    fn get_processes_via_device_files(&self) -> Vec<ProcessInfo> {
-        // NOTE: Process information is not directly available through the device interface
-        // The luwen API and device files don't expose per-process GPU usage information
-        // This is different from NVIDIA GPUs where nvidia-smi can track process usage
-        //
-        // Future improvement: Could potentially track which processes have the device file open
-        // using lsof or /proc, but this wouldn't show actual GPU utilization per process
-        vec![]
+    fn get_processes_via_device_files(&self) -> (Vec<ProcessInfo>, HashSet<u32>) {
+        let mut gpu_processes = Vec::new();
+        let mut gpu_pids = HashSet::new();
+
+        // Get cached device UUIDs for mapping
+        let device_uuids = if let Ok(cache) = INITIALIZED_CHIPS.lock() {
+            if let Some(ref cached_chips) = *cache {
+                cached_chips
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, info)| (idx as u32, info.static_info.uuid.clone()))
+                    .collect::<HashMap<u32, String>>()
+            } else {
+                HashMap::new()
+            }
+        } else {
+            HashMap::new()
+        };
+
+        #[cfg(target_os = "linux")]
+        {
+            // On Linux, scan /proc/*/fd/* to find processes with Tenstorrent device files open
+            if let Ok(entries) = std::fs::read_dir("/proc") {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        // Check if this is a PID directory
+                        if let Some(pid_str) = path.file_name().and_then(|s| s.to_str()) {
+                            if let Ok(pid) = pid_str.parse::<u32>() {
+                                // Skip kernel threads (they don't have fd directory)
+                                let fd_path = path.join("fd");
+                                if !fd_path.exists() {
+                                    continue;
+                                }
+
+                                // Check the file descriptors for this process
+                                if let Ok(fd_entries) = std::fs::read_dir(&fd_path) {
+                                    let mut process_devices = Vec::new();
+
+                                    for fd_entry in fd_entries.flatten() {
+                                        // Read the symlink to see what file it points to
+                                        if let Ok(target) = std::fs::read_link(fd_entry.path()) {
+                                            if let Some(target_str) = target.to_str() {
+                                                // Check if this is a Tenstorrent device file
+                                                if target_str.starts_with("/dev/tenstorrent/") {
+                                                    // Extract device ID from path
+                                                    if let Some(device_id) = target_str
+                                                        .strip_prefix("/dev/tenstorrent/")
+                                                        .and_then(|s| s.parse::<u32>().ok())
+                                                    {
+                                                        process_devices.push(device_id);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Add process info for each device it's using
+                                    for device_id in process_devices {
+                                        gpu_pids.insert(pid);
+
+                                        let device_uuid = device_uuids
+                                            .get(&device_id)
+                                            .cloned()
+                                            .unwrap_or_else(|| format!("tt{device_id}"));
+
+                                        gpu_processes.push(ProcessInfo {
+                                            device_id: device_id as usize,
+                                            device_uuid,
+                                            pid,
+                                            process_name: String::new(), // Will be filled by sysinfo
+                                            used_memory: 0, // Can't determine without proper API
+                                            cpu_percent: 0.0,
+                                            memory_percent: 0.0,
+                                            memory_rss: 0,
+                                            memory_vms: 0,
+                                            user: String::new(),
+                                            state: String::new(),
+                                            start_time: String::new(),
+                                            cpu_time: 0,
+                                            command: String::new(),
+                                            ppid: 0,
+                                            threads: 0,
+                                            uses_gpu: true,
+                                            priority: 0,
+                                            nice_value: 0,
+                                            gpu_utilization: 0.0,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // On macOS, use lsof to find processes with Tenstorrent device files open
+            use std::path::Path;
+            use std::process::Command;
+
+            // First, check if any Tenstorrent devices exist
+            let dev_path = Path::new("/dev");
+            let device_files: Vec<String> = if let Ok(entries) = std::fs::read_dir(dev_path) {
+                entries
+                    .flatten()
+                    .filter_map(|entry| {
+                        let name = entry.file_name().to_string_lossy().into_owned();
+                        if name.starts_with("tenstorrent") {
+                            Some(format!("/dev/{name}"))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+
+            if !device_files.is_empty() {
+                // Use lsof to find processes using specific Tenstorrent devices
+                for device_file in &device_files {
+                    if let Ok(output) = Command::new("lsof")
+                        .args(["-F", "pn", device_file])
+                        .output()
+                    {
+                        let output_str = String::from_utf8_lossy(&output.stdout);
+                        let mut current_pid = None;
+
+                        for line in output_str.lines() {
+                            if let Some(pid_str) = line.strip_prefix('p') {
+                                current_pid = pid_str.parse::<u32>().ok();
+                            } else if let Some(device_path) = line.strip_prefix('n') {
+                                if let Some(pid) = current_pid {
+                                    // Extract device ID from path
+                                    let device_id = device_path
+                                        .strip_prefix("/dev/tenstorrent")
+                                        .and_then(|s| s.parse::<u32>().ok())
+                                        .unwrap_or(0);
+
+                                    gpu_pids.insert(pid);
+
+                                    let device_uuid = device_uuids
+                                        .get(&device_id)
+                                        .cloned()
+                                        .unwrap_or_else(|| format!("tt{device_id}"));
+
+                                    gpu_processes.push(ProcessInfo {
+                                        device_id: device_id as usize,
+                                        device_uuid,
+                                        pid,
+                                        process_name: String::new(),
+                                        used_memory: 0,
+                                        cpu_percent: 0.0,
+                                        memory_percent: 0.0,
+                                        memory_rss: 0,
+                                        memory_vms: 0,
+                                        user: String::new(),
+                                        state: String::new(),
+                                        start_time: String::new(),
+                                        cpu_time: 0,
+                                        command: String::new(),
+                                        ppid: 0,
+                                        threads: 0,
+                                        uses_gpu: true,
+                                        priority: 0,
+                                        nice_value: 0,
+                                        gpu_utilization: 0.0,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        (gpu_processes, gpu_pids)
     }
 
     /// Collect process info using the configured method with fallback
-    fn collect_process_info(&self) -> Vec<ProcessInfo> {
+    fn collect_process_info(&self) -> (Vec<ProcessInfo>, HashSet<u32>) {
         // Try primary method first
-
         match self.config.primary_method {
             CollectionMethod::DeviceFile => self.get_processes_via_device_files(),
         }
@@ -561,7 +734,20 @@ impl GpuReader for TenstorrentReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        self.collect_process_info()
+        // Create a new system instance and refresh it
+        let mut system = System::new_all();
+        system.refresh_all();
+
+        // Get GPU processes and PIDs
+        let (gpu_processes, gpu_pids) = self.collect_process_info();
+
+        // Get all system processes
+        let mut all_processes = get_all_processes(&system, &gpu_pids);
+
+        // Merge GPU information into the process list
+        merge_gpu_processes(&mut all_processes, gpu_processes);
+
+        all_processes
     }
 }
 
