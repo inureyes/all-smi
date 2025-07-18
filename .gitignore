@@ -1,6 +1,64 @@
-/target
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo
+Cargo.lock
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Vendor directories
+/vendor/
+.vendor/
+
+# Test and temporary files
 *.csv
+hosts.csv
+test-hosts.csv
+
+# Documentation (if generated)
+/doc/
+/target/doc/
+
+# References and notes
+/references/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+*.tmp
+*.temp
+
+# Log files
+*.log
+
+# Coverage reports
+*.profraw
+*.profdata
+/coverage/
+
+# Benchmark results
+/target/criterion/
+
+# Debug artifacts
+*.dSYM/
+
+# Python cache (if any Python scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Project maintenance (custom)
 *.md
 .*
-.vendor
-/references
