@@ -13,26 +13,8 @@ use super::error::PlatformError;
 use super::ttkmd::ioctl::ioctl_query_mappings;
 use super::ttkmd::pci::QueryMappings;
 
-/// Memory protection flags for mmap
-const PROT_READ: i32 = 0x1;
-const PROT_WRITE: i32 = 0x2;
-
-/// Mapping flags for mmap
-const MAP_SHARED: i32 = 0x1;
-
-// External mmap function binding
-extern "C" {
-    fn mmap(
-        addr: *mut std::ffi::c_void,
-        length: usize,
-        prot: i32,
-        flags: i32,
-        fd: i32,
-        offset: i64,
-    ) -> *mut std::ffi::c_void;
-
-    fn munmap(addr: *mut std::ffi::c_void, length: usize) -> i32;
-}
+// Import libc for system calls
+use libc::{mmap, munmap, sysconf, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE, _SC_PAGESIZE};
 
 /// Represents a mapped BAR region
 pub struct BarMapping {
@@ -64,6 +46,7 @@ impl BarManager {
     /// Create a new BAR manager for a device
     pub fn new(device_id: usize) -> Result<Self, PlatformError> {
         let path = format!("/dev/tenstorrent/{device_id}");
+        eprintln!("[DEBUG] Opening device file: {path}");
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -94,30 +77,75 @@ impl BarManager {
                 continue; // Unused mapping
             }
 
+            // Convert mapping_id to enum for clarity
+            let mapping_type = match mapping.mapping_id {
+                1 => "Resource0 UC (BAR0 uncached)",
+                2 => "Resource0 WC (BAR0 write-combined)",
+                3 => "Resource1 UC (BAR1 uncached)",
+                4 => "Resource1 WC (BAR1 write-combined)",
+                5 => "Resource2 UC (BAR2/4 uncached)",
+                6 => "Resource2 WC (BAR2/4 write-combined)",
+                _ => "Unknown",
+            };
+
             eprintln!(
-                "[DEBUG] Mapping BAR {}: addr=0x{:x}, size=0x{:x}",
-                mapping.mapping_id, mapping.base_address, mapping.mapping_size
+                "[DEBUG] Mapping ID {} ({}): offset=0x{:x}, size=0x{:x}",
+                mapping.mapping_id, mapping_type, mapping.base_address, mapping.mapping_size
             );
+
+            // Check if size is valid
+            if mapping.mapping_size == 0 {
+                eprintln!(
+                    "[WARN] Skipping mapping {} with zero size",
+                    mapping.mapping_id
+                );
+                continue;
+            }
 
             // Memory map the BAR directly using the base_address from kernel driver
             // The kernel driver provides the appropriate offset for mmap
             let mmap_offset = mapping.base_address as i64;
+
+            // Ensure offset is page-aligned
+            let page_size = unsafe { sysconf(_SC_PAGESIZE) } as i64;
+            if mmap_offset % page_size != 0 {
+                eprintln!(
+                    "[WARN] Mapping offset 0x{mmap_offset:x} is not page-aligned (page_size=0x{page_size:x})"
+                );
+            }
+
+            eprintln!(
+                "[DEBUG] Calling mmap: fd={}, offset=0x{:x}, size=0x{:x} ({}MB)",
+                self.device_file.as_raw_fd(),
+                mmap_offset,
+                mapping.mapping_size,
+                mapping.mapping_size / (1024 * 1024)
+            );
+
+            // Validate file descriptor
+            let fd = self.device_file.as_raw_fd();
+            if fd < 0 {
+                return Err(PlatformError::IoError(format!(
+                    "Invalid file descriptor: {fd}"
+                )));
+            }
+
             let ptr = unsafe {
                 mmap(
                     ptr::null_mut(),
                     mapping.mapping_size as usize,
                     PROT_READ | PROT_WRITE,
                     MAP_SHARED,
-                    self.device_file.as_raw_fd(),
+                    fd,
                     mmap_offset,
                 )
             };
 
-            if ptr as isize == -1 {
+            if ptr == MAP_FAILED {
                 let err = std::io::Error::last_os_error();
                 return Err(PlatformError::IoError(format!(
-                    "Failed to mmap BAR {} at offset 0x{:x}, size 0x{:x}: {}",
-                    mapping.mapping_id, mmap_offset, mapping.mapping_size, err
+                    "Failed to mmap {} (id={}) at offset 0x{:x}, size 0x{:x}: {}",
+                    mapping_type, mapping.mapping_id, mmap_offset, mapping.mapping_size, err
                 )));
             }
 
@@ -130,10 +158,7 @@ impl BarManager {
                 },
             );
 
-            eprintln!(
-                "[DEBUG] Successfully mapped BAR {} at {:p}",
-                mapping.mapping_id, ptr
-            );
+            eprintln!("[DEBUG] Successfully mapped {mapping_type} at {ptr:p}");
         }
 
         Ok(())
