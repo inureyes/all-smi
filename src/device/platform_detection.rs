@@ -149,23 +149,11 @@ pub fn has_tenstorrent() -> bool {
         if let Ok(output) = Command::new("lspci").output() {
             if output.status.success() {
                 let output_str = String::from_utf8_lossy(&output.stdout);
-                // Look for Tenstorrent devices
-                if output_str.contains("Tenstorrent") {
+                // Look for Tenstorrent devices by vendor ID 1e52
+                if output_str.contains("1e52") || output_str.contains("Tenstorrent") {
                     return true;
                 }
             }
-        }
-    }
-
-    // Last resort: check if tt-smi can actually list devices
-    if let Ok(output) = Command::new("tt-smi")
-        .args(["-s", "--snapshot_no_tty"])
-        .output()
-    {
-        if output.status.success() {
-            // Check if output contains device_info
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            return output_str.contains("device_info");
         }
     }
 

@@ -1,0 +1,145 @@
+// SPDX-FileCopyrightText: © 2023 Tenstorrent Inc.
+// SPDX-License-Identifier: Apache-2.0
+// Simplified detection logic extracted from luwen-ref
+
+use super::{
+    arch::Arch,
+    chip::{Chip, ChipComms},
+    error::PlatformError,
+    luwen_ref::{comms_callback, ExtendedPciDevice},
+    ttkmd::kmdif::PciDevice,
+};
+
+/// Options for chip detection
+#[derive(Default)]
+pub struct ChipDetectOptions {
+    /// If true, then we will search for chips directly available over a physical interface
+    #[allow(dead_code)]
+    pub local_only: bool,
+    /// If len > 0 then only chips with the given archs will be returned
+    pub chip_filter: Vec<Arch>,
+}
+
+/// Represents a chip which may or may not be initialized
+pub enum UninitChip {
+    /// The chip is fine and can be safely used
+    Initialized(Chip),
+    Partially {
+        status: Box<String>,
+        underlying: Chip,
+    },
+}
+
+impl UninitChip {
+    /// Initialize the chip
+    pub fn init<E>(self, _callback: &mut impl FnMut(()) -> Result<(), E>) -> Result<Chip, E> {
+        match self {
+            UninitChip::Initialized(chip) => Ok(chip),
+            UninitChip::Partially { underlying, .. } => Ok(underlying),
+        }
+    }
+}
+
+/// Error type for detection
+#[derive(Debug)]
+pub struct DetectError(pub String);
+
+impl std::fmt::Display for DetectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for DetectError {}
+
+pub fn detect_chips_silent(_options: ChipDetectOptions) -> Result<Vec<UninitChip>, PlatformError> {
+    let mut chips = Vec::new();
+
+    let device_ids = PciDevice::scan();
+    eprintln!(
+        "[DEBUG] detect_chips_silent: Found {} device IDs",
+        device_ids.len()
+    );
+    for device_id in device_ids {
+        eprintln!("[DEBUG] Processing device ID: {device_id}");
+        eprintln!("[DEBUG] Opening ExtendedPciDevice for device {device_id}");
+        let ud = match ExtendedPciDevice::open(device_id) {
+            Ok(ud) => {
+                eprintln!("[DEBUG] ExtendedPciDevice opened successfully");
+                ud
+            }
+            Err(e) => {
+                eprintln!("[DEBUG] ExtendedPciDevice::open failed: {e:?}");
+                return Err(PlatformError::from(e));
+            }
+        };
+
+        let arch = ud.borrow().device.arch;
+        eprintln!("[DEBUG] Device architecture: {arch:?}");
+
+        eprintln!("[DEBUG] Opening Chip with arch {arch:?}");
+        let chip = match Chip::open(
+            arch,
+            crate::device::tenstorrent_embedded::interface::CallbackStorage::new(
+                comms_callback,
+                ud.clone(),
+            ),
+        ) {
+            Ok(chip) => {
+                eprintln!("[DEBUG] Chip opened successfully");
+                chip
+            }
+            Err(e) => {
+                eprintln!("[DEBUG] Chip::open failed: {e:?}");
+                return Err(e);
+            }
+        };
+
+        // First let's test basic pcie communication we may be in a hang state so it's
+        // important that we let the detect function know
+
+        // Hack(drosen): Basic init procedure should resolve this
+        let scratch_0 = if chip.get_arch().is_blackhole() {
+            "arc_ss.reset_unit.SCRATCH_0"
+        } else {
+            "ARC_RESET.SCRATCH[0]"
+        };
+        eprintln!("[DEBUG] Testing PCIe communication by reading {scratch_0}");
+        let result = chip.axi_sread32(scratch_0);
+        if let Err(err) = result {
+            eprintln!("[DEBUG] PCIe communication test failed: {err:?}");
+            // Basic comms have failed... we should output a nice error message on the console
+            chips.push(UninitChip::Partially {
+                status: Box::new(err.to_string()),
+                underlying: chip,
+            });
+        } else {
+            eprintln!("[DEBUG] PCIe communication test passed");
+
+            // Try to wait for initialization before adding the chip
+            eprintln!("[DEBUG] Attempting chip initialization...");
+            if let Some(luwen_chip) = chip
+                .inner
+                .as_any()
+                .downcast_ref::<super::luwen_ref::LuwenChip>()
+            {
+                match luwen_chip.wait_for_init() {
+                    Ok(()) => {
+                        eprintln!("[DEBUG] Chip initialization successful");
+                    }
+                    Err(e) => {
+                        eprintln!("[DEBUG] Chip initialization failed (continuing anyway): {e}");
+                    }
+                }
+            }
+
+            chips.push(UninitChip::Initialized(chip));
+        }
+    }
+
+    eprintln!(
+        "[DEBUG] detect_chips_silent completed, found {} chips",
+        chips.len()
+    );
+    Ok(chips)
+}

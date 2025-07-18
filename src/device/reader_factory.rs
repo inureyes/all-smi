@@ -31,6 +31,7 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
 
             // Check for Tenstorrent NPU support
             if has_tenstorrent() {
+                // Use the improved implementation with proper BAR mapping
                 readers.push(Box::new(tenstorrent::TenstorrentReader::new()));
             }
         }
