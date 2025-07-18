@@ -77,16 +77,14 @@ pub fn arc_msg<T: HlComms>(
     let msg_val = 0xaa00 | msg_code as u32;
 
     // Write args to return register first if needed
-    ifc.axi_write(
-        addrs.scratch_base + (return_reg as u32 * 4),
-        &(arg0 as u32).to_le_bytes(),
-    )?;
+    let return_addr = addrs.scratch_base + (return_reg as u32 * 4);
+    eprintln!("[DEBUG] Writing arg0={arg0} to return register at 0x{return_addr:x}");
+    ifc.axi_write(return_addr, &(arg0 as u32).to_le_bytes())?;
 
     // Write the message
-    ifc.axi_write(
-        addrs.scratch_base + (msg_reg as u32 * 4),
-        &msg_val.to_le_bytes(),
-    )?;
+    let msg_addr = addrs.scratch_base + (msg_reg as u32 * 4);
+    eprintln!("[DEBUG] Writing message 0x{msg_val:x} to msg register at 0x{msg_addr:x}");
+    ifc.axi_write(msg_addr, &msg_val.to_le_bytes())?;
 
     // Trigger the interrupt by setting bit 16
     let misc_val = ifc.axi_read32(addrs.arc_misc_cntl)?;
@@ -98,13 +96,22 @@ pub fn arc_msg<T: HlComms>(
 
     // Wait for response
     let start = std::time::Instant::now();
+    let mut first_check = true;
     loop {
         let status = ifc.axi_read32(addrs.scratch_base + (msg_reg as u32 * 4))?;
+
+        if first_check {
+            eprintln!("[DEBUG] Initial status read: 0x{status:x}");
+            first_check = false;
+        }
 
         // Check if message is complete - the lower 16 bits should match our message code
         if (status & 0xFFFF) as u16 == msg_code {
             let _exit_code = (status >> 16) & 0xFFFF;
             let arg = ifc.axi_read32(addrs.scratch_base + (return_reg as u32 * 4))?;
+            eprintln!(
+                "[DEBUG] Message complete! Exit code: 0x{_exit_code:x}, return value: 0x{arg:x}"
+            );
             return Ok(ArcMsgOk::Ok { arg });
         }
 

@@ -413,6 +413,13 @@ impl ChipImpl for LuwenChip {
                 (5, 3)
             };
 
+            eprintln!("[DEBUG] Sending ARC message GetSmbusTelemetryAddr (0x2C) to msg_reg={msg_reg}, return_reg={return_reg}");
+            eprintln!(
+                "[DEBUG] scratch_base=0x{:x}, arc_misc_cntl=0x{:x}",
+                msg_options.addrs.as_ref().unwrap().scratch_base,
+                msg_options.addrs.as_ref().unwrap().arc_misc_cntl
+            );
+
             let telemetry_addr = match super::arc_msg::arc_msg(
                 self,
                 &msg_options.msg,
@@ -422,9 +429,19 @@ impl ChipImpl for LuwenChip {
                 return_reg,
                 msg_options.addrs.as_ref().unwrap(),
             ) {
-                Ok(super::arc_msg::ArcMsgOk::Ok { arg }) => arg,
-                _ => {
-                    eprintln!("[DEBUG] Failed to get telemetry address via ARC message");
+                Ok(super::arc_msg::ArcMsgOk::Ok { arg }) => {
+                    eprintln!("[DEBUG] ARC message returned telemetry address: 0x{arg:x}");
+                    arg
+                }
+                Ok(super::arc_msg::ArcMsgOk::OkNoWait) => {
+                    eprintln!("[DEBUG] ARC message returned OkNoWait (unexpected)");
+                    return Ok(Telemetry {
+                        arch: self.arch,
+                        ..Default::default()
+                    });
+                }
+                Err(e) => {
+                    eprintln!("[DEBUG] Failed to get telemetry address via ARC message: {e:?}");
                     return Ok(Telemetry {
                         arch: self.arch,
                         ..Default::default()
@@ -434,8 +451,13 @@ impl ChipImpl for LuwenChip {
 
             // Calculate CSM offset
             let csm_offset = self.axi_translate("ARC_CSM.DATA[0]")?.addr;
-            let telemetry_struct_offset = csm_offset + (telemetry_addr & 0x00ffffff);
+            let telemetry_struct_offset = csm_offset + (telemetry_addr - 0x10000000);
 
+            eprintln!("[DEBUG] CSM base offset: 0x{csm_offset:x}");
+            eprintln!(
+                "[DEBUG] Telemetry addr adjusted: 0x{:x}",
+                telemetry_addr - 0x10000000
+            );
             eprintln!("[DEBUG] Reading telemetry from offset: 0x{telemetry_struct_offset:x}");
 
             // Read telemetry fields
