@@ -462,44 +462,86 @@ impl ChipImpl for LuwenChip {
 
             // Read telemetry fields
             let enum_version = self.comms.axi_read32(telemetry_struct_offset)?;
+            eprintln!(
+                "[DEBUG] enum_version at offset 0x{telemetry_struct_offset:x}: 0x{enum_version:x}"
+            );
+
             let device_id = self.comms.axi_read32(telemetry_struct_offset + 4)?;
+            eprintln!(
+                "[DEBUG] device_id at offset 0x{:x}: 0x{:x}",
+                telemetry_struct_offset + 4,
+                device_id
+            );
+
             let asic_ro = self.comms.axi_read32(telemetry_struct_offset + 8)?;
             let asic_idd = self.comms.axi_read32(telemetry_struct_offset + 12)?;
             let board_id_high = self.comms.axi_read32(telemetry_struct_offset + 16)?;
             let board_id_low = self.comms.axi_read32(telemetry_struct_offset + 20)?;
-            let arc0_fw_version = self.comms.axi_read32(telemetry_struct_offset + 24)?;
-            let arc1_fw_version = self.comms.axi_read32(telemetry_struct_offset + 28)?;
-            let arc2_fw_version = self.comms.axi_read32(telemetry_struct_offset + 32)?;
-            let arc3_fw_version = self.comms.axi_read32(telemetry_struct_offset + 36)?;
-            let spibootrom_fw_version = self.comms.axi_read32(telemetry_struct_offset + 40)?;
-            let eth_fw_version = self.comms.axi_read32(telemetry_struct_offset + 44)?;
-            let m3_bl_fw_version = self.comms.axi_read32(telemetry_struct_offset + 48)?;
-            let m3_app_fw_version = self.comms.axi_read32(telemetry_struct_offset + 52)?;
-            let ddr_status = self.comms.axi_read32(telemetry_struct_offset + 56)?;
-            let eth_status0 = self.comms.axi_read32(telemetry_struct_offset + 60)?;
-            let eth_status1 = self.comms.axi_read32(telemetry_struct_offset + 64)?;
-            let pcie_status = self.comms.axi_read32(telemetry_struct_offset + 68)?;
-            let faults = self.comms.axi_read32(telemetry_struct_offset + 72)?;
-            let arc0_health = self.comms.axi_read32(telemetry_struct_offset + 76)?;
-            let arc1_health = self.comms.axi_read32(telemetry_struct_offset + 80)?;
-            let arc2_health = self.comms.axi_read32(telemetry_struct_offset + 84)?;
-            let arc3_health = self.comms.axi_read32(telemetry_struct_offset + 88)?;
-            let fan_speed = self.comms.axi_read32(telemetry_struct_offset + 92)?;
-            let aiclk = self.comms.axi_read32(telemetry_struct_offset + 96)?;
-            let axiclk = self.comms.axi_read32(telemetry_struct_offset + 100)?;
-            let arcclk = self.comms.axi_read32(telemetry_struct_offset + 104)?;
-            let throttler = self.comms.axi_read32(telemetry_struct_offset + 108)?;
-            let vcore = self.comms.axi_read32(telemetry_struct_offset + 112)?;
-            let asic_temperature = self.comms.axi_read32(telemetry_struct_offset + 116)?;
-            let vreg_temperature = self.comms.axi_read32(telemetry_struct_offset + 120)?;
-            let board_temperature = self.comms.axi_read32(telemetry_struct_offset + 124)?;
-            let tdp = self.comms.axi_read32(telemetry_struct_offset + 128)?;
-            let tdc = self.comms.axi_read32(telemetry_struct_offset + 132)?;
-            let vdd_limits = self.comms.axi_read32(telemetry_struct_offset + 136)?;
-            let thm_limits = self.comms.axi_read32(telemetry_struct_offset + 140)?;
-            let wh_fw_date = self.comms.axi_read32(telemetry_struct_offset + 144)?;
-            let asic_tmon0 = self.comms.axi_read32(telemetry_struct_offset + 148)?;
-            let asic_tmon1 = self.comms.axi_read32(telemetry_struct_offset + 152)?;
+            eprintln!("[DEBUG] board_id: 0x{board_id_high:08x}{board_id_low:08x}");
+            // Note: Following the exact offset mapping from luwen reference
+            let arc0_fw_version = self.comms.axi_read32(telemetry_struct_offset + (6 * 4))?;
+            let arc1_fw_version = self.comms.axi_read32(telemetry_struct_offset + (7 * 4))?;
+            let arc2_fw_version = self.comms.axi_read32(telemetry_struct_offset + (8 * 4))?;
+            let arc3_fw_version = self.comms.axi_read32(telemetry_struct_offset + (9 * 4))?;
+            let spibootrom_fw_version =
+                self.comms.axi_read32(telemetry_struct_offset + (10 * 4))?;
+            let eth_fw_version = self.comms.axi_read32(telemetry_struct_offset + (11 * 4))?;
+            let m3_bl_fw_version = self.comms.axi_read32(telemetry_struct_offset + (12 * 4))?;
+            let m3_app_fw_version = self.comms.axi_read32(telemetry_struct_offset + (13 * 4))?;
+            let ddr_status = self.comms.axi_read32(telemetry_struct_offset + (14 * 4))?;
+            let eth_status0 = self.comms.axi_read32(telemetry_struct_offset + (15 * 4))?;
+            let eth_status1 = self.comms.axi_read32(telemetry_struct_offset + (16 * 4))?;
+            let pcie_status = self.comms.axi_read32(telemetry_struct_offset + (17 * 4))?;
+            let faults = self.comms.axi_read32(telemetry_struct_offset + (18 * 4))?;
+            let arc0_health = self.comms.axi_read32(telemetry_struct_offset + (19 * 4))?;
+            let arc1_health = self.comms.axi_read32(telemetry_struct_offset + (20 * 4))?;
+            let arc2_health = self.comms.axi_read32(telemetry_struct_offset + (21 * 4))?;
+            let arc3_health = self.comms.axi_read32(telemetry_struct_offset + (22 * 4))?;
+            let fan_speed = self.comms.axi_read32(telemetry_struct_offset + (23 * 4))?;
+            let aiclk = self.comms.axi_read32(telemetry_struct_offset + (24 * 4))?;
+            eprintln!(
+                "[DEBUG] aiclk at offset 0x{:x}: 0x{:x} ({})",
+                telemetry_struct_offset + (24 * 4),
+                aiclk,
+                aiclk & 0xffff
+            );
+
+            let axiclk = self.comms.axi_read32(telemetry_struct_offset + (25 * 4))?;
+            let arcclk = self.comms.axi_read32(telemetry_struct_offset + (26 * 4))?;
+            let throttler = self.comms.axi_read32(telemetry_struct_offset + (27 * 4))?;
+
+            let vcore = self.comms.axi_read32(telemetry_struct_offset + (28 * 4))?;
+            eprintln!(
+                "[DEBUG] vcore at offset 0x{:x}: 0x{:x} ({}mV)",
+                telemetry_struct_offset + (28 * 4),
+                vcore,
+                vcore
+            );
+
+            let asic_temperature = self.comms.axi_read32(telemetry_struct_offset + (29 * 4))?;
+            eprintln!(
+                "[DEBUG] asic_temperature at offset 0x{:x}: 0x{:x}",
+                telemetry_struct_offset + (29 * 4),
+                asic_temperature
+            );
+
+            let vreg_temperature = self.comms.axi_read32(telemetry_struct_offset + (30 * 4))?;
+            let board_temperature = self.comms.axi_read32(telemetry_struct_offset + (31 * 4))?;
+
+            let tdp = self.comms.axi_read32(telemetry_struct_offset + (32 * 4))?;
+            eprintln!(
+                "[DEBUG] tdp at offset 0x{:x}: 0x{:x} ({}W)",
+                telemetry_struct_offset + (32 * 4),
+                tdp,
+                tdp & 0xffff
+            );
+
+            let tdc = self.comms.axi_read32(telemetry_struct_offset + (33 * 4))?;
+            let vdd_limits = self.comms.axi_read32(telemetry_struct_offset + (34 * 4))?;
+            let thm_limits = self.comms.axi_read32(telemetry_struct_offset + (35 * 4))?;
+            let wh_fw_date = self.comms.axi_read32(telemetry_struct_offset + (36 * 4))?;
+            let asic_tmon0 = self.comms.axi_read32(telemetry_struct_offset + (37 * 4))?;
+            let asic_tmon1 = self.comms.axi_read32(telemetry_struct_offset + (38 * 4))?;
 
             eprintln!(
                 "[DEBUG] Telemetry read: aiclk={aiclk}, vcore={vcore}, tdp={tdp}, temperature={asic_temperature}"
