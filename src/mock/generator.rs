@@ -304,6 +304,41 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 e_cluster_frequency_mhz: None,
             }
         }
+        PlatformType::Tenstorrent => {
+            // Tenstorrent NPU server (typically AMD CPU)
+            let models = ["AMD EPYC 7713P", "AMD EPYC 7763", "AMD EPYC 9754"];
+            let model = models[rng.random_range(0..models.len())].to_string();
+
+            let socket_count = 1; // Tenstorrent systems often use single-socket configurations
+            let cores_per_socket = rng.random_range(32..64);
+            let total_cores = socket_count * cores_per_socket;
+            let total_threads = total_cores * 2;
+
+            let socket_utilizations: Vec<f32> = (0..socket_count)
+                .map(|_| rng.random_range(25.0..75.0))
+                .collect();
+            let overall_util =
+                socket_utilizations.iter().sum::<f32>() / socket_utilizations.len() as f32;
+
+            CpuMetrics {
+                model,
+                utilization: overall_util,
+                socket_count,
+                core_count: total_cores,
+                thread_count: total_threads,
+                frequency_mhz: rng.random_range(2800..3500),
+                temperature_celsius: Some(rng.random_range(55..75)),
+                power_consumption_watts: Some(rng.random_range(180.0..280.0)),
+                socket_utilizations,
+                p_core_count: None,
+                e_core_count: None,
+                gpu_core_count: None,
+                p_core_utilization: None,
+                e_core_utilization: None,
+                p_cluster_frequency_mhz: None,
+                e_cluster_frequency_mhz: None,
+            }
+        }
     }
 }
 

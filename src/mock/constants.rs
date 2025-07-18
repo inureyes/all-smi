@@ -2,6 +2,7 @@
 
 // General configuration constants
 pub const DEFAULT_GPU_NAME: &str = "NVIDIA H200 141GB HBM3";
+pub const DEFAULT_TENSTORRENT_NAME: &str = "Tenstorrent Grayskull e75 120W";
 pub const NUM_GPUS: usize = 8;
 pub const UPDATE_INTERVAL_SECS: u64 = 3;
 pub const MAX_CONNECTIONS_PER_SERVER: usize = 10;

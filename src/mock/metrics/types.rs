@@ -7,6 +7,7 @@ pub enum PlatformType {
     Jetson,
     Intel,
     Amd,
+    Tenstorrent,
 }
 
 impl PlatformType {
@@ -17,6 +18,7 @@ impl PlatformType {
             "jetson" => PlatformType::Jetson,
             "intel" => PlatformType::Intel,
             "amd" => PlatformType::Amd,
+            "tenstorrent" | "tt" => PlatformType::Tenstorrent,
             _ => {
                 eprintln!("Unknown platform '{platform_str}', defaulting to nvidia");
                 PlatformType::Nvidia

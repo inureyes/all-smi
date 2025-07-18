@@ -103,8 +103,11 @@ pub fn build_response_template(
         }
     }
 
-    // GPU vendor info metrics (NVIDIA and Jetson)
-    if matches!(platform, PlatformType::Nvidia | PlatformType::Jetson) {
+    // GPU vendor info metrics (NVIDIA, Jetson, and Tenstorrent)
+    if matches!(
+        platform,
+        PlatformType::Nvidia | PlatformType::Jetson | PlatformType::Tenstorrent
+    ) {
         template.push_str("# HELP all_smi_gpu_info GPU vendor-specific information\n");
         template.push_str("# TYPE all_smi_gpu_info info\n");
 
@@ -151,6 +154,26 @@ pub fn build_response_template(
                     labels.push("performance_state=\"P0\"".to_string());
                     labels.push("vbios_version=\"96.00.61.00.01\"".to_string());
                 }
+                PlatformType::Tenstorrent => {
+                    // Tenstorrent NPU specific labels
+                    labels[4] = "type=\"NPU\"".to_string(); // Override type to NPU
+
+                    // Determine architecture based on NPU name
+                    let (architecture, board_type) = if gpu_name.contains("Grayskull") {
+                        ("Grayskull", "e75")
+                    } else if gpu_name.contains("Wormhole") {
+                        ("Wormhole", "n150")
+                    } else if gpu_name.contains("Blackhole") {
+                        ("Blackhole", "p100")
+                    } else {
+                        ("Grayskull", "e75") // Default to Grayskull
+                    };
+
+                    labels.push("driver_version=\"1.0.0\"".to_string());
+                    labels.push(format!("architecture=\"{architecture}\""));
+                    labels.push(format!("board_type=\"{board_type}\""));
+                    labels.push("firmware=\"2.9.1\"".to_string());
+                }
                 PlatformType::Jetson => {
                     // Determine Jetson variant based on GPU name
                     let (driver_version, cuda_version, compute_capability) =
@@ -178,6 +201,11 @@ pub fn build_response_template(
         // Add numeric metrics for NVIDIA GPUs
         if let PlatformType::Nvidia = platform {
             add_nvidia_numeric_metrics(&mut template, instance_name, gpu_name, gpus);
+        }
+
+        // Add Tenstorrent-specific metrics
+        if let PlatformType::Tenstorrent = platform {
+            add_tenstorrent_metrics(&mut template, instance_name, gpu_name, gpus);
         }
     }
 
@@ -614,6 +642,52 @@ pub fn render_response(
             };
             response = response.replace(&format!("{{{{PSTATE_{i}}}}}"), &pstate.to_string());
         }
+
+        // Replace Tenstorrent-specific metrics
+        if let PlatformType::Tenstorrent = platform {
+            use rand::{rng, Rng};
+            let mut rng = rng();
+
+            // Temperature sensors (slight variations from main temp)
+            let asic_temp = gpu.temperature_celsius;
+            let vreg_temp =
+                (asic_temp as f32 + rng.random_range(-5.0..5.0)).clamp(30.0, 90.0) as u32;
+            let inlet_temp =
+                (asic_temp as f32 - rng.random_range(10.0..20.0)).clamp(20.0, 60.0) as u32;
+
+            response = response
+                .replace(&format!("{{{{ASIC_TEMP_{i}}}}}"), &asic_temp.to_string())
+                .replace(&format!("{{{{VREG_TEMP_{i}}}}}"), &vreg_temp.to_string())
+                .replace(&format!("{{{{INLET_TEMP_{i}}}}}"), &inlet_temp.to_string());
+
+            // Clock frequencies
+            let ai_clk = gpu.frequency_mhz; // Use main frequency as AI clock
+            let axi_clk = rng.random_range(800..1200);
+            let arc_clk = rng.random_range(500..800);
+
+            response = response
+                .replace(&format!("{{{{AICLK_{i}}}}}"), &ai_clk.to_string())
+                .replace(&format!("{{{{AXICLK_{i}}}}}"), &axi_clk.to_string())
+                .replace(&format!("{{{{ARCCLK_{i}}}}}"), &arc_clk.to_string());
+
+            // Voltage and current (derive from power)
+            let voltage = rng.random_range(0.85..0.95); // Core voltage in volts
+            let current = gpu.power_consumption_watts / voltage; // P = V * I
+
+            response = response
+                .replace(&format!("{{{{VOLTAGE_{i}}}}}"), &format!("{voltage:.3}"))
+                .replace(&format!("{{{{CURRENT_{i}}}}}"), &format!("{current:.1}"));
+
+            // Heartbeat counter (incrementing)
+            let heartbeat = (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + i as u64)
+                * 10; // Different counter for each NPU
+
+            response = response.replace(&format!("{{{{HEARTBEAT_{i}}}}}"), &heartbeat.to_string());
+        }
     }
 
     // Replace CPU metrics
@@ -698,4 +772,170 @@ pub fn render_response(
         .replace(PLACEHOLDER_DISK_AVAIL, &disk_available_bytes.to_string());
 
     response
+}
+
+fn add_tenstorrent_metrics(
+    template: &mut String,
+    instance_name: &str,
+    gpu_name: &str,
+    gpus: &[GpuMetrics],
+) {
+    // NPU firmware info
+    template.push_str("# HELP all_smi_npu_firmware_info NPU firmware version\n");
+    template.push_str("# TYPE all_smi_npu_firmware_info info\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", firmware=\"2.9.1\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        template.push_str(&format!("all_smi_npu_firmware_info{{{labels}}} 1\n"));
+    }
+
+    // Tenstorrent board info
+    template.push_str("# HELP all_smi_tenstorrent_board_info Tenstorrent board information\n");
+    template.push_str("# TYPE all_smi_tenstorrent_board_info info\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let (architecture, board_type) = if gpu_name.contains("Grayskull") {
+            ("grayskull", "e75")
+        } else if gpu_name.contains("Wormhole") {
+            ("wormhole", "n150")
+        } else if gpu_name.contains("Blackhole") {
+            ("blackhole", "p100")
+        } else {
+            ("grayskull", "e75")
+        };
+
+        let board_id = format!("00000000{:08x}", i + 1);
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", board_type=\"{}\", board_id=\"{}\", architecture=\"{}\"",
+            gpu_name, instance_name, gpu.uuid, i, board_type, board_id, architecture
+        );
+        template.push_str(&format!("all_smi_tenstorrent_board_info{{{labels}}} 1\n"));
+    }
+
+    // Firmware versions
+    template.push_str("# HELP all_smi_tenstorrent_arc_firmware_info ARC firmware version\n");
+    template.push_str("# TYPE all_smi_tenstorrent_arc_firmware_info info\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", version=\"2.9.1\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        template.push_str(&format!(
+            "all_smi_tenstorrent_arc_firmware_info{{{labels}}} 1\n"
+        ));
+    }
+
+    // Additional temperature sensors
+    let temp_sensors = [
+        (
+            "all_smi_tenstorrent_asic_temperature_celsius",
+            "ASIC temperature in celsius",
+            "{{{{ASIC_TEMP_{}}}}}",
+        ),
+        (
+            "all_smi_tenstorrent_vreg_temperature_celsius",
+            "Voltage regulator temperature in celsius",
+            "{{{{VREG_TEMP_{}}}}}",
+        ),
+        (
+            "all_smi_tenstorrent_inlet_temperature_celsius",
+            "Inlet temperature in celsius",
+            "{{{{INLET_TEMP_{}}}}}",
+        ),
+    ];
+
+    for (metric_name, help_text, placeholder_pattern) in &temp_sensors {
+        template.push_str(&format!("# HELP {metric_name} {help_text}\n"));
+        template.push_str(&format!("# TYPE {metric_name} gauge\n"));
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            let labels = format!(
+                "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                gpu_name, instance_name, gpu.uuid, i
+            );
+            let placeholder = placeholder_pattern.replace("{}", &i.to_string());
+            template.push_str(&format!("{metric_name}{{{labels}}} {placeholder}\n"));
+        }
+    }
+
+    // Clock frequencies
+    let clock_metrics = [
+        (
+            "all_smi_tenstorrent_aiclk_mhz",
+            "AI clock frequency in MHz",
+            "{{{{AICLK_{}}}}}",
+        ),
+        (
+            "all_smi_tenstorrent_axiclk_mhz",
+            "AXI clock frequency in MHz",
+            "{{{{AXICLK_{}}}}}",
+        ),
+        (
+            "all_smi_tenstorrent_arcclk_mhz",
+            "ARC clock frequency in MHz",
+            "{{{{ARCCLK_{}}}}}",
+        ),
+    ];
+
+    for (metric_name, help_text, placeholder_pattern) in &clock_metrics {
+        template.push_str(&format!("# HELP {metric_name} {help_text}\n"));
+        template.push_str(&format!("# TYPE {metric_name} gauge\n"));
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            let labels = format!(
+                "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                gpu_name, instance_name, gpu.uuid, i
+            );
+            let placeholder = placeholder_pattern.replace("{}", &i.to_string());
+            template.push_str(&format!("{metric_name}{{{labels}}} {placeholder}\n"));
+        }
+    }
+
+    // Power metrics
+    template.push_str("# HELP all_smi_tenstorrent_voltage_volts Core voltage in volts\n");
+    template.push_str("# TYPE all_smi_tenstorrent_voltage_volts gauge\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        let placeholder = format!("{{{{VOLTAGE_{i}}}}}");
+        template.push_str(&format!(
+            "all_smi_tenstorrent_voltage_volts{{{labels}}} {placeholder}\n"
+        ));
+    }
+
+    template.push_str("# HELP all_smi_tenstorrent_current_amperes Current in amperes\n");
+    template.push_str("# TYPE all_smi_tenstorrent_current_amperes gauge\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        let placeholder = format!("{{{{CURRENT_{i}}}}}");
+        template.push_str(&format!(
+            "all_smi_tenstorrent_current_amperes{{{labels}}} {placeholder}\n"
+        ));
+    }
+
+    // Heartbeat counter
+    template.push_str("# HELP all_smi_tenstorrent_heartbeat Device heartbeat counter\n");
+    template.push_str("# TYPE all_smi_tenstorrent_heartbeat counter\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        let placeholder = format!("{{{{HEARTBEAT_{i}}}}}");
+        template.push_str(&format!(
+            "all_smi_tenstorrent_heartbeat{{{labels}}} {placeholder}\n"
+        ));
+    }
 }

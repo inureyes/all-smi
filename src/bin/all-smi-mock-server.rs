@@ -41,6 +41,11 @@ mod tests {
         assert_eq!(PlatformType::from_str("jetson"), PlatformType::Jetson);
         assert_eq!(PlatformType::from_str("intel"), PlatformType::Intel);
         assert_eq!(PlatformType::from_str("amd"), PlatformType::Amd);
+        assert_eq!(
+            PlatformType::from_str("tenstorrent"),
+            PlatformType::Tenstorrent
+        );
+        assert_eq!(PlatformType::from_str("tt"), PlatformType::Tenstorrent);
         assert_eq!(PlatformType::from_str("unknown"), PlatformType::Nvidia); // Default
     }
 
