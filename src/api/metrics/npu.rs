@@ -58,6 +58,9 @@ impl<'a> NpuMetricExporter<'a> {
         // Power metrics
         self.export_tenstorrent_power(builder, info, index);
 
+        // Status and health metrics
+        self.export_tenstorrent_status_health(builder, info, index);
+
         // Board and system info
         self.export_tenstorrent_board_info(builder, info, index);
 
@@ -124,6 +127,46 @@ impl<'a> NpuMetricExporter<'a> {
                 .type_("all_smi_tenstorrent_firmware_date_info", "info")
                 .metric("all_smi_tenstorrent_firmware_date_info", &fw_labels, 1);
         }
+
+        // DDR firmware
+        if let Some(ddr_fw) = info.detail.get("ddr_fw_version") {
+            let fw_labels = [
+                ("npu", info.name.as_str()),
+                ("instance", info.instance.as_str()),
+                ("uuid", info.uuid.as_str()),
+                ("index", &index.to_string()),
+                ("version", ddr_fw.as_str()),
+            ];
+            builder
+                .help(
+                    "all_smi_tenstorrent_ddr_firmware_info",
+                    "DDR firmware version",
+                )
+                .type_("all_smi_tenstorrent_ddr_firmware_info", "info")
+                .metric("all_smi_tenstorrent_ddr_firmware_info", &fw_labels, 1);
+        }
+
+        // SPI Boot ROM firmware
+        if let Some(spi_fw) = info.detail.get("spibootrom_fw_version") {
+            let fw_labels = [
+                ("npu", info.name.as_str()),
+                ("instance", info.instance.as_str()),
+                ("uuid", info.uuid.as_str()),
+                ("index", &index.to_string()),
+                ("version", spi_fw.as_str()),
+            ];
+            builder
+                .help(
+                    "all_smi_tenstorrent_spibootrom_firmware_info",
+                    "SPI Boot ROM firmware version",
+                )
+                .type_("all_smi_tenstorrent_spibootrom_firmware_info", "info")
+                .metric(
+                    "all_smi_tenstorrent_spibootrom_firmware_info",
+                    &fw_labels,
+                    1,
+                );
+        }
     }
 
     fn export_tenstorrent_temperatures(
@@ -138,6 +181,23 @@ impl<'a> NpuMetricExporter<'a> {
             ("uuid", info.uuid.as_str()),
             ("index", &index.to_string()),
         ];
+
+        // ASIC temperature (main chip temperature)
+        if let Some(asic_temp) = info.detail.get("asic_temperature") {
+            if let Ok(temp) = asic_temp.parse::<f64>() {
+                builder
+                    .help(
+                        "all_smi_tenstorrent_asic_temperature_celsius",
+                        "ASIC temperature in celsius",
+                    )
+                    .type_("all_smi_tenstorrent_asic_temperature_celsius", "gauge")
+                    .metric(
+                        "all_smi_tenstorrent_asic_temperature_celsius",
+                        &base_labels,
+                        temp,
+                    );
+            }
+        }
 
         // Voltage regulator temperature
         if let Some(vreg_temp) = info.detail.get("vreg_temperature") {
@@ -313,6 +373,33 @@ impl<'a> NpuMetricExporter<'a> {
             }
         }
 
+        // TDP limit (new field from enhanced metrics)
+        if let Some(tdp_limit) = info.detail.get("tdp_limit") {
+            if let Ok(power) = tdp_limit.parse::<f64>() {
+                builder
+                    .help("all_smi_tenstorrent_tdp_limit_watts", "TDP limit in watts")
+                    .type_("all_smi_tenstorrent_tdp_limit_watts", "gauge")
+                    .metric("all_smi_tenstorrent_tdp_limit_watts", &base_labels, power);
+            }
+        }
+
+        // TDC limit (new field from enhanced metrics)
+        if let Some(tdc_limit) = info.detail.get("tdc_limit") {
+            if let Ok(current) = tdc_limit.parse::<f64>() {
+                builder
+                    .help(
+                        "all_smi_tenstorrent_tdc_limit_amperes",
+                        "TDC limit in amperes",
+                    )
+                    .type_("all_smi_tenstorrent_tdc_limit_amperes", "gauge")
+                    .metric(
+                        "all_smi_tenstorrent_tdc_limit_amperes",
+                        &base_labels,
+                        current,
+                    );
+            }
+        }
+
         // Thermal limit
         if let Some(thermal_limit) = info.detail.get("thermal_limit") {
             if let Ok(temp) = thermal_limit.parse::<f64>() {
@@ -339,6 +426,180 @@ impl<'a> NpuMetricExporter<'a> {
                     .metric("all_smi_tenstorrent_heartbeat", &base_labels, hb);
             }
         }
+
+        // Raw power consumption in watts
+        if let Some(power_watts) = info.detail.get("power_watts") {
+            if let Ok(power) = power_watts.parse::<f64>() {
+                builder
+                    .help(
+                        "all_smi_tenstorrent_power_raw_watts",
+                        "Raw power consumption in watts",
+                    )
+                    .type_("all_smi_tenstorrent_power_raw_watts", "gauge")
+                    .metric("all_smi_tenstorrent_power_raw_watts", &base_labels, power);
+            }
+        }
+    }
+
+    fn export_tenstorrent_status_health(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index: usize,
+    ) {
+        let base_labels = [
+            ("npu", info.name.as_str()),
+            ("instance", info.instance.as_str()),
+            ("uuid", info.uuid.as_str()),
+            ("index", &index.to_string()),
+        ];
+
+        // PCIe status
+        if let Some(pcie_status) = info.detail.get("pcie_status") {
+            let status_labels = [
+                ("npu", info.name.as_str()),
+                ("instance", info.instance.as_str()),
+                ("uuid", info.uuid.as_str()),
+                ("index", &index.to_string()),
+                ("status", pcie_status.as_str()),
+            ];
+            builder
+                .help(
+                    "all_smi_tenstorrent_pcie_status_info",
+                    "PCIe status register value",
+                )
+                .type_("all_smi_tenstorrent_pcie_status_info", "info")
+                .metric("all_smi_tenstorrent_pcie_status_info", &status_labels, 1);
+        }
+
+        // Ethernet status
+        if let Some(eth_status0) = info.detail.get("eth_status0") {
+            let status_labels = [
+                ("npu", info.name.as_str()),
+                ("instance", info.instance.as_str()),
+                ("uuid", info.uuid.as_str()),
+                ("index", &index.to_string()),
+                ("port", "0"),
+                ("status", eth_status0.as_str()),
+            ];
+            builder
+                .help(
+                    "all_smi_tenstorrent_eth_status_info",
+                    "Ethernet status register value",
+                )
+                .type_("all_smi_tenstorrent_eth_status_info", "info")
+                .metric("all_smi_tenstorrent_eth_status_info", &status_labels, 1);
+        }
+
+        if let Some(eth_status1) = info.detail.get("eth_status1") {
+            let status_labels = [
+                ("npu", info.name.as_str()),
+                ("instance", info.instance.as_str()),
+                ("uuid", info.uuid.as_str()),
+                ("index", &index.to_string()),
+                ("port", "1"),
+                ("status", eth_status1.as_str()),
+            ];
+            builder
+                .help(
+                    "all_smi_tenstorrent_eth_status_info",
+                    "Ethernet status register value",
+                )
+                .type_("all_smi_tenstorrent_eth_status_info", "info")
+                .metric("all_smi_tenstorrent_eth_status_info", &status_labels, 1);
+        }
+
+        // DDR status (as numeric register value)
+        if let Some(ddr_status) = info.detail.get("ddr_status") {
+            // Try to parse hex string to numeric value
+            if let Ok(status_val) = u32::from_str_radix(ddr_status.trim_start_matches("0x"), 16) {
+                builder
+                    .help(
+                        "all_smi_tenstorrent_ddr_status",
+                        "DDR status register value",
+                    )
+                    .type_("all_smi_tenstorrent_ddr_status", "gauge")
+                    .metric(
+                        "all_smi_tenstorrent_ddr_status",
+                        &base_labels,
+                        status_val as f64,
+                    );
+            }
+        }
+
+        // ARC health counters
+        if let Some(arc0_health) = info.detail.get("arc0_health") {
+            if let Ok(health) = arc0_health.parse::<f64>() {
+                builder
+                    .help("all_smi_tenstorrent_arc0_health", "ARC0 health counter")
+                    .type_("all_smi_tenstorrent_arc0_health", "counter")
+                    .metric("all_smi_tenstorrent_arc0_health", &base_labels, health);
+            }
+        }
+
+        if let Some(arc3_health) = info.detail.get("arc3_health") {
+            if let Ok(health) = arc3_health.parse::<f64>() {
+                builder
+                    .help("all_smi_tenstorrent_arc3_health", "ARC3 health counter")
+                    .type_("all_smi_tenstorrent_arc3_health", "counter")
+                    .metric("all_smi_tenstorrent_arc3_health", &base_labels, health);
+            }
+        }
+
+        // Faults register
+        if let Some(faults) = info.detail.get("faults") {
+            // Try to parse hex string to numeric value
+            if let Ok(faults_val) = u32::from_str_radix(faults.trim_start_matches("0x"), 16) {
+                builder
+                    .help("all_smi_tenstorrent_faults", "Fault register value")
+                    .type_("all_smi_tenstorrent_faults", "gauge")
+                    .metric(
+                        "all_smi_tenstorrent_faults",
+                        &base_labels,
+                        faults_val as f64,
+                    );
+            }
+        }
+
+        // Throttler state
+        if let Some(throttler) = info.detail.get("throttler") {
+            // Try to parse hex string to numeric value
+            if let Ok(throttler_val) = u32::from_str_radix(throttler.trim_start_matches("0x"), 16) {
+                builder
+                    .help(
+                        "all_smi_tenstorrent_throttler",
+                        "Throttler state register value",
+                    )
+                    .type_("all_smi_tenstorrent_throttler", "gauge")
+                    .metric(
+                        "all_smi_tenstorrent_throttler",
+                        &base_labels,
+                        throttler_val as f64,
+                    );
+            }
+        }
+
+        // Fan metrics
+        if let Some(fan_speed) = info.detail.get("fan_speed") {
+            if let Ok(speed) = fan_speed.parse::<f64>() {
+                builder
+                    .help(
+                        "all_smi_tenstorrent_fan_speed_percent",
+                        "Fan speed percentage",
+                    )
+                    .type_("all_smi_tenstorrent_fan_speed_percent", "gauge")
+                    .metric("all_smi_tenstorrent_fan_speed_percent", &base_labels, speed);
+            }
+        }
+
+        if let Some(fan_rpm) = info.detail.get("fan_rpm") {
+            if let Ok(rpm) = fan_rpm.parse::<f64>() {
+                builder
+                    .help("all_smi_tenstorrent_fan_rpm", "Fan speed in RPM")
+                    .type_("all_smi_tenstorrent_fan_rpm", "gauge")
+                    .metric("all_smi_tenstorrent_fan_rpm", &base_labels, rpm);
+            }
+        }
     }
 
     fn export_tenstorrent_board_info(
@@ -359,12 +620,19 @@ impl<'a> NpuMetricExporter<'a> {
                 "unknown"
             };
 
+            let board_id = info
+                .detail
+                .get("board_id")
+                .map(|s| s.as_str())
+                .unwrap_or("");
+
             let board_labels = [
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
                 ("uuid", info.uuid.as_str()),
                 ("index", &index.to_string()),
                 ("board_type", board_type.as_str()),
+                ("board_id", board_id),
                 ("architecture", arch),
             ];
             builder
@@ -412,9 +680,48 @@ impl<'a> NpuMetricExporter<'a> {
             ("index", &index.to_string()),
         ];
 
-        // PCIe generation
-        if let Some(pcie_speed) = info.detail.get("pcie_speed") {
-            if let Some(gen_str) = pcie_speed.strip_prefix("Gen") {
+        // PCIe address
+        if let Some(pcie_addr) = info.detail.get("pcie_address") {
+            let pcie_labels = [
+                ("npu", info.name.as_str()),
+                ("instance", info.instance.as_str()),
+                ("uuid", info.uuid.as_str()),
+                ("index", &index.to_string()),
+                ("address", pcie_addr.as_str()),
+            ];
+            builder
+                .help(
+                    "all_smi_tenstorrent_pcie_address_info",
+                    "PCIe address information",
+                )
+                .type_("all_smi_tenstorrent_pcie_address_info", "info")
+                .metric("all_smi_tenstorrent_pcie_address_info", &pcie_labels, 1);
+        }
+
+        // PCIe vendor and device ID
+        if let Some(vendor_id) = info.detail.get("pcie_vendor_id") {
+            if let Some(device_id) = info.detail.get("pcie_device_id") {
+                let pcie_labels = [
+                    ("npu", info.name.as_str()),
+                    ("instance", info.instance.as_str()),
+                    ("uuid", info.uuid.as_str()),
+                    ("index", &index.to_string()),
+                    ("vendor_id", vendor_id.as_str()),
+                    ("device_id", device_id.as_str()),
+                ];
+                builder
+                    .help(
+                        "all_smi_tenstorrent_pcie_device_info",
+                        "PCIe device identification",
+                    )
+                    .type_("all_smi_tenstorrent_pcie_device_info", "info")
+                    .metric("all_smi_tenstorrent_pcie_device_info", &pcie_labels, 1);
+            }
+        }
+
+        // PCIe generation (from enhanced metrics)
+        if let Some(pcie_gen) = info.detail.get("pcie_link_gen") {
+            if let Some(gen_str) = pcie_gen.strip_prefix("Gen") {
                 if let Ok(gen) = gen_str.parse::<f64>() {
                     builder
                         .help("all_smi_tenstorrent_pcie_generation", "PCIe generation")
@@ -424,8 +731,8 @@ impl<'a> NpuMetricExporter<'a> {
             }
         }
 
-        // PCIe width
-        if let Some(pcie_width) = info.detail.get("pcie_width") {
+        // PCIe width (from enhanced metrics)
+        if let Some(pcie_width) = info.detail.get("pcie_link_width") {
             if let Some(width_str) = pcie_width.strip_prefix("x") {
                 if let Ok(width) = width_str.parse::<f64>() {
                     builder
@@ -436,21 +743,7 @@ impl<'a> NpuMetricExporter<'a> {
             }
         }
 
-        // DRAM status
-        if let Some(dram_status) = info.detail.get("dram_status") {
-            let dram_enabled = if dram_status == "Y" { 1.0 } else { 0.0 };
-            builder
-                .help(
-                    "all_smi_tenstorrent_dram_enabled",
-                    "DRAM enabled status (1=enabled, 0=disabled)",
-                )
-                .type_("all_smi_tenstorrent_dram_enabled", "gauge")
-                .metric(
-                    "all_smi_tenstorrent_dram_enabled",
-                    &base_labels,
-                    dram_enabled,
-                );
-        }
+        // DRAM status - removed as it's now exported as numeric register value in status_health
 
         // DRAM speed
         if let Some(dram_speed) = info.detail.get("dram_speed") {
