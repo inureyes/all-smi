@@ -61,15 +61,9 @@ impl LinuxCpuReader {
 
         // If cache_size is 0, try to get it from lscpu
         if cache_size == 0 {
-            eprintln!("DEBUG: /proc/cpuinfo cache_size is 0, trying lscpu fallback");
             if let Some(lscpu_cache) = self.get_cache_size_from_lscpu() {
-                eprintln!("DEBUG: lscpu returned cache size: {} MB", lscpu_cache);
                 cache_size = lscpu_cache;
-            } else {
-                eprintln!("DEBUG: lscpu fallback failed or returned None");
             }
-        } else {
-            eprintln!("DEBUG: /proc/cpuinfo has cache_size: {} MB", cache_size);
         }
 
         // Read /proc/stat for CPU utilization
@@ -320,7 +314,6 @@ impl LinuxCpuReader {
         // Try to get cache size from lscpu
         let result = if let Ok(output) = Command::new("lscpu").output() {
             let output_str = String::from_utf8_lossy(&output.stdout);
-            eprintln!("DEBUG: lscpu called, output length: {}", output_str.len());
 
             // Look for cache lines (L3 preferred, then L2 as fallback)
             // Note: On some systems like Jetson, the lines might be indented
@@ -330,25 +323,16 @@ impl LinuxCpuReader {
             for line in output_str.lines() {
                 let line = line.trim();
 
-                // Debug: show lines that might contain cache info
-                if line.contains("L1") || line.contains("L2") || line.contains("L3") {
-                    eprintln!("DEBUG: Cache-related line: '{}'", line);
-                }
-
-                // Check for L3 cache
-                if line.starts_with("L3:") {
-                    eprintln!("DEBUG: Found L3 line: '{}'", line);
+                // Check for L3 cache (handle both "L3:" and "L3 cache:" formats)
+                if line.starts_with("L3:") || line.starts_with("L3 cache:") {
                     if let Some(size_part) = line.split(':').nth(1) {
                         let size_part = size_part.trim();
-                        eprintln!("DEBUG: L3 size part: '{}'", size_part);
 
                         // Parse different formats: "4 MiB", "4MiB", "4096 KiB", etc.
                         // Also handle format with instances: "4 MiB (2 instances)"
                         let parts: Vec<&str> = size_part.split_whitespace().collect();
-                        eprintln!("DEBUG: L3 parts: {:?}", parts);
                         if !parts.is_empty() {
                             if let Ok(size) = parts[0].parse::<f64>() {
-                                eprintln!("DEBUG: L3 parsed size: {}", size);
                                 let unit = if parts.len() > 1 {
                                     parts[1].to_lowercase()
                                 } else {
@@ -363,12 +347,8 @@ impl LinuxCpuReader {
                                     "mib" | "mb" => size as u32,
                                     "kib" | "kb" => (size / 1024.0) as u32,
                                     "gib" | "gb" => (size * 1024.0) as u32,
-                                    _ => {
-                                        eprintln!("DEBUG: Unknown unit: '{}'", unit);
-                                        0
-                                    }
+                                    _ => 0,
                                 };
-                                eprintln!("DEBUG: L3 cache size in MB: {}", size_mb);
 
                                 if size_mb > 0 {
                                     found_l3_cache = Some(size_mb);
@@ -378,8 +358,10 @@ impl LinuxCpuReader {
                     }
                 }
 
-                // Check for L2 cache as fallback
-                if line.starts_with("L2:") && found_l3_cache.is_none() {
+                // Check for L2 cache as fallback (handle both "L2:" and "L2 cache:" formats)
+                if (line.starts_with("L2:") || line.starts_with("L2 cache:"))
+                    && found_l3_cache.is_none()
+                {
                     if let Some(size_part) = line.split(':').nth(1) {
                         let size_part = size_part.trim();
 
@@ -412,11 +394,8 @@ impl LinuxCpuReader {
             }
 
             // Return L3 if found, otherwise L2
-            let cache_result = found_l3_cache.or(found_l2_cache);
-            eprintln!("DEBUG: Final cache result from lscpu: {:?}", cache_result);
-            cache_result
+            found_l3_cache.or(found_l2_cache)
         } else {
-            eprintln!("DEBUG: lscpu command failed");
             None
         };
 
