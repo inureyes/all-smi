@@ -315,20 +315,34 @@ impl LinuxCpuReader {
         let result = if let Ok(output) = Command::new("lscpu").output() {
             let output_str = String::from_utf8_lossy(&output.stdout);
 
-            // Look for L3 cache line (e.g., "L3:                    4 MiB (2 instances)")
-            let mut found_cache_size = None;
+            // Look for cache lines (L3 preferred, then L2 as fallback)
+            // Note: On some systems like Jetson, the lines might be indented
+            let mut found_l3_cache = None;
+            let mut found_l2_cache = None;
+
             for line in output_str.lines() {
                 let line = line.trim();
+
+                // Check for L3 cache
                 if line.starts_with("L3:") {
-                    // Extract the size value
                     if let Some(size_part) = line.split(':').nth(1) {
                         let size_part = size_part.trim();
 
                         // Parse different formats: "4 MiB", "4MiB", "4096 KiB", etc.
+                        // Also handle format with instances: "4 MiB (2 instances)"
                         let parts: Vec<&str> = size_part.split_whitespace().collect();
-                        if parts.len() >= 2 {
+                        if !parts.is_empty() {
                             if let Ok(size) = parts[0].parse::<f64>() {
-                                let unit = parts[1].to_lowercase();
+                                let unit = if parts.len() > 1 {
+                                    parts[1].to_lowercase()
+                                } else {
+                                    // Try to extract unit from the first part if it's like "4MiB"
+                                    let num_end = parts[0]
+                                        .find(|c: char| !c.is_numeric() && c != '.')
+                                        .unwrap_or(parts[0].len());
+                                    parts[0][num_end..].to_lowercase()
+                                };
+
                                 let size_mb = match unit.as_str() {
                                     "mib" | "mb" => size as u32,
                                     "kib" | "kb" => (size / 1024.0) as u32,
@@ -337,15 +351,48 @@ impl LinuxCpuReader {
                                 };
 
                                 if size_mb > 0 {
-                                    found_cache_size = Some(size_mb);
-                                    break;
+                                    found_l3_cache = Some(size_mb);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Check for L2 cache as fallback
+                if line.starts_with("L2:") && found_l3_cache.is_none() {
+                    if let Some(size_part) = line.split(':').nth(1) {
+                        let size_part = size_part.trim();
+
+                        let parts: Vec<&str> = size_part.split_whitespace().collect();
+                        if !parts.is_empty() {
+                            if let Ok(size) = parts[0].parse::<f64>() {
+                                let unit = if parts.len() > 1 {
+                                    parts[1].to_lowercase()
+                                } else {
+                                    let num_end = parts[0]
+                                        .find(|c: char| !c.is_numeric() && c != '.')
+                                        .unwrap_or(parts[0].len());
+                                    parts[0][num_end..].to_lowercase()
+                                };
+
+                                let size_mb = match unit.as_str() {
+                                    "mib" | "mb" => size as u32,
+                                    "kib" | "kb" => (size / 1024.0) as u32,
+                                    "gib" | "gb" => (size * 1024.0) as u32,
+                                    _ => 0,
+                                };
+
+                                if size_mb > 0 {
+                                    found_l2_cache = Some(size_mb);
                                 }
                             }
                         }
                     }
                 }
             }
-            found_cache_size
+
+            // Return L3 if found, otherwise L2
+            found_l3_cache.or(found_l2_cache)
         } else {
             None
         };
