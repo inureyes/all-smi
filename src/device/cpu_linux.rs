@@ -330,6 +330,11 @@ impl LinuxCpuReader {
             for line in output_str.lines() {
                 let line = line.trim();
 
+                // Debug: show lines that might contain cache info
+                if line.contains("L1") || line.contains("L2") || line.contains("L3") {
+                    eprintln!("DEBUG: Cache-related line: '{}'", line);
+                }
+
                 // Check for L3 cache
                 if line.starts_with("L3:") {
                     eprintln!("DEBUG: Found L3 line: '{}'", line);
@@ -407,8 +412,11 @@ impl LinuxCpuReader {
             }
 
             // Return L3 if found, otherwise L2
-            found_l3_cache.or(found_l2_cache)
+            let cache_result = found_l3_cache.or(found_l2_cache);
+            eprintln!("DEBUG: Final cache result from lscpu: {:?}", cache_result);
+            cache_result
         } else {
+            eprintln!("DEBUG: lscpu command failed");
             None
         };
 
