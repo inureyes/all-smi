@@ -183,21 +183,28 @@ pub fn draw_bar_multi<W: Write>(
 
 // Helper functions for common use cases
 impl BarSegment {
-    // CPU usage helpers
-    // nice
+    // CPU usage helpers (reserved for future use)
+    #[allow(dead_code)]
     pub fn cpu_low_priority(value: f64) -> Self {
+        // nice
         Self::new(value, Color::Blue).with_label("low")
     }
-    // user
+
+    #[allow(dead_code)]
     pub fn cpu_normal(value: f64) -> Self {
+        // user
         Self::new(value, Color::Green).with_label("normal")
     }
-    // system
+
+    #[allow(dead_code)]
     pub fn cpu_kernel(value: f64) -> Self {
+        // system
         Self::new(value, Color::Red).with_label("kernel")
     }
-    // steal + guest
+
+    #[allow(dead_code)]
     pub fn cpu_virtualized(value: f64) -> Self {
+        // steal + guest
         Self::new(value, Color::DarkBlue).with_label("virtual")
     }
 
