@@ -5,7 +5,7 @@ use crossterm::{queue, style::Color, style::Print};
 use crate::device::{CpuInfo, GpuInfo, MemoryInfo};
 use crate::storage::info::StorageInfo;
 use crate::ui::text::{print_colored_text, truncate_to_width};
-use crate::ui::widgets::draw_bar;
+use crate::ui::widgets::{draw_bar, draw_bar_multi, BarSegment};
 
 pub fn print_gpu_info<W: Write>(
     stdout: &mut W,
@@ -609,70 +609,56 @@ pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryI
 
     // Calculate gauge widths with 5 char padding on each side
     let available_width = width.saturating_sub(10); // 5 padding each side
-    let num_gauges = if info.buffers_bytes > 0 || info.cached_bytes > 0 {
-        2
-    } else {
-        1
-    };
+    let gauge_width = available_width;
+
+    // Calculate actual space used and dynamic right padding
+    let total_gauge_width = gauge_width;
+    let left_padding = 5;
+    let right_padding = width - left_padding - total_gauge_width;
 
     print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
 
-    if num_gauges == 2 {
-        // Used + Cache gauges
-        let gauge_width = (available_width - 2) / 2; // 2 spaces between gauges
+    // Create segments for multi-bar display
+    let mut segments = Vec::new();
 
-        // Calculate actual space used and dynamic right padding
-        let total_gauge_width = gauge_width * num_gauges + (num_gauges - 1) * 2;
-        let left_padding = 5;
-        let right_padding = width - left_padding - total_gauge_width;
+    // Calculate memory values in bytes
+    let actual_used_bytes = info
+        .used_bytes
+        .saturating_sub(info.buffers_bytes + info.cached_bytes);
+    let actual_used_gb = actual_used_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    let buffers_gb = info.buffers_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    let cached_gb = info.cached_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
 
-        // Used gauge
-        draw_bar(
-            stdout,
-            "Used",
-            info.utilization,
-            100.0,
-            gauge_width,
-            Some(format!("{used_gb:.1}GB")),
-        );
-        print_colored_text(stdout, "  ", Color::White, None, None); // 2 space separator
-
-        // Cache gauge
-        let cache_gb = (info.buffers_bytes + info.cached_bytes) as f64 / (1024.0 * 1024.0 * 1024.0);
-        let cache_percent =
-            ((info.buffers_bytes + info.cached_bytes) as f64 / info.total_bytes as f64) * 100.0;
-        draw_bar(
-            stdout,
-            "Cache",
-            cache_percent,
-            100.0,
-            gauge_width,
-            Some(format!("{cache_gb:.1}GB")),
-        );
-
-        print_colored_text(stdout, &" ".repeat(right_padding), Color::White, None, None);
-    // dynamic right padding
-    } else {
-        // Just Used gauge
-        let gauge_width = available_width;
-
-        // Calculate actual space used and dynamic right padding
-        let total_gauge_width = gauge_width;
-        let left_padding = 5;
-        let right_padding = width - left_padding - total_gauge_width;
-
-        draw_bar(
-            stdout,
-            "Used",
-            info.utilization,
-            100.0,
-            gauge_width,
-            Some(format!("{used_gb:.1}GB")),
-        );
-
-        print_colored_text(stdout, &" ".repeat(right_padding), Color::White, None, None);
-        // dynamic right padding
+    // Add used memory segment (actual used without buffers/cache)
+    if actual_used_bytes > 0 {
+        segments.push(BarSegment::memory_used(actual_used_gb));
     }
+
+    // Add buffers segment
+    if info.buffers_bytes > 0 {
+        segments.push(BarSegment::memory_buffers(buffers_gb));
+    }
+
+    // Add cache segment
+    if info.cached_bytes > 0 {
+        segments.push(BarSegment::memory_cache(cached_gb));
+    }
+
+    // Calculate total used memory for display text
+    let total_used_gb = actual_used_gb + buffers_gb + cached_gb;
+    let display_text = format!("{total_used_gb:.1}GB");
+
+    // Draw the multi-segment bar
+    draw_bar_multi(
+        stdout,
+        "Mem",
+        &segments,
+        total_gb,
+        gauge_width,
+        Some(display_text),
+    );
+
+    print_colored_text(stdout, &" ".repeat(right_padding), Color::White, None, None);
     queue!(stdout, Print("\r\n")).unwrap();
 }
 
