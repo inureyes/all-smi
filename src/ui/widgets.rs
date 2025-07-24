@@ -78,7 +78,7 @@ pub fn draw_bar<W: Write>(
             let char_index = i - text_pos;
             if let Some(ch) = display_text.chars().nth(char_index) {
                 // Always use white for text to ensure readability
-                print_colored_text(stdout, &ch.to_string(), Color::White, None, None);
+                print_colored_text(stdout, &ch.to_string(), Color::Grey, None, None);
             }
         } else if i < filled_width {
             // Print filled area with shorter vertical lines in load color
@@ -158,7 +158,7 @@ pub fn draw_bar_multi<W: Write>(
             // Print text character
             let char_index = i - text_pos;
             if let Some(ch) = display_text.chars().nth(char_index) {
-                print_colored_text(stdout, &ch.to_string(), Color::White, None, None);
+                print_colored_text(stdout, &ch.to_string(), Color::Grey, None, None);
             }
         } else {
             // Find which segment this position belongs to
