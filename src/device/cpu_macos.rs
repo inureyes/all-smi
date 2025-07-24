@@ -18,6 +18,8 @@ pub struct MacOsCpuReader {
     cached_p_core_count: RefCell<Option<u32>>,
     cached_e_core_count: RefCell<Option<u32>>,
     cached_gpu_core_count: RefCell<Option<u32>>,
+    cached_p_core_l2_cache_mb: RefCell<Option<u32>>,
+    cached_e_core_l2_cache_mb: RefCell<Option<u32>>,
     // Cached hardware info for Intel
     cached_intel_info: RefCell<Option<IntelCpuInfo>>,
 }
@@ -31,6 +33,8 @@ impl MacOsCpuReader {
             cached_p_core_count: RefCell::new(None),
             cached_e_core_count: RefCell::new(None),
             cached_gpu_core_count: RefCell::new(None),
+            cached_p_core_l2_cache_mb: RefCell::new(None),
+            cached_e_core_l2_cache_mb: RefCell::new(None),
             cached_intel_info: RefCell::new(None),
         }
     }
@@ -139,6 +143,10 @@ impl MacOsCpuReader {
         let total_cores = p_core_count + e_core_count;
         let total_threads = total_cores; // Apple Silicon doesn't use hyperthreading
 
+        // Get cache sizes for P and E cores
+        let p_core_l2_cache_mb = self.get_p_core_l2_cache_size().ok();
+        let e_core_l2_cache_mb = self.get_e_core_l2_cache_size().ok();
+
         let apple_silicon_info = Some(AppleSiliconCpuInfo {
             p_core_count,
             e_core_count,
@@ -148,6 +156,8 @@ impl MacOsCpuReader {
             ane_ops_per_second: None, // ANE metrics are complex to get
             p_cluster_frequency_mhz: p_cluster_freq,
             e_cluster_frequency_mhz: e_cluster_freq,
+            p_core_l2_cache_mb,
+            e_core_l2_cache_mb,
         });
 
         // Create per-socket info (Apple Silicon typically has 1 socket)
@@ -172,7 +182,7 @@ impl MacOsCpuReader {
             total_threads,
             base_frequency_mhz: base_frequency,
             max_frequency_mhz: max_frequency,
-            cache_size_mb: 0, // Cache size is not easily available
+            cache_size_mb: p_core_l2_cache_mb.unwrap_or(0) + e_core_l2_cache_mb.unwrap_or(0), // Total L2 cache
             utilization: cpu_utilization,
             temperature,
             power_consumption,
@@ -338,6 +348,52 @@ impl MacOsCpuReader {
         }
 
         Err("Failed to parse GPU core count".into())
+    }
+
+    fn get_p_core_l2_cache_size(&self) -> Result<u32, Box<dyn std::error::Error>> {
+        // Check if we have cached value
+        if let Some(cached) = *self.cached_p_core_l2_cache_mb.borrow() {
+            return Ok(cached);
+        }
+
+        let output = Command::new("sysctl")
+            .arg("hw.perflevel0.l2cachesize")
+            .output()?;
+
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Some(value_str) = output_str.split(':').nth(1) {
+            let cache_bytes = value_str.trim().parse::<u64>()?;
+            let cache_mb = (cache_bytes / 1024 / 1024) as u32; // Convert bytes to MB
+
+            // Cache the value
+            *self.cached_p_core_l2_cache_mb.borrow_mut() = Some(cache_mb);
+            Ok(cache_mb)
+        } else {
+            Err("Failed to parse P-core L2 cache size".into())
+        }
+    }
+
+    fn get_e_core_l2_cache_size(&self) -> Result<u32, Box<dyn std::error::Error>> {
+        // Check if we have cached value
+        if let Some(cached) = *self.cached_e_core_l2_cache_mb.borrow() {
+            return Ok(cached);
+        }
+
+        let output = Command::new("sysctl")
+            .arg("hw.perflevel1.l2cachesize")
+            .output()?;
+
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Some(value_str) = output_str.split(':').nth(1) {
+            let cache_bytes = value_str.trim().parse::<u64>()?;
+            let cache_mb = (cache_bytes / 1024 / 1024) as u32; // Convert bytes to MB
+
+            // Cache the value
+            *self.cached_e_core_l2_cache_mb.borrow_mut() = Some(cache_mb);
+            Ok(cache_mb)
+        } else {
+            Err("Failed to parse E-core L2 cache size".into())
+        }
     }
 
     fn parse_intel_mac_hardware_info(&self, hardware_info: &str) -> CpuHardwareParseResult {

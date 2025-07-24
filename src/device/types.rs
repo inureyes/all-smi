@@ -127,6 +127,8 @@ pub struct AppleSiliconCpuInfo {
     pub ane_ops_per_second: Option<f64>,      // ANE operations per second
     pub p_cluster_frequency_mhz: Option<u32>, // P-cluster frequency in MHz
     pub e_cluster_frequency_mhz: Option<u32>, // E-cluster frequency in MHz
+    pub p_core_l2_cache_mb: Option<u32>,      // P-core L2 cache size in MB
+    pub e_core_l2_cache_mb: Option<u32>,      // E-core L2 cache size in MB
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

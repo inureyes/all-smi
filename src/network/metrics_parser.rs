@@ -448,6 +448,8 @@ impl MetricsParser {
                 ane_ops_per_second: None,
                 p_cluster_frequency_mhz: None,
                 e_cluster_frequency_mhz: None,
+                p_core_l2_cache_mb: None,
+                e_core_l2_cache_mb: None,
             });
         }
     }

@@ -334,14 +334,42 @@ pub fn print_cpu_info<W: Write>(
         print_colored_text(stdout, &format!("{temp}°C"), Color::White, None, None);
     }
 
-    print_colored_text(stdout, " Cache:", Color::Red, None, None);
-    print_colored_text(
-        stdout,
-        &format!("{:>5}MB", info.cache_size_mb),
-        Color::White,
-        None,
-        None,
-    );
+    // Display cache based on platform type
+    if let Some(apple_info) = &info.apple_silicon_info {
+        if let (Some(p_cache), Some(e_cache)) =
+            (apple_info.p_core_l2_cache_mb, apple_info.e_core_l2_cache_mb)
+        {
+            // Apple Silicon: Display L2 cache as P+E format
+            print_colored_text(stdout, " L2 Cache:", Color::Red, None, None);
+            print_colored_text(
+                stdout,
+                &format!("{p_cache}MB+{e_cache}MB"),
+                Color::White,
+                None,
+                None,
+            );
+        } else if info.cache_size_mb > 0 {
+            // Fallback to total cache
+            print_colored_text(stdout, " L2 Cache:", Color::Red, None, None);
+            print_colored_text(
+                stdout,
+                &format!("{:>5}MB", info.cache_size_mb),
+                Color::White,
+                None,
+                None,
+            );
+        }
+    } else if info.cache_size_mb > 0 {
+        // Non-Apple Silicon: display L3 cache (Intel Mac and Linux)
+        print_colored_text(stdout, " L3 Cache:", Color::Red, None, None);
+        print_colored_text(
+            stdout,
+            &format!("{:>5}MB", info.cache_size_mb),
+            Color::White,
+            None,
+            None,
+        );
+    }
 
     // Display CPU power if available
     if let Some(power) = info.power_consumption {
