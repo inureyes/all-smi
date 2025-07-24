@@ -337,6 +337,13 @@ pub fn print_cpu_info<W: Write>(
         None,
     );
 
+    // Display CPU temperature if available (not on macOS)
+    #[cfg(not(target_os = "macos"))]
+    if let Some(temp) = info.temperature {
+        print_colored_text(stdout, " Temp:", Color::Magenta, None, None);
+        print_colored_text(stdout, &format!("{temp}°C"), Color::White, None, None);
+    }
+
     // Display CPU power if available
     if let Some(power) = info.power_consumption {
         print_colored_text(stdout, " Pwr:", Color::Red, None, None);
