@@ -274,6 +274,25 @@ pub fn print_process_info<W: Write>(
         print_colored_text(stdout, &padded_stats, Color::Cyan, None, None);
         queue!(stdout, Print("\r\n")).unwrap();
     }
+
+    // Clear any remaining lines from the process section to prevent artifacts
+    // This handles the case where processes are removed and old lines remain
+    let mut lines_used = 3; // header (2) + separator (1)
+    lines_used += end_index.saturating_sub(start_index); // actual process lines
+    if processes.len() > available_rows {
+        lines_used += 1; // navigation info line
+    }
+    if !processes.is_empty() {
+        lines_used += 1; // stats line
+    }
+
+    // Clear any remaining lines up to the full half_rows allocation
+    while lines_used < half_rows as usize {
+        let clear_line = " ".repeat(width);
+        queue!(stdout, Print(&clear_line)).unwrap();
+        queue!(stdout, Print("\r\n")).unwrap();
+        lines_used += 1;
+    }
 }
 
 /// Format memory size in human-readable format (e.g., 187T, 123G, 500M, 16K)
