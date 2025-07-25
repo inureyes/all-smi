@@ -66,8 +66,7 @@ struct RblnContext {
     #[allow(dead_code)]
     ctx_id: String,
     npu: String,
-    #[allow(dead_code)]
-    process: String,
+    process: String, // Process name from rbln-stat
     pid: String,
     #[allow(dead_code)]
     priority: String,
@@ -383,36 +382,84 @@ impl GpuReader for RebellionsReader {
 
             let running_in_container = container_utils::is_running_in_container();
 
-            // Aggregate NPU contexts by PID
-            for context in response.contexts {
-                let reported_pid = match context.pid.parse::<u32>() {
-                    Ok(p) => p,
-                    Err(_) => continue,
-                };
+            // Different strategies for container vs host
+            if running_in_container {
+                // SECURE CONTAINER MODE: Match by process name instead of PID
+                // This avoids the need to mount /proc from host
+                eprintln!("Running in container: using secure name-based process matching");
 
-                let pid = if running_in_container {
-                    // We're running inside a container
-                    // The NPU driver likely reports host PIDs, we need container PIDs
-                    match container_utils::map_host_to_container_pid(reported_pid) {
-                        Some(container_pid) => {
-                            if reported_pid != container_pid {
+                // First, build a map of process names to PIDs in our container
+                let mut process_by_name: HashMap<String, Vec<u32>> = HashMap::new();
+                for process in &all_processes {
+                    process_by_name
+                        .entry(process.process_name.clone())
+                        .or_default()
+                        .push(process.pid);
+                }
+
+                // Process NPU contexts
+                for context in response.contexts {
+                    let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
+                    let device_uuid = devices
+                        .get(npu_idx)
+                        .map(|d| d.uuid.clone())
+                        .unwrap_or_default();
+                    let memory_used = Self::parse_memory_allocation(&context.memalloc);
+                    let gpu_util = context.util_info.parse::<f64>().unwrap_or(0.0);
+
+                    // Try to match by process name if available
+                    let matched = if context.process != "N/A" && !context.process.is_empty() {
+                        // rbln-stat provided a process name
+                        if let Some(pids) = process_by_name.get(&context.process) {
+                            // Found matching process(es) by name
+                            for &pid in pids {
+                                let entry =
+                                    npu_usage_map.entry(pid).or_insert((0, 0.0, Vec::new()));
+                                entry.0 += memory_used;
+                                entry.1 = entry.1.max(gpu_util);
+                                entry.2.push((npu_idx, device_uuid.clone()));
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    if !matched {
+                        // Fallback: Try PID if it happens to match (namespace-aware driver)
+                        if let Ok(reported_pid) = context.pid.parse::<u32>() {
+                            if std::path::Path::new(&format!("/proc/{reported_pid}")).exists() {
+                                let entry = npu_usage_map.entry(reported_pid).or_insert((
+                                    0,
+                                    0.0,
+                                    Vec::new(),
+                                ));
+                                entry.0 += memory_used;
+                                entry.1 = entry.1.max(gpu_util);
+                                entry.2.push((npu_idx, device_uuid));
+                            } else {
                                 eprintln!(
-                                    "Mapped host PID {reported_pid} to container PID {container_pid}"
+                                    "Info: NPU context with host PID {} (process: {}) cannot be matched in container. \
+                                     This is expected in secure container mode.",
+                                    context.pid,
+                                    if context.process.is_empty() { "unknown" } else { &context.process }
                                 );
                             }
-                            container_pid
-                        }
-                        None => {
-                            eprintln!(
-                                "Warning: Could not map host PID {reported_pid} to container namespace"
-                            );
-                            continue;
                         }
                     }
-                } else {
-                    // We're running on the host
+                }
+            } else {
+                // HOST MODE: Use PID-based matching
+                for context in response.contexts {
+                    let reported_pid = match context.pid.parse::<u32>() {
+                        Ok(p) => p,
+                        Err(_) => continue,
+                    };
+
                     // Check if this PID exists in /proc
-                    if !std::path::Path::new(&format!("/proc/{reported_pid}")).exists() {
+                    let pid = if !std::path::Path::new(&format!("/proc/{reported_pid}")).exists() {
                         // This might be a container PID reported by the NPU driver
                         // Try to find the corresponding host PID
                         if let Some(host_pid) =
@@ -422,28 +469,26 @@ impl GpuReader for RebellionsReader {
                             host_pid
                         } else {
                             // Can't find host PID, skip this context
-                            eprintln!(
-                                "Warning: PID {reported_pid} not found in /proc, might be a container PID"
-                            );
+                            eprintln!("Warning: PID {reported_pid} not found in /proc");
                             continue;
                         }
                     } else {
                         reported_pid
-                    }
-                };
+                    };
 
-                let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
-                let device_uuid = devices
-                    .get(npu_idx)
-                    .map(|d| d.uuid.clone())
-                    .unwrap_or_default();
-                let memory_used = Self::parse_memory_allocation(&context.memalloc);
-                let gpu_util = context.util_info.parse::<f64>().unwrap_or(0.0);
+                    let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
+                    let device_uuid = devices
+                        .get(npu_idx)
+                        .map(|d| d.uuid.clone())
+                        .unwrap_or_default();
+                    let memory_used = Self::parse_memory_allocation(&context.memalloc);
+                    let gpu_util = context.util_info.parse::<f64>().unwrap_or(0.0);
 
-                let entry = npu_usage_map.entry(pid).or_insert((0, 0.0, Vec::new()));
-                entry.0 += memory_used; // Sum memory usage
-                entry.1 = entry.1.max(gpu_util); // Take max utilization
-                entry.2.push((npu_idx, device_uuid)); // Track all devices used
+                    let entry = npu_usage_map.entry(pid).or_insert((0, 0.0, Vec::new()));
+                    entry.0 += memory_used; // Sum memory usage
+                    entry.1 = entry.1.max(gpu_util); // Take max utilization
+                    entry.2.push((npu_idx, device_uuid)); // Track all devices used
+                }
             }
 
             // Update processes with NPU usage information

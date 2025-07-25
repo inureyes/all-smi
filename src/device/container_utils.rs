@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 /// Container detection and PID mapping utilities
 ///
 /// This module provides functionality to:
@@ -88,7 +89,21 @@ pub fn get_self_pid_mapping() -> Option<(u32, u32)> {
         for line in status.lines() {
             if line.starts_with("NSpid:") {
                 let pids: Vec<&str> = line.split_whitespace().skip(1).collect();
-                if pids.len() >= 2 {
+
+                // Debug output if enabled
+                if std::env::var("ALL_SMI_DEBUG_PID").is_ok() {
+                    eprintln!("Debug: Self NSpid: {line}");
+                }
+
+                // NSpid format varies:
+                // - Not in container: single PID
+                // - In container: container_pid host_pid [parent_ns_pids...]
+                if pids.len() == 1 {
+                    // Not in a container namespace
+                    return None;
+                } else if pids.len() >= 2 {
+                    // In a container: first is our PID in current namespace,
+                    // second is our PID in parent namespace (usually host)
                     let container_pid = pids[0].parse::<u32>().ok()?;
                     let host_pid = pids[1].parse::<u32>().ok()?;
                     return Some((container_pid, host_pid));
@@ -101,6 +116,7 @@ pub fn get_self_pid_mapping() -> Option<(u32, u32)> {
 
 /// Map host PID to container PID when running inside a container
 /// This is the most challenging case: NPU reports host PID, we need container PID
+#[allow(dead_code)]
 pub fn map_host_to_container_pid(host_pid: u32) -> Option<u32> {
     // If we're not in a container, return the original PID
     if !is_running_in_container() {
@@ -127,11 +143,29 @@ pub fn map_host_to_container_pid(host_pid: u32) -> Option<u32> {
             for line in status.lines() {
                 if line.starts_with("NSpid:") {
                     let pids: Vec<&str> = line.split_whitespace().skip(1).collect();
-                    // NSpid format: level0_pid level1_pid ... levelN_pid
-                    // The last one is usually the most nested (container) PID
-                    if let Some(container_pid_str) = pids.last() {
-                        if let Ok(container_pid) = container_pid_str.parse::<u32>() {
+                    // NSpid format when reading from host /proc:
+                    // NSpid: <host_pid> [parent_ns_pid] [container_pid]
+                    // We need to determine our namespace depth
+                    if let Some((our_container_pid, our_host_pid)) = get_self_pid_mapping() {
+                        // Find our position in the namespace hierarchy
+                        if our_host_pid == host_pid {
+                            return Some(our_container_pid);
+                        }
+                    }
+
+                    // Try to match based on the number of PIDs
+                    // Usually: host_pid, container_pid (when 1 level of nesting)
+                    if pids.len() == 2 && pids[0].parse::<u32>().ok() == Some(host_pid) {
+                        // This means: host_pid container_pid
+                        if let Ok(container_pid) = pids[1].parse::<u32>() {
                             return Some(container_pid);
+                        }
+                    } else if pids.len() > 2 {
+                        // Multiple levels of nesting, the last is usually the most nested
+                        if let Some(container_pid_str) = pids.last() {
+                            if let Ok(container_pid) = container_pid_str.parse::<u32>() {
+                                return Some(container_pid);
+                            }
                         }
                     }
                 }
@@ -141,6 +175,9 @@ pub fn map_host_to_container_pid(host_pid: u32) -> Option<u32> {
 
     // Strategy 3: Scan our local /proc to find a process that maps to this host PID
     // This is expensive but works when we have partial visibility
+    // First, understand our namespace structure
+    let _our_namespace_info = get_self_pid_mapping();
+
     if let Ok(entries) = fs::read_dir("/proc") {
         for entry in entries.flatten() {
             if let Some(pid_str) = entry.file_name().to_str() {
@@ -150,10 +187,36 @@ pub fn map_host_to_container_pid(host_pid: u32) -> Option<u32> {
                         for line in status.lines() {
                             if line.starts_with("NSpid:") {
                                 let pids: Vec<&str> = line.split_whitespace().skip(1).collect();
-                                // In container view, we typically see: container_pid host_pid
+
+                                // Debug: print the NSpid line for troubleshooting
+                                if std::env::var("ALL_SMI_DEBUG_PID").is_ok() {
+                                    eprintln!("Debug: PID {pid} has NSpid: {line}");
+                                }
+
+                                // When inside container reading /proc/[pid]/status:
+                                // NSpid format depends on our view:
+                                // - Same namespace: single PID
+                                // - Different namespace: container_pid host_pid [grandparent_pids...]
+
+                                // Most common case: we're in container, format is "container_pid host_pid"
                                 if pids.len() >= 2 && pids[1].parse::<u32>().ok() == Some(host_pid)
                                 {
                                     return Some(pid);
+                                }
+
+                                // Less common: check if it's a direct match (same namespace)
+                                if !pids.is_empty() && pids[0].parse::<u32>().ok() == Some(host_pid)
+                                {
+                                    // Verify we're in the same namespace
+                                    if let Ok(our_ns) = fs::read_link("/proc/self/ns/pid") {
+                                        if let Ok(proc_ns) =
+                                            fs::read_link(format!("/proc/{pid}/ns/pid"))
+                                        {
+                                            if our_ns == proc_ns {
+                                                return Some(pid);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -210,6 +273,75 @@ pub fn find_host_pid_from_container_pid(
         }
     }
     None
+}
+
+/// Build a cache of PID mappings for efficient lookup
+/// Returns HashMap<host_pid, container_pid>
+#[allow(dead_code)]
+pub fn build_pid_mapping_cache() -> HashMap<u32, u32> {
+    let mut cache = HashMap::new();
+
+    if !is_running_in_container() {
+        return cache;
+    }
+
+    // Try to read from host /proc if available
+    let host_proc_paths = vec!["/host/proc", "/hostproc", "/proc_host"];
+
+    for host_proc in &host_proc_paths {
+        if let Ok(entries) = fs::read_dir(host_proc) {
+            for entry in entries.flatten() {
+                if let Some(pid_str) = entry.file_name().to_str() {
+                    if let Ok(host_pid) = pid_str.parse::<u32>() {
+                        let status_path = format!("{host_proc}/{host_pid}/status");
+                        if let Ok(status) = fs::read_to_string(&status_path) {
+                            for line in status.lines() {
+                                if line.starts_with("NSpid:") {
+                                    let pids: Vec<&str> = line.split_whitespace().skip(1).collect();
+                                    if pids.len() >= 2 {
+                                        // Typically: host_pid container_pid
+                                        if let Ok(container_pid) = pids[1].parse::<u32>() {
+                                            cache.insert(host_pid, container_pid);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // If we found a working host proc, don't try others
+            if !cache.is_empty() {
+                return cache;
+            }
+        }
+    }
+
+    // Fallback: scan local /proc and build reverse mapping
+    if let Ok(entries) = fs::read_dir("/proc") {
+        for entry in entries.flatten() {
+            if let Some(pid_str) = entry.file_name().to_str() {
+                if let Ok(container_pid) = pid_str.parse::<u32>() {
+                    if let Ok(status) = fs::read_to_string(format!("/proc/{container_pid}/status"))
+                    {
+                        for line in status.lines() {
+                            if line.starts_with("NSpid:") {
+                                let pids: Vec<&str> = line.split_whitespace().skip(1).collect();
+                                if pids.len() >= 2 {
+                                    // Inside container: container_pid host_pid
+                                    if let Ok(host_pid) = pids[1].parse::<u32>() {
+                                        cache.insert(host_pid, container_pid);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    cache
 }
 
 /// Format process name with container indicator if applicable
