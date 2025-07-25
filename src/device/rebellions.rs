@@ -361,7 +361,6 @@ impl GpuReader for RebellionsReader {
             }
             Err(e) => {
                 let error_msg = format!("Error reading Rebellions devices: {e}");
-                eprintln!("{error_msg}");
                 Self::set_status(error_msg);
                 vec![]
             }
@@ -386,7 +385,7 @@ impl GpuReader for RebellionsReader {
             if running_in_container {
                 // SECURE CONTAINER MODE: Match by process name instead of PID
                 // This avoids the need to mount /proc from host
-                eprintln!("Running in container: using secure name-based process matching");
+                Self::set_status("Container mode: process matching by name".to_string());
 
                 // First, build a map of process names to PIDs in our container
                 let mut process_by_name: HashMap<String, Vec<u32>> = HashMap::new();
@@ -440,12 +439,8 @@ impl GpuReader for RebellionsReader {
                                 entry.1 = entry.1.max(gpu_util);
                                 entry.2.push((npu_idx, device_uuid));
                             } else {
-                                eprintln!(
-                                    "Info: NPU context with host PID {} (process: {}) cannot be matched in container. \
-                                     This is expected in secure container mode.",
-                                    context.pid,
-                                    if context.process.is_empty() { "unknown" } else { &context.process }
-                                );
+                                // This is expected in secure container mode - don't spam the console
+                                // The status message already indicates we're in container mode
                             }
                         }
                     }
@@ -465,11 +460,9 @@ impl GpuReader for RebellionsReader {
                         if let Some(host_pid) =
                             container_utils::find_host_pid_from_container_pid(reported_pid, None)
                         {
-                            eprintln!("Mapped container PID {reported_pid} to host PID {host_pid}");
                             host_pid
                         } else {
                             // Can't find host PID, skip this context
-                            eprintln!("Warning: PID {reported_pid} not found in /proc");
                             continue;
                         }
                     } else {
