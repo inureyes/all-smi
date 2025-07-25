@@ -207,9 +207,9 @@ fn render_shortcuts_section(
             "legend",
         ),
         ("", "", ""),
-        ("Progress Bar Legend:", "", "header"),
+        ("Resource Gauge Legend:", "", "header"),
         (
-            "  Memory bar:",
+            "  Memory gauge:",
             "[used/buffers/cache                    used%]",
             "membar",
         ),
