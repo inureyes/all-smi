@@ -1,8 +1,9 @@
-use crate::device::{process_utils, GpuInfo, GpuReader, ProcessInfo};
+use crate::device::{container_utils, process_utils, GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::fs;
 use std::process::Command;
 use std::sync::Mutex;
 
@@ -259,7 +260,7 @@ impl RebellionsReader {
         )) = process_utils::get_system_process_info(pid)
         {
             // Extract process name from command or use comm file
-            let process_name = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            let mut process_name = fs::read_to_string(format!("/proc/{pid}/comm"))
                 .ok()
                 .map(|s| s.trim().to_string())
                 .unwrap_or_else(|| {
@@ -269,6 +270,10 @@ impl RebellionsReader {
                         .unwrap_or("unknown")
                         .to_string()
                 });
+
+            // Add container indicators to process name
+            process_name =
+                container_utils::format_process_name_with_container_info(process_name, pid);
 
             Some(ProcessInfo {
                 device_id: 0,
@@ -376,11 +381,55 @@ impl GpuReader for RebellionsReader {
             type NpuUsageData = (u64, f64, Vec<(usize, String)>);
             let mut npu_usage_map: HashMap<u32, NpuUsageData> = HashMap::new();
 
+            let running_in_container = container_utils::is_running_in_container();
+
             // Aggregate NPU contexts by PID
             for context in response.contexts {
-                let pid = match context.pid.parse::<u32>() {
+                let reported_pid = match context.pid.parse::<u32>() {
                     Ok(p) => p,
                     Err(_) => continue,
+                };
+
+                let pid = if running_in_container {
+                    // We're running inside a container
+                    // The NPU driver likely reports host PIDs, we need container PIDs
+                    match container_utils::map_host_to_container_pid(reported_pid) {
+                        Some(container_pid) => {
+                            if reported_pid != container_pid {
+                                eprintln!(
+                                    "Mapped host PID {reported_pid} to container PID {container_pid}"
+                                );
+                            }
+                            container_pid
+                        }
+                        None => {
+                            eprintln!(
+                                "Warning: Could not map host PID {reported_pid} to container namespace"
+                            );
+                            continue;
+                        }
+                    }
+                } else {
+                    // We're running on the host
+                    // Check if this PID exists in /proc
+                    if !std::path::Path::new(&format!("/proc/{reported_pid}")).exists() {
+                        // This might be a container PID reported by the NPU driver
+                        // Try to find the corresponding host PID
+                        if let Some(host_pid) =
+                            container_utils::find_host_pid_from_container_pid(reported_pid, None)
+                        {
+                            eprintln!("Mapped container PID {reported_pid} to host PID {host_pid}");
+                            host_pid
+                        } else {
+                            // Can't find host PID, skip this context
+                            eprintln!(
+                                "Warning: PID {reported_pid} not found in /proc, might be a container PID"
+                            );
+                            continue;
+                        }
+                    } else {
+                        reported_pid
+                    }
                 };
 
                 let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
