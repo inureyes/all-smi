@@ -146,10 +146,8 @@ fn render_shortcuts_section(
     state: &AppState,
     is_remote: bool,
 ) -> String {
-    let mut shortcuts_lines = vec![
-        ("", "KEYBOARD SHORTCUTS & NAVIGATION", "title"),
-        ("", "", "separator"),
-        ("", "", ""),
+    // Split content into left and right columns
+    let mut left_column = vec![
         ("Navigation Keys:", "", "header"),
         (
             "  ← →",
@@ -174,13 +172,13 @@ fn render_shortcuts_section(
 
     // Add mode-specific shortcuts
     if !is_remote {
-        shortcuts_lines.extend(vec![
+        left_column.extend(vec![
             ("  P", "Sort processes by PID", "shortcut"),
             ("  M", "Sort processes by memory", "shortcut"),
         ]);
     }
 
-    shortcuts_lines.extend(vec![
+    left_column.extend(vec![
         ("", "", ""),
         ("Process View Columns:", "", "header"),
         ("  PID", "Process ID", "legend"),
@@ -196,7 +194,9 @@ fn render_shortcuts_section(
         ("  VRAM", "GPU memory usage", "legend"),
         ("  TIME+", "Total CPU time used", "legend"),
         ("  Command", "Command line (← → to scroll)", "legend"),
-        ("", "", ""),
+    ]);
+
+    let mut right_column = vec![
         ("Process Color Legend:", "", "header"),
         ("  Your processes", "White text", "legend"),
         ("  Root/unknown", "Dark grey text", "legend"),
@@ -214,17 +214,41 @@ fn render_shortcuts_section(
             "membar",
         ),
         ("", "", ""),
-    ]);
+        ("", "", ""),
+        ("Current Status:", "", "header"),
+    ];
 
     // Add current sort status
     let sort_status = get_current_sort_status(&state.sort_criteria);
-    shortcuts_lines.push(("Current sort:", &sort_status, "status"));
+    right_column.push(("  Sort mode:", &sort_status, "status"));
 
-    if line_idx < shortcuts_lines.len() {
-        let (key, desc, style) = &shortcuts_lines[line_idx];
-        format_shortcut_line(key, desc, style, width)
-    } else {
-        " ".repeat(width)
+    // Handle special rows
+    match line_idx {
+        0 => center_text_colored("KEYBOARD SHORTCUTS & NAVIGATION", width, Color::Yellow),
+        1 => "═".repeat(width).with(Color::DarkGrey).to_string(),
+        2 => " ".repeat(width),
+        _ => {
+            let content_line = line_idx - 3; // Adjust for title and separator
+            let column_width = (width - 4) / 2; // Leave space for middle separator
+
+            // Get content from both columns
+            let left_content = if content_line < left_column.len() {
+                let (key, desc, style) = &left_column[content_line];
+                format_shortcut_line(key, desc, style, column_width)
+            } else {
+                " ".repeat(column_width)
+            };
+
+            let right_content = if content_line < right_column.len() {
+                let (key, desc, style) = &right_column[content_line];
+                format_shortcut_line(key, desc, style, column_width)
+            } else {
+                " ".repeat(column_width)
+            };
+
+            // Combine columns with separator
+            format!("{left_content}  │  {right_content}")
+        }
     }
 }
 
@@ -277,24 +301,56 @@ fn format_shortcut_line(key: &str, desc: &str, style: &str, width: usize) -> Str
     let content = match style {
         "title" => center_text_colored(desc, width, Color::Yellow),
         "separator" => "═".repeat(width).with(Color::DarkGrey).to_string(),
-        "header" => format!("  {}", key.green()),
+        "header" => format!(" {}", key.green()),
         "shortcut" => {
             if key.is_empty() {
                 String::new()
             } else {
-                format!("  {:<12} {}", key.white().bold().to_string(), desc.white())
+                let key_str = key.white().bold().to_string();
+                let desc_str = desc.white().to_string();
+                // Calculate available space for description
+                let key_display_width = calculate_display_width(&key_str) + 1; // +1 for leading space
+                let available_desc_width = width.saturating_sub(key_display_width + 2); // +2 for spaces
+                let truncated_desc = if calculate_display_width(&desc_str) > available_desc_width {
+                    let mut truncated = String::new();
+                    let mut current_width = 0;
+                    for ch in desc.chars() {
+                        let ch_width = char_display_width(ch);
+                        if current_width + ch_width + 3 > available_desc_width {
+                            truncated.push_str("...");
+                            break;
+                        }
+                        truncated.push(ch);
+                        current_width += ch_width;
+                    }
+                    truncated
+                } else {
+                    desc.to_string()
+                };
+                format!(" {:<10} {}", key_str, truncated_desc.white())
             }
         }
-        "legend" => format!("  {:<12} {}", key, desc.white()),
-        "status" => format!("  {:<12} {}", key.cyan().to_string(), desc.yellow()),
+        "legend" => {
+            let available_desc_width = width.saturating_sub(12); // 10 for key + 2 for spacing
+            let truncated_desc = if desc.len() > available_desc_width {
+                format!("{}...", &desc[..available_desc_width.saturating_sub(3)])
+            } else {
+                desc.to_string()
+            };
+            format!(" {:<10} {}", key, truncated_desc.white())
+        }
+        "status" => {
+            let key_str = key.cyan().to_string();
+            let desc_str = desc.yellow().to_string();
+            format!(" {key_str:<10} {desc_str}")
+        }
         "membar" => {
             // Format memory bar with colored segments
-            // Split the description to color individual parts
             let colored_desc = desc
                 .replace("used", &"used".green().to_string())
                 .replace("buffers", &"buffers".blue().to_string())
                 .replace("cache", &"cache".yellow().to_string());
-            format!("  {key:<12} {colored_desc}")
+            format!(" {key:<10} {colored_desc}")
         }
         _ => String::new(),
     };
@@ -307,7 +363,7 @@ fn format_terminal_line(cmd: &str, desc: &str, style: &str, width: usize) -> Str
     let content = match style {
         "title" => center_text_colored(desc, width, Color::Magenta),
         "separator" => "═".repeat(width).with(Color::DarkGrey).to_string(),
-        "header" => format!("  {}", cmd.green()),
+        "header" => format!(" {}", cmd.green()),
         "command" => {
             if cmd.is_empty() {
                 String::new()
