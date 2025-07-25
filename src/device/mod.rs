@@ -8,7 +8,6 @@ pub mod tenstorrent;
 
 // Re-export status functions for UI
 pub use nvidia::get_nvml_status_message;
-pub use rebellions::get_rebellions_status_message;
 pub use tenstorrent::get_tenstorrent_status_message;
 
 // CPU reader modules

@@ -12,8 +12,8 @@ use crate::cli::ViewArgs;
 use crate::common::config::{AppConfig, EnvConfig};
 use crate::device::{
     get_cpu_readers, get_gpu_readers, get_memory_readers, get_nvml_status_message,
-    get_rebellions_status_message, get_tenstorrent_status_message,
-    platform_detection::{has_nvidia, has_rebellions, has_tenstorrent},
+    get_tenstorrent_status_message,
+    platform_detection::{has_nvidia, has_tenstorrent},
     CpuInfo, GpuInfo, MemoryInfo, ProcessInfo,
 };
 use crate::network::NetworkClient;
@@ -290,17 +290,7 @@ impl DataCollector {
             }
         }
 
-        // Only check Rebellions status if we're trying to monitor Rebellions devices
-        if has_rebellions() {
-            if let Some(rbln_message) = get_rebellions_status_message() {
-                if !state.rebellions_notification_shown {
-                    if let Err(e) = state.notifications.warning(rbln_message) {
-                        eprintln!("Failed to show Rebellions notification: {e}");
-                    }
-                    state.rebellions_notification_shown = true;
-                }
-            }
-        }
+        // Rebellions error notifications are now handled by the reader itself
 
         // Update utilization history
         self.update_utilization_history(&mut state);

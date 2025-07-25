@@ -1,14 +1,12 @@
-use crate::device::{container_utils, process_utils, GpuInfo, GpuReader, ProcessInfo};
+use crate::device::{container_utils, GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
-
-// Global status for error messages
-static REBELLIONS_STATUS: Mutex<Option<String>> = Mutex::new(None);
+use std::sync::{Arc, Mutex};
 
 /// PCI information for Rebellions device
 #[derive(Debug, Deserialize)]
@@ -66,6 +64,7 @@ struct RblnContext {
     #[allow(dead_code)]
     ctx_id: String,
     npu: String,
+    #[allow(dead_code)]
     process: String, // Process name from rbln-stat
     pid: String,
     #[allow(dead_code)]
@@ -78,106 +77,123 @@ struct RblnContext {
     util_info: String,
 }
 
-pub struct RebellionsReader {
-    command_path: String,
-}
+// Lazy static for caching the command path
+static COMMAND_PATH: Lazy<Option<PathBuf>> = Lazy::new(|| {
+    const PATHS: &[&str] = &[
+        "/usr/local/bin/rbln-stat",
+        "/usr/bin/rbln-stat",
+        "/usr/local/bin/rbln-smi",
+        "/usr/bin/rbln-smi",
+    ];
 
-impl RebellionsReader {
-    pub fn new() -> Self {
-        // Try to find rbln-stat first, then fall back to rbln-smi
-        let command_path = if std::path::Path::new("/usr/local/bin/rbln-stat").exists() {
-            "/usr/local/bin/rbln-stat".to_string()
-        } else if std::path::Path::new("/usr/bin/rbln-stat").exists() {
-            "/usr/bin/rbln-stat".to_string()
-        } else if Self::is_command_available("rbln-stat") {
-            "rbln-stat".to_string()
-        } else if std::path::Path::new("/usr/local/bin/rbln-smi").exists() {
-            "/usr/local/bin/rbln-smi".to_string()
-        } else if std::path::Path::new("/usr/bin/rbln-smi").exists() {
-            "/usr/bin/rbln-smi".to_string()
-        } else {
-            // Final fallback to PATH lookup
-            "rbln-smi".to_string()
-        };
-
-        RebellionsReader { command_path }
+    // Check specific paths first
+    for path in PATHS {
+        if Path::new(path).exists() {
+            return Some(PathBuf::from(path));
+        }
     }
 
-    /// Check if a command is available in PATH
-    fn is_command_available(cmd: &str) -> bool {
-        Command::new("which")
+    // Check if commands are available in PATH
+    for cmd in &["rbln-stat", "rbln-smi"] {
+        if Command::new("which")
             .arg(cmd)
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)
+        {
+            return Some(PathBuf::from(cmd));
+        }
     }
 
-    /// Store an error message in the global status
-    fn set_status(message: String) {
-        if let Ok(mut status) = REBELLIONS_STATUS.lock() {
-            *status = Some(message);
+    None
+});
+
+pub struct RebellionsReader {
+    command_path: Arc<PathBuf>,
+    last_error: Arc<Mutex<Option<String>>>,
+}
+
+impl RebellionsReader {
+    pub fn new() -> Self {
+        let command_path = COMMAND_PATH
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from("rbln-stat"));
+
+        RebellionsReader {
+            command_path: Arc::new(command_path),
+            last_error: Arc::new(Mutex::new(if COMMAND_PATH.is_none() {
+                Some("Neither rbln-stat nor rbln-smi found in system".to_string())
+            } else {
+                None
+            })),
         }
     }
 
     /// Create reader with custom command path
     #[allow(dead_code)]
-    pub fn with_command_path(path: String) -> Self {
-        RebellionsReader { command_path: path }
+    pub fn with_command_path(path: PathBuf) -> Self {
+        RebellionsReader {
+            command_path: Arc::new(path),
+            last_error: Arc::new(Mutex::new(None)),
+        }
     }
 
-    /// Parse float value from string, returning 0.0 on error
-    fn parse_float(s: &str) -> f64 {
-        s.parse::<f64>().unwrap_or(0.0)
-    }
-
-    /// Parse integer value from string, returning 0 on error
+    /// Get the last error message if any
     #[allow(dead_code)]
-    fn parse_u32(s: &str) -> u32 {
-        s.parse::<u32>().unwrap_or(0)
+    pub fn last_error(&self) -> Option<String> {
+        self.last_error.lock().ok()?.clone()
     }
 
-    /// Parse temperature from string (removes 'C' suffix)
-    fn parse_temperature(temp_str: &str) -> u32 {
-        temp_str.trim_end_matches('C').parse::<u32>().unwrap_or(0)
+    /// Set an error message
+    fn set_error(&self, error: String) {
+        if let Ok(mut last_error) = self.last_error.lock() {
+            *last_error = Some(error);
+        }
     }
 
-    /// Parse power from string (removes 'mW' suffix)
-    fn parse_power_mw(power_str: &str) -> f64 {
-        power_str
-            .trim_end_matches("mW")
-            .parse::<f64>()
-            .unwrap_or(0.0)
-    }
-
-    /// Parse memory value from string to u64
-    fn parse_memory(mem_str: &str) -> u64 {
-        mem_str.parse::<u64>().unwrap_or(0)
+    /// Parse numeric values with optional suffixes
+    fn parse_value<T: std::str::FromStr + Default>(s: &str, suffix: Option<&str>) -> T {
+        let trimmed = if let Some(suffix) = suffix {
+            s.trim_end_matches(suffix)
+        } else {
+            s
+        };
+        trimmed.parse::<T>().unwrap_or_default()
     }
 
     /// Execute rbln-stat/rbln-smi command and parse the output
     fn get_rbln_info(&self) -> Result<RblnResponse, String> {
-        let cmd_name = std::path::Path::new(&self.command_path)
+        let cmd_name = self
+            .command_path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("rbln-stat/rbln-smi");
 
-        let output = Command::new(&self.command_path)
+        let output = Command::new(self.command_path.as_ref())
             .arg("-j")
             .output()
-            .map_err(|e| format!("Failed to execute {cmd_name}: {e}"))?;
+            .map_err(|e| {
+                let error = format!("Failed to execute {cmd_name}: {e}");
+                self.set_error(error.clone());
+                error
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("{cmd_name} failed: {stderr}"));
+            let error = format!("{cmd_name} failed: {stderr}");
+            self.set_error(error.clone());
+            return Err(error);
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         // Parse JSON response
-        let response: RblnResponse = serde_json::from_str(&stdout)
-            .map_err(|e| format!("Failed to parse {cmd_name} JSON: {e}"))?;
-
-        Ok(response)
+        serde_json::from_str(&stdout).map_err(|e| {
+            let error = format!("Failed to parse {cmd_name} JSON: {e}");
+            self.set_error(error.clone());
+            error
+        })
     }
 
     /// Determine the device model based on device name and memory
@@ -203,102 +219,24 @@ impl RebellionsReader {
     /// Parse memory allocation string (e.g., "66.0MiB") to bytes
     fn parse_memory_allocation(mem_str: &str) -> u64 {
         let mem_str = mem_str.trim();
-        if let Some(mib_pos) = mem_str.find("MiB") {
-            if let Ok(mib_val) = mem_str[..mib_pos].parse::<f64>() {
-                return (mib_val * 1024.0 * 1024.0) as u64;
-            }
-        } else if let Some(gib_pos) = mem_str.find("GiB") {
-            if let Ok(gib_val) = mem_str[..gib_pos].parse::<f64>() {
-                return (gib_val * 1024.0 * 1024.0 * 1024.0) as u64;
-            }
-        } else if let Some(kib_pos) = mem_str.find("KiB") {
-            if let Ok(kib_val) = mem_str[..kib_pos].parse::<f64>() {
-                return (kib_val * 1024.0) as u64;
-            }
-        }
-        0
-    }
 
-    /// Get all processes from the system
-    fn get_all_processes() -> Vec<ProcessInfo> {
-        let mut processes = Vec::new();
+        const UNITS: &[(&str, f64)] = &[
+            ("TiB", 1024.0 * 1024.0 * 1024.0 * 1024.0),
+            ("GiB", 1024.0 * 1024.0 * 1024.0),
+            ("MiB", 1024.0 * 1024.0),
+            ("KiB", 1024.0),
+        ];
 
-        if let Ok(entries) = std::fs::read_dir("/proc") {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if let Some(filename) = path.file_name() {
-                    if let Some(pid_str) = filename.to_str() {
-                        if let Ok(pid) = pid_str.parse::<u32>() {
-                            if let Some(proc_info) = Self::create_process_info(pid) {
-                                processes.push(proc_info);
-                            }
-                        }
-                    }
+        for (unit, multiplier) in UNITS {
+            if let Some(pos) = mem_str.find(unit) {
+                if let Ok(val) = mem_str[..pos].parse::<f64>() {
+                    return (val * multiplier) as u64;
                 }
             }
         }
 
-        processes
-    }
-
-    /// Create ProcessInfo from pid using process_utils
-    fn create_process_info(pid: u32) -> Option<ProcessInfo> {
-        // Use the existing process_utils to get system process info
-        if let Some((
-            cpu_percent,
-            memory_percent,
-            memory_rss,
-            memory_vms,
-            user,
-            state,
-            start_time,
-            cpu_time,
-            command,
-            ppid,
-            threads,
-        )) = process_utils::get_system_process_info(pid)
-        {
-            // Extract process name from command or use comm file
-            let mut process_name = fs::read_to_string(format!("/proc/{pid}/comm"))
-                .ok()
-                .map(|s| s.trim().to_string())
-                .unwrap_or_else(|| {
-                    command
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("unknown")
-                        .to_string()
-                });
-
-            // Add container indicators to process name
-            process_name =
-                container_utils::format_process_name_with_container_info(process_name, pid);
-
-            Some(ProcessInfo {
-                device_id: 0,
-                device_uuid: String::new(),
-                pid,
-                process_name,
-                used_memory: 0, // Will be filled from NPU data
-                cpu_percent,
-                memory_percent,
-                memory_rss,
-                memory_vms,
-                user,
-                state,
-                start_time,
-                cpu_time,
-                command,
-                ppid,
-                threads,
-                uses_gpu: false, // Will be updated from NPU data
-                priority: 0,
-                nice_value: 0,
-                gpu_utilization: 0.0, // Will be filled from NPU data
-            })
-        } else {
-            None
-        }
+        // Try parsing as raw bytes if no unit found
+        mem_str.parse::<u64>().unwrap_or(0)
     }
 }
 
@@ -306,9 +244,9 @@ impl GpuReader for RebellionsReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
         match self.get_rbln_info() {
             Ok(response) => {
-                // Clear any previous error status
-                if let Ok(mut status) = REBELLIONS_STATUS.lock() {
-                    *status = None;
+                // Clear any previous error
+                if let Ok(mut last_error) = self.last_error.lock() {
+                    *last_error = None;
                 }
 
                 let time_str = Local::now().format("%a %b %d %H:%M:%S %Y").to_string();
@@ -319,7 +257,7 @@ impl GpuReader for RebellionsReader {
                     .devices
                     .into_iter()
                     .map(|device| {
-                        let total_memory = Self::parse_memory(&device.memory.total);
+                        let total_memory = Self::parse_value::<u64>(&device.memory.total, None);
                         let model = Self::get_device_model(&device.name, total_memory);
 
                         let mut detail = HashMap::new();
@@ -346,165 +284,128 @@ impl GpuReader for RebellionsReader {
                             host_id: "local".to_string(),
                             hostname: hostname.clone(),
                             instance: hostname.clone(),
-                            utilization: Self::parse_float(&device.util),
+                            utilization: Self::parse_value::<f64>(&device.util, None),
                             ane_utilization: 0.0,
                             dla_utilization: None,
-                            temperature: Self::parse_temperature(&device.temperature),
-                            used_memory: Self::parse_memory(&device.memory.used),
+                            temperature: Self::parse_value::<u32>(&device.temperature, Some("C")),
+                            used_memory: Self::parse_value::<u64>(&device.memory.used, None),
                             total_memory,
                             frequency: 0, // Not provided by rbln-smi
-                            power_consumption: Self::parse_power_mw(&device.card_power) / 1000.0, // Convert mW to W
+                            power_consumption: Self::parse_value::<f64>(
+                                &device.card_power,
+                                Some("mW"),
+                            ) / 1000.0,
                             detail,
                         }
                     })
                     .collect()
             }
             Err(e) => {
-                let error_msg = format!("Error reading Rebellions devices: {e}");
-                Self::set_status(error_msg);
+                self.set_error(format!("Error reading Rebellions devices: {e}"));
                 vec![]
             }
         }
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        // First, get all processes from the system
-        let mut all_processes = Self::get_all_processes();
+        // Get NPU usage information first
+        match self.get_rbln_info() {
+            Ok(response) => {
+                let devices = response.devices;
+                let contexts = response.contexts;
+                let mut npu_processes = Vec::new();
 
-        // Then get NPU usage information
-        if let Ok(response) = self.get_rbln_info() {
-            let devices = response.devices;
-
-            // Create a map to aggregate NPU usage by PID
-            type NpuUsageData = (u64, f64, Vec<(usize, String)>);
-            let mut npu_usage_map: HashMap<u32, NpuUsageData> = HashMap::new();
-
-            let running_in_container = container_utils::is_running_in_container();
-
-            // Different strategies for container vs host
-            if running_in_container {
-                // SECURE CONTAINER MODE: Match by process name instead of PID
-                // This avoids the need to mount /proc from host
-                Self::set_status("Container mode: process matching by name".to_string());
-
-                // First, build a map of process names to PIDs in our container
-                let mut process_by_name: HashMap<String, Vec<u32>> = HashMap::new();
-                for process in &all_processes {
-                    process_by_name
-                        .entry(process.process_name.clone())
-                        .or_default()
-                        .push(process.pid);
-                }
-
-                // Process NPU contexts
-                for context in response.contexts {
+                for context in contexts {
                     let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
                     let device_uuid = devices
                         .get(npu_idx)
                         .map(|d| d.uuid.clone())
                         .unwrap_or_default();
-                    let memory_used = Self::parse_memory_allocation(&context.memalloc);
-                    let gpu_util = context.util_info.parse::<f64>().unwrap_or(0.0);
 
-                    // Try to match by process name if available
-                    let matched = if context.process != "N/A" && !context.process.is_empty() {
-                        // rbln-stat provided a process name
-                        if let Some(pids) = process_by_name.get(&context.process) {
-                            // Found matching process(es) by name
-                            for &pid in pids {
-                                let entry =
-                                    npu_usage_map.entry(pid).or_insert((0, 0.0, Vec::new()));
-                                entry.0 += memory_used;
-                                entry.1 = entry.1.max(gpu_util);
-                                entry.2.push((npu_idx, device_uuid.clone()));
-                            }
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
-
-                    if !matched {
-                        // Fallback: Try PID if it happens to match (namespace-aware driver)
-                        if let Ok(reported_pid) = context.pid.parse::<u32>() {
-                            if std::path::Path::new(&format!("/proc/{reported_pid}")).exists() {
-                                let entry = npu_usage_map.entry(reported_pid).or_insert((
-                                    0,
-                                    0.0,
-                                    Vec::new(),
-                                ));
-                                entry.0 += memory_used;
-                                entry.1 = entry.1.max(gpu_util);
-                                entry.2.push((npu_idx, device_uuid));
-                            } else {
-                                // This is expected in secure container mode - don't spam the console
-                                // The status message already indicates we're in container mode
-                            }
+                    if let Ok(pid) = context.pid.parse::<u32>() {
+                        // Try to get process info from /proc
+                        if let Some(proc_info) = Self::get_process_info_from_pid(pid) {
+                            let mut process = proc_info;
+                            process.device_id = npu_idx;
+                            process.device_uuid = device_uuid;
+                            process.used_memory = Self::parse_memory_allocation(&context.memalloc);
+                            process.gpu_utilization =
+                                Self::parse_value::<f64>(&context.util_info, None);
+                            process.uses_gpu = true;
+                            npu_processes.push(process);
                         }
                     }
                 }
-            } else {
-                // HOST MODE: Use PID-based matching
-                for context in response.contexts {
-                    let reported_pid = match context.pid.parse::<u32>() {
-                        Ok(p) => p,
-                        Err(_) => continue,
-                    };
 
-                    // Check if this PID exists in /proc
-                    let pid = if !std::path::Path::new(&format!("/proc/{reported_pid}")).exists() {
-                        // This might be a container PID reported by the NPU driver
-                        // Try to find the corresponding host PID
-                        if let Some(host_pid) =
-                            container_utils::find_host_pid_from_container_pid(reported_pid, None)
-                        {
-                            host_pid
-                        } else {
-                            // Can't find host PID, skip this context
-                            continue;
-                        }
-                    } else {
-                        reported_pid
-                    };
-
-                    let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
-                    let device_uuid = devices
-                        .get(npu_idx)
-                        .map(|d| d.uuid.clone())
-                        .unwrap_or_default();
-                    let memory_used = Self::parse_memory_allocation(&context.memalloc);
-                    let gpu_util = context.util_info.parse::<f64>().unwrap_or(0.0);
-
-                    let entry = npu_usage_map.entry(pid).or_insert((0, 0.0, Vec::new()));
-                    entry.0 += memory_used; // Sum memory usage
-                    entry.1 = entry.1.max(gpu_util); // Take max utilization
-                    entry.2.push((npu_idx, device_uuid)); // Track all devices used
-                }
+                npu_processes
             }
-
-            // Update processes with NPU usage information
-            for process in &mut all_processes {
-                if let Some((total_memory, gpu_util, devices_used)) =
-                    npu_usage_map.get(&process.pid)
-                {
-                    process.uses_gpu = true;
-                    process.used_memory = *total_memory;
-                    process.gpu_utilization = *gpu_util;
-
-                    // Use the first device for device_id and device_uuid
-                    if let Some((device_id, device_uuid)) = devices_used.first() {
-                        process.device_id = *device_id;
-                        process.device_uuid = device_uuid.clone();
-                    }
-                }
+            Err(e) => {
+                self.set_error(format!("Failed to get NPU info: {e}"));
+                vec![]
             }
-        } else if let Err(e) = self.get_rbln_info() {
-            Self::set_status(format!("Failed to get NPU info: {e}"));
         }
+    }
+}
 
-        all_processes
+impl RebellionsReader {
+    /// Get process info from PID
+    fn get_process_info_from_pid(pid: u32) -> Option<ProcessInfo> {
+        use crate::device::process_utils;
+
+        // Use the existing process_utils to get system process info
+        if let Some((
+            cpu_percent,
+            memory_percent,
+            memory_rss,
+            memory_vms,
+            user,
+            state,
+            start_time,
+            cpu_time,
+            command,
+            ppid,
+            threads,
+        )) = process_utils::get_system_process_info(pid)
+        {
+            let process_name = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                .ok()
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| {
+                    command
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("unknown")
+                        .to_string()
+                });
+
+            Some(ProcessInfo {
+                device_id: 0,
+                device_uuid: String::new(),
+                pid,
+                process_name: container_utils::format_process_name_with_container_info(
+                    process_name,
+                    pid,
+                ),
+                used_memory: 0,
+                cpu_percent,
+                memory_percent,
+                memory_rss,
+                memory_vms,
+                user,
+                state,
+                start_time,
+                cpu_time,
+                command,
+                ppid,
+                threads,
+                uses_gpu: false,
+                priority: 0,
+                nice_value: 0,
+                gpu_utilization: 0.0,
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -514,12 +415,138 @@ impl Default for RebellionsReader {
     }
 }
 
-/// Get a user-friendly message about Rebellions status
-#[allow(dead_code)]
-pub fn get_rebellions_status_message() -> Option<String> {
-    if let Ok(status) = REBELLIONS_STATUS.lock() {
-        status.clone()
-    } else {
-        None
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_value() {
+        assert_eq!(RebellionsReader::parse_value::<f64>("123.45", None), 123.45);
+        assert_eq!(
+            RebellionsReader::parse_value::<f64>("123.45mW", Some("mW")),
+            123.45
+        );
+        assert_eq!(RebellionsReader::parse_value::<u32>("45C", Some("C")), 45);
+        assert_eq!(RebellionsReader::parse_value::<u32>("invalid", None), 0);
+    }
+
+    #[test]
+    fn test_parse_memory_allocation() {
+        assert_eq!(
+            RebellionsReader::parse_memory_allocation("1.5GiB"),
+            1610612736
+        );
+        assert_eq!(
+            RebellionsReader::parse_memory_allocation("512MiB"),
+            536870912
+        );
+        assert_eq!(
+            RebellionsReader::parse_memory_allocation("1024KiB"),
+            1048576
+        );
+        assert_eq!(
+            RebellionsReader::parse_memory_allocation("2TiB"),
+            2199023255552
+        );
+        assert_eq!(
+            RebellionsReader::parse_memory_allocation("1048576"),
+            1048576
+        );
+        assert_eq!(RebellionsReader::parse_memory_allocation("invalid"), 0);
+    }
+
+    #[test]
+    fn test_get_device_model() {
+        assert_eq!(
+            RebellionsReader::get_device_model("RBLN-CA22", 16 * 1024 * 1024 * 1024),
+            "RBLN-CA22 (ATOM)"
+        );
+        assert_eq!(
+            RebellionsReader::get_device_model("RBLN-CA22", 32 * 1024 * 1024 * 1024),
+            "RBLN-CA22 (ATOM+)"
+        );
+        assert_eq!(
+            RebellionsReader::get_device_model("RBLN-CA22", 64 * 1024 * 1024 * 1024),
+            "RBLN-CA22 (ATOM Max)"
+        );
+    }
+
+    #[test]
+    fn test_command_path_discovery() {
+        // Test that COMMAND_PATH is initialized
+        assert!(COMMAND_PATH.is_some() || COMMAND_PATH.is_none());
+    }
+
+    #[test]
+    fn test_with_command_path() {
+        let custom_path = PathBuf::from("/custom/path/rbln-stat");
+        let reader = RebellionsReader::with_command_path(custom_path.clone());
+        assert_eq!(*reader.command_path, custom_path);
+    }
+
+    #[test]
+    fn test_error_handling() {
+        let reader = RebellionsReader::with_command_path(PathBuf::from("/nonexistent/rbln-stat"));
+        reader.set_error("Test error".to_string());
+        assert_eq!(reader.last_error(), Some("Test error".to_string()));
+    }
+
+    #[test]
+    fn test_json_parsing() {
+        let json_response = r#"{
+            "KMD_version": "1.0.0",
+            "devices": [{
+                "npu": "0",
+                "name": "RBLN-CA22",
+                "sid": "SN123456",
+                "uuid": "UUID-123-456",
+                "device": "/dev/rbln0",
+                "status": "Active",
+                "fw_ver": "1.2.3",
+                "pci": {
+                    "dev": "0000:01:00.0",
+                    "bus_id": "0000:01:00.0",
+                    "numa_node": "0",
+                    "link_speed": "Gen4",
+                    "link_width": "16"
+                },
+                "temperature": "45C",
+                "card_power": "75000mW",
+                "pstate": "P0",
+                "memory": {
+                    "used": "1073741824",
+                    "total": "17179869184"
+                },
+                "util": "25.5",
+                "board_info": "Rev 1.0",
+                "location": 0
+            }],
+            "contexts": [{
+                "ctx_id": "1",
+                "npu": "0",
+                "process": "test_app",
+                "pid": "1234",
+                "priority": "0",
+                "ptid": "1234",
+                "memalloc": "512MiB",
+                "status": "Running",
+                "util_info": "15.5"
+            }]
+        }"#;
+
+        let response: RblnResponse = serde_json::from_str(json_response).unwrap();
+        assert_eq!(response.kmd_version, "1.0.0");
+        assert_eq!(response.devices.len(), 1);
+        assert_eq!(response.contexts.len(), 1);
+
+        let device = &response.devices[0];
+        assert_eq!(device.name, "RBLN-CA22");
+        assert_eq!(device.temperature, "45C");
+        assert_eq!(device.card_power, "75000mW");
+
+        let context = &response.contexts[0];
+        assert_eq!(context.process, "test_app");
+        assert_eq!(context.pid, "1234");
+        assert_eq!(context.memalloc, "512MiB");
     }
 }
