@@ -207,6 +207,13 @@ fn render_shortcuts_section(
             "legend",
         ),
         ("", "", ""),
+        ("Progress Bar Legend:", "", "header"),
+        (
+            "  Memory bar:",
+            "[used/buffers/cache                    used%]",
+            "membar",
+        ),
+        ("", "", ""),
     ]);
 
     // Add current sort status
@@ -280,6 +287,15 @@ fn format_shortcut_line(key: &str, desc: &str, style: &str, width: usize) -> Str
         }
         "legend" => format!("  {:<12} {}", key, desc.white()),
         "status" => format!("  {:<12} {}", key.cyan().to_string(), desc.yellow()),
+        "membar" => {
+            // Format memory bar with colored segments
+            // Split the description to color individual parts
+            let colored_desc = desc
+                .replace("used", &"used".green().to_string())
+                .replace("buffers", &"buffers".blue().to_string())
+                .replace("cache", &"cache".yellow().to_string());
+            format!("  {key:<12} {colored_desc}")
+        }
         _ => String::new(),
     };
 
