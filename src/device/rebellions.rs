@@ -1,124 +1,13 @@
-use crate::device::{GpuInfo, GpuReader, ProcessInfo};
+use crate::device::{process_utils, GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
-use lazy_static::lazy_static;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
 // Global status for error messages
 static REBELLIONS_STATUS: Mutex<Option<String>> = Mutex::new(None);
-
-lazy_static! {
-    static ref PROCESS_INFO_CACHE: Mutex<ProcessInfoCache> = Mutex::new(ProcessInfoCache::new());
-}
-
-/// Cache for process information to avoid excessive /proc queries
-struct ProcessInfoCache {
-    cache: HashMap<u32, CachedProcessInfo>,
-    last_cleanup: Instant,
-}
-
-struct CachedProcessInfo {
-    process_name: String,
-    user: String,
-    command: String,
-    last_updated: Instant,
-}
-
-impl ProcessInfoCache {
-    fn new() -> Self {
-        ProcessInfoCache {
-            cache: HashMap::new(),
-            last_cleanup: Instant::now(),
-        }
-    }
-
-    fn get_or_update(&mut self, pid: u32) -> (String, String, String) {
-        // Clean up stale entries every 60 seconds
-        if self.last_cleanup.elapsed() > Duration::from_secs(60) {
-            self.cleanup_stale_entries();
-            self.last_cleanup = Instant::now();
-        }
-
-        // Check if we have cached info that's less than 30 seconds old
-        if let Some(cached) = self.cache.get(&pid) {
-            if cached.last_updated.elapsed() < Duration::from_secs(30) {
-                return (
-                    cached.process_name.clone(),
-                    cached.user.clone(),
-                    cached.command.clone(),
-                );
-            }
-        }
-
-        // Fetch fresh info
-        let process_name = Self::fetch_process_name(pid).unwrap_or_else(|| "Unknown".to_string());
-        let user = Self::fetch_process_user(pid).unwrap_or_else(|| "N/A".to_string());
-        let command = Self::fetch_process_command(pid).unwrap_or_else(|| process_name.clone());
-
-        // Update cache
-        self.cache.insert(
-            pid,
-            CachedProcessInfo {
-                process_name: process_name.clone(),
-                user: user.clone(),
-                command: command.clone(),
-                last_updated: Instant::now(),
-            },
-        );
-
-        (process_name, user, command)
-    }
-
-    fn cleanup_stale_entries(&mut self) {
-        let stale_threshold = Duration::from_secs(300); // 5 minutes
-        self.cache
-            .retain(|_, info| info.last_updated.elapsed() < stale_threshold);
-    }
-
-    fn fetch_process_name(pid: u32) -> Option<String> {
-        std::fs::read_to_string(format!("/proc/{pid}/comm"))
-            .ok()
-            .map(|s| s.trim().to_string())
-    }
-
-    fn fetch_process_user(pid: u32) -> Option<String> {
-        use std::os::unix::fs::MetadataExt;
-
-        std::fs::metadata(format!("/proc/{pid}"))
-            .ok()
-            .and_then(|metadata| {
-                let uid = metadata.uid();
-                Self::fetch_username_by_uid(uid)
-            })
-    }
-
-    fn fetch_username_by_uid(uid: u32) -> Option<String> {
-        Command::new("id")
-            .args(["-nu", &uid.to_string()])
-            .output()
-            .ok()
-            .and_then(|output| {
-                if output.status.success() {
-                    String::from_utf8(output.stdout)
-                        .ok()
-                        .map(|s| s.trim().to_string())
-                } else {
-                    None
-                }
-            })
-    }
-
-    fn fetch_process_command(pid: u32) -> Option<String> {
-        std::fs::read_to_string(format!("/proc/{pid}/cmdline"))
-            .ok()
-            .map(|cmdline| cmdline.replace('\0', " ").trim().to_string())
-            .filter(|s| !s.is_empty())
-    }
-}
 
 /// PCI information for Rebellions device
 #[derive(Debug, Deserialize)]
@@ -176,6 +65,7 @@ struct RblnContext {
     #[allow(dead_code)]
     ctx_id: String,
     npu: String,
+    #[allow(dead_code)]
     process: String,
     pid: String,
     #[allow(dead_code)]
@@ -185,7 +75,6 @@ struct RblnContext {
     memalloc: String,
     #[allow(dead_code)]
     status: String,
-    #[allow(dead_code)]
     util_info: String,
 }
 
@@ -329,6 +218,84 @@ impl RebellionsReader {
         }
         0
     }
+
+    /// Get all processes from the system
+    fn get_all_processes() -> Vec<ProcessInfo> {
+        let mut processes = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir("/proc") {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(filename) = path.file_name() {
+                    if let Some(pid_str) = filename.to_str() {
+                        if let Ok(pid) = pid_str.parse::<u32>() {
+                            if let Some(proc_info) = Self::create_process_info(pid) {
+                                processes.push(proc_info);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        processes
+    }
+
+    /// Create ProcessInfo from pid using process_utils
+    fn create_process_info(pid: u32) -> Option<ProcessInfo> {
+        // Use the existing process_utils to get system process info
+        if let Some((
+            cpu_percent,
+            memory_percent,
+            memory_rss,
+            memory_vms,
+            user,
+            state,
+            start_time,
+            cpu_time,
+            command,
+            ppid,
+            threads,
+        )) = process_utils::get_system_process_info(pid)
+        {
+            // Extract process name from command or use comm file
+            let process_name = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                .ok()
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| {
+                    command
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("unknown")
+                        .to_string()
+                });
+
+            Some(ProcessInfo {
+                device_id: 0,
+                device_uuid: String::new(),
+                pid,
+                process_name,
+                used_memory: 0, // Will be filled from NPU data
+                cpu_percent,
+                memory_percent,
+                memory_rss,
+                memory_vms,
+                user,
+                state,
+                start_time,
+                cpu_time,
+                command,
+                ppid,
+                threads,
+                uses_gpu: false, // Will be updated from NPU data
+                priority: 0,
+                nice_value: 0,
+                gpu_utilization: 0.0, // Will be filled from NPU data
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl GpuReader for RebellionsReader {
@@ -398,76 +365,59 @@ impl GpuReader for RebellionsReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        match self.get_rbln_info() {
-            Ok(response) => {
-                let devices = response.devices;
+        // First, get all processes from the system
+        let mut all_processes = Self::get_all_processes();
 
-                response
-                    .contexts
-                    .into_iter()
-                    .filter_map(|context| {
-                        // Parse NPU index
-                        let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
+        // Then get NPU usage information
+        if let Ok(response) = self.get_rbln_info() {
+            let devices = response.devices;
 
-                        // Find the device that matches this NPU index
-                        let device = devices.get(npu_idx)?;
-                        let device_uuid = device.uuid.clone();
+            // Create a map to aggregate NPU usage by PID
+            type NpuUsageData = (u64, f64, Vec<(usize, String)>);
+            let mut npu_usage_map: HashMap<u32, NpuUsageData> = HashMap::new();
 
-                        // Parse memory allocation (e.g., "66.0MiB" -> bytes)
-                        let memory_used = Self::parse_memory_allocation(&context.memalloc);
+            // Aggregate NPU contexts by PID
+            for context in response.contexts {
+                let pid = match context.pid.parse::<u32>() {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
 
-                        // Parse PID
-                        let pid = context.pid.parse::<u32>().unwrap_or(0);
+                let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
+                let device_uuid = devices
+                    .get(npu_idx)
+                    .map(|d| d.uuid.clone())
+                    .unwrap_or_default();
+                let memory_used = Self::parse_memory_allocation(&context.memalloc);
+                let gpu_util = context.util_info.parse::<f64>().unwrap_or(0.0);
 
-                        // Get cached process info or fetch if needed
-                        let (process_name, user, command) = if context.process == "N/A" {
-                            // Need to fetch from system - use cache
-                            if let Ok(mut cache) = PROCESS_INFO_CACHE.lock() {
-                                cache.get_or_update(pid)
-                            } else {
-                                ("Unknown".to_string(), "N/A".to_string(), "N/A".to_string())
-                            }
-                        } else {
-                            // Process name provided by API, but still get user and command from cache
-                            let provided_name = context.process.clone();
-                            if let Ok(mut cache) = PROCESS_INFO_CACHE.lock() {
-                                let (_, user, command) = cache.get_or_update(pid);
-                                (provided_name, user, command)
-                            } else {
-                                (provided_name.clone(), "N/A".to_string(), provided_name)
-                            }
-                        };
-
-                        Some(ProcessInfo {
-                            device_id: npu_idx,
-                            device_uuid,
-                            pid,
-                            process_name,
-                            used_memory: memory_used,
-                            cpu_percent: 0.0, // Not provided by rbln-stat/rbln-smi
-                            memory_percent: 0.0, // Not provided by rbln-stat/rbln-smi
-                            memory_rss: 0,    // Not provided by rbln-stat/rbln-smi
-                            memory_vms: 0,    // Not provided by rbln-stat/rbln-smi
-                            user,
-                            state: if context.status == "run" { "R" } else { "S" }.to_string(),
-                            start_time: "N/A".to_string(), // Not provided by rbln-stat/rbln-smi
-                            cpu_time: 0,                   // Not provided by rbln-stat/rbln-smi
-                            command,
-                            ppid: 0,        // Not provided by rbln-stat/rbln-smi
-                            threads: 0,     // Not provided by rbln-stat/rbln-smi
-                            uses_gpu: true, // Using NPU, so yes
-                            priority: 0,    // Not provided by rbln-stat/rbln-smi
-                            nice_value: 0,  // Not provided by rbln-stat/rbln-smi
-                            gpu_utilization: context.util_info.parse::<f64>().unwrap_or(0.0),
-                        })
-                    })
-                    .collect()
+                let entry = npu_usage_map.entry(pid).or_insert((0, 0.0, Vec::new()));
+                entry.0 += memory_used; // Sum memory usage
+                entry.1 = entry.1.max(gpu_util); // Take max utilization
+                entry.2.push((npu_idx, device_uuid)); // Track all devices used
             }
-            Err(e) => {
-                Self::set_status(format!("Failed to get process info: {e}"));
-                vec![]
+
+            // Update processes with NPU usage information
+            for process in &mut all_processes {
+                if let Some((total_memory, gpu_util, devices_used)) =
+                    npu_usage_map.get(&process.pid)
+                {
+                    process.uses_gpu = true;
+                    process.used_memory = *total_memory;
+                    process.gpu_utilization = *gpu_util;
+
+                    // Use the first device for device_id and device_uuid
+                    if let Some((device_id, device_uuid)) = devices_used.first() {
+                        process.device_id = *device_id;
+                        process.device_uuid = device_uuid.clone();
+                    }
+                }
             }
+        } else if let Err(e) = self.get_rbln_info() {
+            Self::set_status(format!("Failed to get NPU info: {e}"));
         }
+
+        all_processes
     }
 }
 
