@@ -368,7 +368,7 @@ fn format_terminal_line(cmd: &str, desc: &str, style: &str, width: usize) -> Str
             if cmd.is_empty() {
                 String::new()
             } else {
-                let formatted_cmd = format!("  {:<35}", cmd.white().bold().to_string());
+                let formatted_cmd = format!(" {:<35}", cmd.white().bold().to_string());
                 let formatted_seperator = "#".with(Color::DarkGrey).to_string();
                 let formatted_desc = desc.blue().to_string();
                 format!("{formatted_cmd} {formatted_seperator} {formatted_desc}")
