@@ -172,6 +172,54 @@ pub fn has_tenstorrent() -> bool {
     false
 }
 
+pub fn has_rebellions() -> bool {
+    // First check if device files exist (rbln0, rbln1, etc.)
+    if std::path::Path::new("/dev/rbln0").exists() {
+        return true;
+    }
+
+    // On macOS, use system_profiler
+    if std::env::consts::OS == "macos" {
+        if let Ok(output) = Command::new("system_profiler")
+            .arg("SPPCIDataType")
+            .output()
+        {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                if output_str.contains("Rebellions") || output_str.contains("RBLN") {
+                    return true;
+                }
+            }
+        }
+    } else {
+        // On Linux, try lspci to check for Rebellions devices
+        if let Ok(output) = Command::new("lspci").output() {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                // Look for Rebellions devices - vendor ID 1f3f
+                if output_str.contains("1f3f:") || output_str.contains("Rebellions") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Last resort: check if rbln-smi can actually list devices
+    for cmd in &["rbln-smi", "/usr/local/bin/rbln-smi", "/usr/bin/rbln-smi"] {
+        if let Ok(output) = Command::new(cmd).args(["-j"]).output() {
+            if output.status.success() {
+                let output_str = String::from_utf8_lossy(&output.stdout);
+                // Check if output contains device information
+                if output_str.contains("\"devices\"") && output_str.contains("\"uuid\"") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 pub fn get_os_type() -> &'static str {
     std::env::consts::OS
 }

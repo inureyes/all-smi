@@ -3,6 +3,7 @@ pub mod apple_silicon;
 pub mod furiosa;
 pub mod nvidia;
 pub mod nvidia_jetson;
+pub mod rebellions;
 pub mod tenstorrent;
 
 // Re-export status functions for UI
