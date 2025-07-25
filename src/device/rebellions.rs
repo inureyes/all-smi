@@ -176,8 +176,7 @@ impl GpuReader for RebellionsReader {
                 response
                     .devices
                     .into_iter()
-                    .enumerate()
-                    .map(|(idx, device)| {
+                    .map(|device| {
                         let total_memory = Self::parse_memory(&device.memory.total);
                         let model = Self::get_device_model(&device.name, total_memory);
 
@@ -204,7 +203,7 @@ impl GpuReader for RebellionsReader {
                             device_type: "NPU".to_string(),
                             host_id: "local".to_string(),
                             hostname: hostname.clone(),
-                            instance: format!("local:{idx}"),
+                            instance: hostname.clone(),
                             utilization: Self::parse_float(&device.util),
                             ane_utilization: 0.0,
                             dla_utilization: None,
