@@ -204,8 +204,15 @@ pub fn has_rebellions() -> bool {
         }
     }
 
-    // Last resort: check if rbln-smi can actually list devices
-    for cmd in &["rbln-smi", "/usr/local/bin/rbln-smi", "/usr/bin/rbln-smi"] {
+    // Last resort: check if rbln-stat or rbln-smi can actually list devices
+    for cmd in &[
+        "rbln-stat",
+        "/usr/local/bin/rbln-stat",
+        "/usr/bin/rbln-stat",
+        "rbln-smi",
+        "/usr/local/bin/rbln-smi",
+        "/usr/bin/rbln-smi",
+    ] {
         if let Ok(output) = Command::new(cmd).args(["-j"]).output() {
             if output.status.success() {
                 let output_str = String::from_utf8_lossy(&output.stdout);

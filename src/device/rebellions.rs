@@ -49,7 +49,7 @@ struct RblnDevice {
     location: u32,
 }
 
-/// JSON response structure from rbln-smi
+/// JSON response structure from rbln-stat/rbln-smi
 #[derive(Debug, Deserialize)]
 struct RblnResponse {
     #[serde(rename = "KMD_version")]
@@ -65,17 +65,32 @@ pub struct RebellionsReader {
 
 impl RebellionsReader {
     pub fn new() -> Self {
-        // Try to find rbln-smi in common locations
-        let command_path = if std::path::Path::new("/usr/local/bin/rbln-smi").exists() {
+        // Try to find rbln-stat first, then fall back to rbln-smi
+        let command_path = if std::path::Path::new("/usr/local/bin/rbln-stat").exists() {
+            "/usr/local/bin/rbln-stat".to_string()
+        } else if std::path::Path::new("/usr/bin/rbln-stat").exists() {
+            "/usr/bin/rbln-stat".to_string()
+        } else if Self::is_command_available("rbln-stat") {
+            "rbln-stat".to_string()
+        } else if std::path::Path::new("/usr/local/bin/rbln-smi").exists() {
             "/usr/local/bin/rbln-smi".to_string()
         } else if std::path::Path::new("/usr/bin/rbln-smi").exists() {
             "/usr/bin/rbln-smi".to_string()
         } else {
-            // Fallback to PATH lookup
+            // Final fallback to PATH lookup
             "rbln-smi".to_string()
         };
 
         RebellionsReader { command_path }
+    }
+
+    /// Check if a command is available in PATH
+    fn is_command_available(cmd: &str) -> bool {
+        Command::new("which")
+            .arg(cmd)
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
     }
 
     /// Store an error message in the global status
@@ -120,23 +135,28 @@ impl RebellionsReader {
         mem_str.parse::<u64>().unwrap_or(0)
     }
 
-    /// Execute rbln-smi command and parse the output
+    /// Execute rbln-stat/rbln-smi command and parse the output
     fn get_rbln_info(&self) -> Result<RblnResponse, String> {
+        let cmd_name = std::path::Path::new(&self.command_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("rbln-stat/rbln-smi");
+
         let output = Command::new(&self.command_path)
             .arg("-j")
             .output()
-            .map_err(|e| format!("Failed to execute rbln-smi: {e}"))?;
+            .map_err(|e| format!("Failed to execute {cmd_name}: {e}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("rbln-smi failed: {stderr}"));
+            return Err(format!("{cmd_name} failed: {stderr}"));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
         // Parse JSON response
         let response: RblnResponse = serde_json::from_str(&stdout)
-            .map_err(|e| format!("Failed to parse rbln-smi JSON: {e}"))?;
+            .map_err(|e| format!("Failed to parse {cmd_name} JSON: {e}"))?;
 
         Ok(response)
     }
