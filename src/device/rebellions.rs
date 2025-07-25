@@ -308,12 +308,17 @@ impl GpuReader for RebellionsReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        // Get NPU usage information first
+        // First, get all processes from the system
+        let mut all_processes = Self::get_all_system_processes();
+
+        // Then get NPU usage information
         match self.get_rbln_info() {
             Ok(response) => {
                 let devices = response.devices;
                 let contexts = response.contexts;
-                let mut npu_processes = Vec::new();
+
+                // Create a map to aggregate NPU usage by PID
+                let mut npu_usage_map: HashMap<u32, (u64, f64, usize, String)> = HashMap::new();
 
                 for context in contexts {
                     let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
@@ -323,31 +328,64 @@ impl GpuReader for RebellionsReader {
                         .unwrap_or_default();
 
                     if let Ok(pid) = context.pid.parse::<u32>() {
-                        // Try to get process info from /proc
-                        if let Some(proc_info) = Self::get_process_info_from_pid(pid) {
-                            let mut process = proc_info;
-                            process.device_id = npu_idx;
-                            process.device_uuid = device_uuid;
-                            process.used_memory = Self::parse_memory_allocation(&context.memalloc);
-                            process.gpu_utilization =
-                                Self::parse_value::<f64>(&context.util_info, None);
-                            process.uses_gpu = true;
-                            npu_processes.push(process);
-                        }
+                        let memory_used = Self::parse_memory_allocation(&context.memalloc);
+                        let gpu_util = Self::parse_value::<f64>(&context.util_info, None);
+
+                        let entry =
+                            npu_usage_map
+                                .entry(pid)
+                                .or_insert((0, 0.0, npu_idx, device_uuid));
+                        entry.0 += memory_used;
+                        entry.1 = entry.1.max(gpu_util);
                     }
                 }
 
-                npu_processes
+                // Update processes with NPU usage information
+                for process in &mut all_processes {
+                    if let Some((total_memory, gpu_util, device_id, device_uuid)) =
+                        npu_usage_map.get(&process.pid)
+                    {
+                        process.uses_gpu = true;
+                        process.used_memory = *total_memory;
+                        process.gpu_utilization = *gpu_util;
+                        process.device_id = *device_id;
+                        process.device_uuid = device_uuid.clone();
+                    }
+                }
+
+                all_processes
             }
             Err(e) => {
                 self.set_error(format!("Failed to get NPU info: {e}"));
-                vec![]
+                all_processes
             }
         }
     }
 }
 
 impl RebellionsReader {
+    /// Get all processes from the system
+    fn get_all_system_processes() -> Vec<ProcessInfo> {
+        let mut processes = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir("/proc") {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(filename) = path.file_name() {
+                    if let Some(pid_str) = filename.to_str() {
+                        if let Ok(pid) = pid_str.parse::<u32>() {
+                            if let Some(proc_info) = Self::get_process_info_from_pid(pid) {
+                                processes.push(proc_info);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        processes
+    }
+
     /// Get process info from PID
     fn get_process_info_from_pid(pid: u32) -> Option<ProcessInfo> {
         use crate::device::process_utils;
