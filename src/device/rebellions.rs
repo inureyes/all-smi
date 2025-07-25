@@ -55,8 +55,25 @@ struct RblnResponse {
     #[serde(rename = "KMD_version")]
     kmd_version: String,
     devices: Vec<RblnDevice>,
+    #[serde(default)]
+    contexts: Vec<RblnContext>,
+}
+
+/// Context structure for process information
+#[derive(Debug, Deserialize)]
+struct RblnContext {
+    uuid: String,
+    pid: u32,
     #[allow(dead_code)]
-    contexts: Vec<serde_json::Value>, // Empty array in the example
+    #[serde(rename = "hostName")]
+    host_name: Option<String>,
+    #[serde(rename = "memoryUsed")]
+    memory_used: Option<String>,
+    #[serde(rename = "processName")]
+    process_name: Option<String>,
+    #[allow(dead_code)]
+    #[serde(rename = "deviceUuid")]
+    device_uuid: Option<String>,
 }
 
 pub struct RebellionsReader {
@@ -247,10 +264,72 @@ impl GpuReader for RebellionsReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        // Since rbln-smi doesn't provide process information,
-        // we'll return an empty list
-        // TODO: Implement process detection for Rebellions NPUs if available
-        vec![]
+        match self.get_rbln_info() {
+            Ok(response) => {
+                let _hostname = get_hostname();
+                let devices = response.devices;
+
+                response
+                    .contexts
+                    .into_iter()
+                    .map(|context| {
+                        // Find the device that matches this context's UUID
+                        let (device_id, _device_name) = devices
+                            .iter()
+                            .enumerate()
+                            .find(|(_, d)| {
+                                d.uuid == context.uuid
+                                    || (context.device_uuid.as_ref() == Some(&d.uuid))
+                            })
+                            .map(|(idx, d)| {
+                                let total_memory = Self::parse_memory(&d.memory.total);
+                                let model = Self::get_device_model(&d.name, total_memory);
+                                (idx, format!("Rebellions {model}"))
+                            })
+                            .unwrap_or((0, "Rebellions NPU".to_string()));
+
+                        let memory_used = context
+                            .memory_used
+                            .as_ref()
+                            .and_then(|m| m.parse::<u64>().ok())
+                            .unwrap_or(0);
+
+                        ProcessInfo {
+                            device_id,
+                            device_uuid: context.uuid.clone(),
+                            pid: context.pid,
+                            process_name: context
+                                .process_name
+                                .clone()
+                                .unwrap_or_else(|| "Unknown".to_string()),
+                            used_memory: memory_used,
+                            cpu_percent: 0.0, // Not provided by rbln-stat/rbln-smi
+                            memory_percent: 0.0, // Not provided by rbln-stat/rbln-smi
+                            memory_rss: 0,    // Not provided by rbln-stat/rbln-smi
+                            memory_vms: 0,    // Not provided by rbln-stat/rbln-smi
+                            user: "N/A".to_string(), // Not provided by rbln-stat/rbln-smi
+                            state: "R".to_string(), // Assume running
+                            start_time: "N/A".to_string(), // Not provided by rbln-stat/rbln-smi
+                            cpu_time: 0,      // Not provided by rbln-stat/rbln-smi
+                            command: context
+                                .process_name
+                                .clone()
+                                .unwrap_or_else(|| "N/A".to_string()),
+                            ppid: 0,              // Not provided by rbln-stat/rbln-smi
+                            threads: 0,           // Not provided by rbln-stat/rbln-smi
+                            uses_gpu: true,       // Using NPU, so yes
+                            priority: 0,          // Not provided by rbln-stat/rbln-smi
+                            nice_value: 0,        // Not provided by rbln-stat/rbln-smi
+                            gpu_utilization: 0.0, // Not provided by rbln-stat/rbln-smi
+                        }
+                    })
+                    .collect()
+            }
+            Err(e) => {
+                Self::set_status(format!("Failed to get process info: {e}"));
+                vec![]
+            }
+        }
     }
 }
 
