@@ -1,13 +1,124 @@
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
+use lazy_static::lazy_static;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 // Global status for error messages
 static REBELLIONS_STATUS: Mutex<Option<String>> = Mutex::new(None);
+
+lazy_static! {
+    static ref PROCESS_INFO_CACHE: Mutex<ProcessInfoCache> = Mutex::new(ProcessInfoCache::new());
+}
+
+/// Cache for process information to avoid excessive /proc queries
+struct ProcessInfoCache {
+    cache: HashMap<u32, CachedProcessInfo>,
+    last_cleanup: Instant,
+}
+
+struct CachedProcessInfo {
+    process_name: String,
+    user: String,
+    command: String,
+    last_updated: Instant,
+}
+
+impl ProcessInfoCache {
+    fn new() -> Self {
+        ProcessInfoCache {
+            cache: HashMap::new(),
+            last_cleanup: Instant::now(),
+        }
+    }
+
+    fn get_or_update(&mut self, pid: u32) -> (String, String, String) {
+        // Clean up stale entries every 60 seconds
+        if self.last_cleanup.elapsed() > Duration::from_secs(60) {
+            self.cleanup_stale_entries();
+            self.last_cleanup = Instant::now();
+        }
+
+        // Check if we have cached info that's less than 30 seconds old
+        if let Some(cached) = self.cache.get(&pid) {
+            if cached.last_updated.elapsed() < Duration::from_secs(30) {
+                return (
+                    cached.process_name.clone(),
+                    cached.user.clone(),
+                    cached.command.clone(),
+                );
+            }
+        }
+
+        // Fetch fresh info
+        let process_name = Self::fetch_process_name(pid).unwrap_or_else(|| "Unknown".to_string());
+        let user = Self::fetch_process_user(pid).unwrap_or_else(|| "N/A".to_string());
+        let command = Self::fetch_process_command(pid).unwrap_or_else(|| process_name.clone());
+
+        // Update cache
+        self.cache.insert(
+            pid,
+            CachedProcessInfo {
+                process_name: process_name.clone(),
+                user: user.clone(),
+                command: command.clone(),
+                last_updated: Instant::now(),
+            },
+        );
+
+        (process_name, user, command)
+    }
+
+    fn cleanup_stale_entries(&mut self) {
+        let stale_threshold = Duration::from_secs(300); // 5 minutes
+        self.cache
+            .retain(|_, info| info.last_updated.elapsed() < stale_threshold);
+    }
+
+    fn fetch_process_name(pid: u32) -> Option<String> {
+        std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .ok()
+            .map(|s| s.trim().to_string())
+    }
+
+    fn fetch_process_user(pid: u32) -> Option<String> {
+        use std::os::unix::fs::MetadataExt;
+
+        std::fs::metadata(format!("/proc/{pid}"))
+            .ok()
+            .and_then(|metadata| {
+                let uid = metadata.uid();
+                Self::fetch_username_by_uid(uid)
+            })
+    }
+
+    fn fetch_username_by_uid(uid: u32) -> Option<String> {
+        Command::new("id")
+            .args(["-nu", &uid.to_string()])
+            .output()
+            .ok()
+            .and_then(|output| {
+                if output.status.success() {
+                    String::from_utf8(output.stdout)
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn fetch_process_command(pid: u32) -> Option<String> {
+        std::fs::read_to_string(format!("/proc/{pid}/cmdline"))
+            .ok()
+            .map(|cmdline| cmdline.replace('\0', " ").trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+}
 
 /// PCI information for Rebellions device
 #[derive(Debug, Deserialize)]
@@ -62,18 +173,20 @@ struct RblnResponse {
 /// Context structure for process information
 #[derive(Debug, Deserialize)]
 struct RblnContext {
-    uuid: String,
-    pid: u32,
     #[allow(dead_code)]
-    #[serde(rename = "hostName")]
-    host_name: Option<String>,
-    #[serde(rename = "memoryUsed")]
-    memory_used: Option<String>,
-    #[serde(rename = "processName")]
-    process_name: Option<String>,
+    ctx_id: String,
+    npu: String,
+    process: String,
+    pid: String,
     #[allow(dead_code)]
-    #[serde(rename = "deviceUuid")]
-    device_uuid: Option<String>,
+    priority: String,
+    #[allow(dead_code)]
+    ptid: String,
+    memalloc: String,
+    #[allow(dead_code)]
+    status: String,
+    #[allow(dead_code)]
+    util_info: String,
 }
 
 pub struct RebellionsReader {
@@ -197,6 +310,27 @@ impl RebellionsReader {
     }
 }
 
+impl RebellionsReader {
+    /// Parse memory allocation string (e.g., "66.0MiB") to bytes
+    fn parse_memory_allocation(mem_str: &str) -> u64 {
+        let mem_str = mem_str.trim();
+        if let Some(mib_pos) = mem_str.find("MiB") {
+            if let Ok(mib_val) = mem_str[..mib_pos].parse::<f64>() {
+                return (mib_val * 1024.0 * 1024.0) as u64;
+            }
+        } else if let Some(gib_pos) = mem_str.find("GiB") {
+            if let Ok(gib_val) = mem_str[..gib_pos].parse::<f64>() {
+                return (gib_val * 1024.0 * 1024.0 * 1024.0) as u64;
+            }
+        } else if let Some(kib_pos) = mem_str.find("KiB") {
+            if let Ok(kib_val) = mem_str[..kib_pos].parse::<f64>() {
+                return (kib_val * 1024.0) as u64;
+            }
+        }
+        0
+    }
+}
+
 impl GpuReader for RebellionsReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
         match self.get_rbln_info() {
@@ -266,62 +400,66 @@ impl GpuReader for RebellionsReader {
     fn get_process_info(&self) -> Vec<ProcessInfo> {
         match self.get_rbln_info() {
             Ok(response) => {
-                let _hostname = get_hostname();
                 let devices = response.devices;
 
                 response
                     .contexts
                     .into_iter()
-                    .map(|context| {
-                        // Find the device that matches this context's UUID
-                        let (device_id, _device_name) = devices
-                            .iter()
-                            .enumerate()
-                            .find(|(_, d)| {
-                                d.uuid == context.uuid
-                                    || (context.device_uuid.as_ref() == Some(&d.uuid))
-                            })
-                            .map(|(idx, d)| {
-                                let total_memory = Self::parse_memory(&d.memory.total);
-                                let model = Self::get_device_model(&d.name, total_memory);
-                                (idx, format!("Rebellions {model}"))
-                            })
-                            .unwrap_or((0, "Rebellions NPU".to_string()));
+                    .filter_map(|context| {
+                        // Parse NPU index
+                        let npu_idx = context.npu.parse::<usize>().unwrap_or(0);
 
-                        let memory_used = context
-                            .memory_used
-                            .as_ref()
-                            .and_then(|m| m.parse::<u64>().ok())
-                            .unwrap_or(0);
+                        // Find the device that matches this NPU index
+                        let device = devices.get(npu_idx)?;
+                        let device_uuid = device.uuid.clone();
 
-                        ProcessInfo {
-                            device_id,
-                            device_uuid: context.uuid.clone(),
-                            pid: context.pid,
-                            process_name: context
-                                .process_name
-                                .clone()
-                                .unwrap_or_else(|| "Unknown".to_string()),
+                        // Parse memory allocation (e.g., "66.0MiB" -> bytes)
+                        let memory_used = Self::parse_memory_allocation(&context.memalloc);
+
+                        // Parse PID
+                        let pid = context.pid.parse::<u32>().unwrap_or(0);
+
+                        // Get cached process info or fetch if needed
+                        let (process_name, user, command) = if context.process == "N/A" {
+                            // Need to fetch from system - use cache
+                            if let Ok(mut cache) = PROCESS_INFO_CACHE.lock() {
+                                cache.get_or_update(pid)
+                            } else {
+                                ("Unknown".to_string(), "N/A".to_string(), "N/A".to_string())
+                            }
+                        } else {
+                            // Process name provided by API, but still get user and command from cache
+                            let provided_name = context.process.clone();
+                            if let Ok(mut cache) = PROCESS_INFO_CACHE.lock() {
+                                let (_, user, command) = cache.get_or_update(pid);
+                                (provided_name, user, command)
+                            } else {
+                                (provided_name.clone(), "N/A".to_string(), provided_name)
+                            }
+                        };
+
+                        Some(ProcessInfo {
+                            device_id: npu_idx,
+                            device_uuid,
+                            pid,
+                            process_name,
                             used_memory: memory_used,
                             cpu_percent: 0.0, // Not provided by rbln-stat/rbln-smi
                             memory_percent: 0.0, // Not provided by rbln-stat/rbln-smi
                             memory_rss: 0,    // Not provided by rbln-stat/rbln-smi
                             memory_vms: 0,    // Not provided by rbln-stat/rbln-smi
-                            user: "N/A".to_string(), // Not provided by rbln-stat/rbln-smi
-                            state: "R".to_string(), // Assume running
+                            user,
+                            state: if context.status == "run" { "R" } else { "S" }.to_string(),
                             start_time: "N/A".to_string(), // Not provided by rbln-stat/rbln-smi
-                            cpu_time: 0,      // Not provided by rbln-stat/rbln-smi
-                            command: context
-                                .process_name
-                                .clone()
-                                .unwrap_or_else(|| "N/A".to_string()),
-                            ppid: 0,              // Not provided by rbln-stat/rbln-smi
-                            threads: 0,           // Not provided by rbln-stat/rbln-smi
-                            uses_gpu: true,       // Using NPU, so yes
-                            priority: 0,          // Not provided by rbln-stat/rbln-smi
-                            nice_value: 0,        // Not provided by rbln-stat/rbln-smi
-                            gpu_utilization: 0.0, // Not provided by rbln-stat/rbln-smi
-                        }
+                            cpu_time: 0,                   // Not provided by rbln-stat/rbln-smi
+                            command,
+                            ppid: 0,        // Not provided by rbln-stat/rbln-smi
+                            threads: 0,     // Not provided by rbln-stat/rbln-smi
+                            uses_gpu: true, // Using NPU, so yes
+                            priority: 0,    // Not provided by rbln-stat/rbln-smi
+                            nice_value: 0,  // Not provided by rbln-stat/rbln-smi
+                            gpu_utilization: context.util_info.parse::<f64>().unwrap_or(0.0),
+                        })
                     })
                     .collect()
             }
