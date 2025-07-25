@@ -36,6 +36,114 @@ impl<'a> NpuMetricExporter<'a> {
         }
     }
 
+    fn export_rebellions_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+        if !info.name.contains("Rebellions") {
+            return;
+        }
+
+        // Base labels
+        let _base_labels = [
+            ("npu", info.name.as_str()),
+            ("instance", info.instance.as_str()),
+            ("uuid", info.uuid.as_str()),
+            ("index", &index.to_string()),
+        ];
+
+        // Rebellions firmware info
+        if let Some(fw_version) = info.detail.get("Firmware Version") {
+            let fw_labels = [
+                ("npu", info.name.as_str()),
+                ("instance", info.instance.as_str()),
+                ("uuid", info.uuid.as_str()),
+                ("index", &index.to_string()),
+                ("firmware", fw_version.as_str()),
+            ];
+            builder
+                .help(
+                    "all_smi_rebellions_firmware_info",
+                    "Rebellions NPU firmware version",
+                )
+                .type_("all_smi_rebellions_firmware_info", "info")
+                .metric("all_smi_rebellions_firmware_info", &fw_labels, 1);
+        }
+
+        // KMD version
+        if let Some(kmd_version) = info.detail.get("KMD Version") {
+            let kmd_labels = [
+                ("instance", info.instance.as_str()),
+                ("version", kmd_version.as_str()),
+            ];
+            builder
+                .help("all_smi_rebellions_kmd_info", "Rebellions KMD version")
+                .type_("all_smi_rebellions_kmd_info", "info")
+                .metric("all_smi_rebellions_kmd_info", &kmd_labels, 1);
+        }
+
+        // Device info
+        if let Some(_device_name) = info.detail.get("Device Name") {
+            if let Some(sid) = info.detail.get("Serial ID") {
+                let model_type = if info.name.contains("ATOM Max") {
+                    "ATOM-Max"
+                } else if info.name.contains("ATOM+") {
+                    "ATOM-Plus"
+                } else {
+                    "ATOM"
+                };
+
+                let device_labels = [
+                    ("npu", info.name.as_str()),
+                    ("instance", info.instance.as_str()),
+                    ("uuid", info.uuid.as_str()),
+                    ("index", &index.to_string()),
+                    ("model", model_type),
+                    ("sid", sid.as_str()),
+                    ("location", "5"), // Default location from mock server
+                ];
+                builder
+                    .help(
+                        "all_smi_rebellions_device_info",
+                        "Rebellions device information",
+                    )
+                    .type_("all_smi_rebellions_device_info", "info")
+                    .metric("all_smi_rebellions_device_info", &device_labels, 1);
+            }
+        }
+
+        // Performance state
+        if let Some(pstate) = info.detail.get("Performance State") {
+            let pstate_labels = [
+                ("npu", info.name.as_str()),
+                ("instance", info.instance.as_str()),
+                ("uuid", info.uuid.as_str()),
+                ("index", &index.to_string()),
+                ("pstate", pstate.as_str()),
+            ];
+            builder
+                .help(
+                    "all_smi_rebellions_pstate_info",
+                    "Current performance state",
+                )
+                .type_("all_smi_rebellions_pstate_info", "info")
+                .metric("all_smi_rebellions_pstate_info", &pstate_labels, 1);
+        }
+
+        // Device status
+        if let Some(status) = info.detail.get("Status") {
+            let status_value = if status == "normal" { 1.0 } else { 0.0 };
+            let status_labels = [
+                ("npu", info.name.as_str()),
+                ("instance", info.instance.as_str()),
+                ("uuid", info.uuid.as_str()),
+                ("index", &index.to_string()),
+                ("status", status.as_str()),
+            ];
+            builder
+                .help("all_smi_rebellions_status", "Device operational status")
+                .type_("all_smi_rebellions_status", "gauge")
+                .metric("all_smi_rebellions_status", &status_labels, status_value);
+        }
+    }
+
     fn export_tenstorrent_metrics(
         &self,
         builder: &mut MetricBuilder,
@@ -772,6 +880,7 @@ impl<'a> MetricExporter for NpuMetricExporter<'a> {
         for (i, info) in self.npu_info.iter().enumerate() {
             self.export_generic_npu_metrics(&mut builder, info, i);
             self.export_tenstorrent_metrics(&mut builder, info, i);
+            self.export_rebellions_metrics(&mut builder, info, i);
         }
 
         builder.build()
