@@ -231,6 +231,7 @@ pub fn map_host_to_container_pid(host_pid: u32) -> Option<u32> {
 
 /// Find host PID from container PID by scanning all processes
 /// This is needed when NPU driver reports container PIDs instead of host PIDs
+#[allow(dead_code)]
 pub fn find_host_pid_from_container_pid(
     container_pid: u32,
     container_init_pid: Option<u32>,
