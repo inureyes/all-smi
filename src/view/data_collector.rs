@@ -290,6 +290,8 @@ impl DataCollector {
             }
         }
 
+        // Rebellions error notifications are now handled by the reader itself
+
         // Update utilization history
         self.update_utilization_history(&mut state);
 
@@ -460,14 +462,9 @@ impl DataCollector {
             .collect();
         host_ids.sort();
 
-        // For single node, skip "All" tab and go directly to node tab
-        let mut tabs = if host_ids.len() <= 1 {
-            host_ids.clone()
-        } else {
-            let mut tabs = vec!["All".to_string()];
-            tabs.extend(host_ids);
-            tabs
-        };
+        // Always create "All" tab for consistent UI behavior
+        let mut tabs = vec!["All".to_string()];
+        tabs.extend(host_ids);
 
         // Ensure we have at least one tab
         if tabs.is_empty() {
@@ -478,14 +475,9 @@ impl DataCollector {
     }
 
     fn update_remote_tabs(&self, state: &mut AppState) {
-        // Keep host addresses as tabs for consistent keying
-        let tabs = if state.known_hosts.len() <= 1 {
-            state.known_hosts.clone()
-        } else {
-            let mut tabs = vec!["All".to_string()];
-            tabs.extend(state.known_hosts.clone());
-            tabs
-        };
+        // Always create "All" tab for consistent UI behavior
+        let mut tabs = vec!["All".to_string()];
+        tabs.extend(state.known_hosts.clone());
 
         state.tabs = tabs;
     }

@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-npu-monitoring
+spec:
+  containers:
+  # Main application container
+  - name: main-app
+    image: your-app:latest
+    resources:
+      limits:
+        rebellions.ai/npu: 1
+    env:
+    - name: NPU_METRICS_URL
+      value: "http://localhost:9091/metrics"
+  
+  # NPU monitoring sidecar (minimal privileges)
+  - name: npu-monitor
+    image: all-smi:latest
+    command: ["all-smi", "api", "--port", "9091"]
+    securityContext:
+      privileged: true  # Only for NPU access
+    volumeMounts:
+    - name: dev
+      mountPath: /dev
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+  
+  volumes:
+  - name: dev
+    hostPath:
+      path: /dev

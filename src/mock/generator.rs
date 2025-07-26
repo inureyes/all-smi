@@ -405,6 +405,51 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 per_core_utilization,
             }
         }
+        PlatformType::Rebellions => {
+            // Rebellions NPU server (typically Intel/AMD CPU)
+            let models = [
+                "Intel Xeon Gold 6338",
+                "AMD EPYC 7763",
+                "Intel Xeon Platinum 8380",
+            ];
+            let model = models[rng.random_range(0..models.len())].to_string();
+
+            let socket_count = 2; // Dual socket configurations common for AI workloads
+            let cores_per_socket = rng.random_range(32..40);
+            let total_cores = socket_count * cores_per_socket;
+            let total_threads = total_cores * 2;
+
+            let per_core_utilization: Vec<f32> = (0..total_cores)
+                .map(|_| rng.random_range(20.0..85.0))
+                .collect();
+
+            let overall_util =
+                per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
+
+            let socket_utilizations: Vec<f32> = (0..socket_count)
+                .map(|_| overall_util + rng.random_range(-5.0..5.0))
+                .collect();
+
+            CpuMetrics {
+                model,
+                utilization: overall_util,
+                socket_count,
+                core_count: total_cores,
+                thread_count: total_threads,
+                frequency_mhz: rng.random_range(2600..3800),
+                temperature_celsius: Some(rng.random_range(55..80)),
+                power_consumption_watts: Some(rng.random_range(250.0..400.0)),
+                socket_utilizations,
+                p_core_count: None,
+                e_core_count: None,
+                gpu_core_count: None,
+                p_core_utilization: None,
+                e_core_utilization: None,
+                p_cluster_frequency_mhz: None,
+                e_cluster_frequency_mhz: None,
+                per_core_utilization,
+            }
+        }
     }
 }
 

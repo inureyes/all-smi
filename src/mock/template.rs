@@ -103,10 +103,13 @@ pub fn build_response_template(
         }
     }
 
-    // GPU vendor info metrics (NVIDIA, Jetson, and Tenstorrent)
+    // GPU vendor info metrics (NVIDIA, Jetson, Tenstorrent, and Rebellions)
     if matches!(
         platform,
-        PlatformType::Nvidia | PlatformType::Jetson | PlatformType::Tenstorrent
+        PlatformType::Nvidia
+            | PlatformType::Jetson
+            | PlatformType::Tenstorrent
+            | PlatformType::Rebellions
     ) {
         template.push_str("# HELP all_smi_gpu_info GPU vendor-specific information\n");
         template.push_str("# TYPE all_smi_gpu_info info\n");
@@ -192,6 +195,29 @@ pub fn build_response_template(
                     labels.push("architecture=\"Tegra\"".to_string());
                     labels.push(format!("compute_capability=\"{compute_capability}\""));
                 }
+                PlatformType::Rebellions => {
+                    // Rebellions NPU specific labels
+                    labels[4] = "type=\"NPU\"".to_string(); // Override type to NPU
+
+                    // Determine model based on NPU name
+                    let (architecture, board_type) = if gpu_name.contains("ATOM Max") {
+                        ("ATOM", "ATOM-Max")
+                    } else if gpu_name.contains("ATOM+") {
+                        ("ATOM", "ATOM-Plus")
+                    } else {
+                        ("ATOM", "ATOM")
+                    };
+
+                    labels.push("driver_version=\"1.3.73-release\"".to_string());
+                    labels.push(format!("architecture=\"{architecture}\""));
+                    labels.push(format!("board_type=\"{board_type}\""));
+                    labels.push("firmware=\"1.3.73\"".to_string());
+                    labels.push("pcie_gen_current=\"4\"".to_string());
+                    labels.push("pcie_gen_max=\"4\"".to_string());
+                    labels.push("pcie_width_current=\"16\"".to_string());
+                    labels.push("pcie_width_max=\"16\"".to_string());
+                    labels.push("performance_state=\"P14\"".to_string());
+                }
                 _ => {}
             }
 
@@ -206,6 +232,11 @@ pub fn build_response_template(
         // Add Tenstorrent-specific metrics
         if let PlatformType::Tenstorrent = platform {
             add_tenstorrent_metrics(&mut template, instance_name, gpu_name, gpus);
+        }
+
+        // Add Rebellions-specific metrics
+        if let PlatformType::Rebellions = platform {
+            add_rebellions_metrics(&mut template, instance_name, gpu_name, gpus);
         }
     }
 
@@ -974,5 +1005,78 @@ fn add_tenstorrent_metrics(
         template.push_str(&format!(
             "all_smi_tenstorrent_heartbeat{{{labels}}} {placeholder}\n"
         ));
+    }
+}
+
+fn add_rebellions_metrics(
+    template: &mut String,
+    instance_name: &str,
+    gpu_name: &str,
+    gpus: &[GpuMetrics],
+) {
+    // NPU firmware info
+    template.push_str("# HELP all_smi_rebellions_firmware_info Rebellions NPU firmware version\n");
+    template.push_str("# TYPE all_smi_rebellions_firmware_info info\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", firmware=\"1.3.73\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        template.push_str(&format!("all_smi_rebellions_firmware_info{{{labels}}} 1\n"));
+    }
+
+    // Rebellions device info
+    template.push_str("# HELP all_smi_rebellions_device_info Rebellions device information\n");
+    template.push_str("# TYPE all_smi_rebellions_device_info info\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let model_type = if gpu_name.contains("ATOM Max") {
+            "ATOM-Max"
+        } else if gpu_name.contains("ATOM+") {
+            "ATOM-Plus"
+        } else {
+            "ATOM"
+        };
+
+        let sid = format!("00000000225091{:02}", 38 + i);
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", model=\"{}\", sid=\"{}\", location=\"5\"",
+            gpu_name, instance_name, gpu.uuid, i, model_type, sid
+        );
+        template.push_str(&format!("all_smi_rebellions_device_info{{{labels}}} 1\n"));
+    }
+
+    // KMD (Kernel Mode Driver) version info
+    template.push_str("# HELP all_smi_rebellions_kmd_info Rebellions KMD version\n");
+    template.push_str("# TYPE all_smi_rebellions_kmd_info info\n");
+
+    let labels = format!("instance=\"{instance_name}\", version=\"1.3.73-release\"");
+    template.push_str(&format!("all_smi_rebellions_kmd_info{{{labels}}} 1\n"));
+
+    // Performance state
+    template.push_str("# HELP all_smi_rebellions_pstate_info Current performance state\n");
+    template.push_str("# TYPE all_smi_rebellions_pstate_info info\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let pstate = "P14"; // Default performance state
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", pstate=\"{}\"",
+            gpu_name, instance_name, gpu.uuid, i, pstate
+        );
+        template.push_str(&format!("all_smi_rebellions_pstate_info{{{labels}}} 1\n"));
+    }
+
+    // Device status
+    template.push_str("# HELP all_smi_rebellions_status Device operational status\n");
+    template.push_str("# TYPE all_smi_rebellions_status gauge\n");
+
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", status=\"normal\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        // 1 = normal, 0 = error
+        template.push_str(&format!("all_smi_rebellions_status{{{labels}}} 1\n"));
     }
 }

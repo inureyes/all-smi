@@ -17,6 +17,7 @@ pub enum CollectionMethod {
 /// JSON structure for furiosactl info output
 #[derive(Debug, Deserialize)]
 struct FuriosaInfoJson {
+    #[allow(dead_code)]
     dev_name: String,
     product_name: String,
     device_uuid: String,
@@ -263,7 +264,7 @@ impl FuriosaReader {
                             device_type: "NPU".to_string(),
                             host_id: hostname.clone(), // For local mode, host_id is just the hostname
                             hostname: hostname.clone(), // DNS hostname
-                            instance: device.dev_name.clone(),
+                            instance: hostname.clone(),
                             utilization: 0.0, // TODO: Get from furiosactl top or other source
                             ane_utilization: 0.0,
                             dla_utilization: None,

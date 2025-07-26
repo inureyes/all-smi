@@ -46,6 +46,11 @@ mod tests {
             PlatformType::Tenstorrent
         );
         assert_eq!(PlatformType::from_str("tt"), PlatformType::Tenstorrent);
+        assert_eq!(
+            PlatformType::from_str("rebellions"),
+            PlatformType::Rebellions
+        );
+        assert_eq!(PlatformType::from_str("rbln"), PlatformType::Rebellions);
         assert_eq!(PlatformType::from_str("unknown"), PlatformType::Nvidia); // Default
     }
 

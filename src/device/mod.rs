@@ -3,6 +3,7 @@ pub mod apple_silicon;
 pub mod furiosa;
 pub mod nvidia;
 pub mod nvidia_jetson;
+pub mod rebellions;
 pub mod tenstorrent;
 
 // Re-export status functions for UI
@@ -28,6 +29,7 @@ pub mod powermetrics_manager;
 pub mod powermetrics_parser;
 
 // Refactored modules
+pub mod container_utils;
 pub mod platform_detection;
 pub mod process_list;
 pub mod process_utils;

@@ -279,8 +279,8 @@ impl<'a> MetricExporter for GpuMetricExporter<'a> {
         let mut builder = MetricBuilder::new();
 
         for (i, info) in self.gpu_info.iter().enumerate() {
-            // Only export metrics for GPU devices
-            if info.device_type == "GPU" {
+            // Export metrics for GPU and NPU devices
+            if info.device_type == "GPU" || info.device_type == "NPU" {
                 self.export_basic_metrics(&mut builder, info, i);
                 self.export_apple_silicon_metrics(&mut builder, info, i);
                 self.export_device_info(&mut builder, info, i);
