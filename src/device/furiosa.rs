@@ -201,6 +201,12 @@ impl FuriosaReader {
                 return vec![];
             }
 
+            // Get driver version
+            let driver_version = match furiosa_smi_rs::driver_info() {
+                Ok(version) => version.to_string(),
+                Err(_) => "Unknown".to_string(),
+            };
+
             // Get all NPU devices
             match furiosa_smi_rs::list_devices() {
                 Ok(devices) => {
@@ -209,7 +215,13 @@ impl FuriosaReader {
                     let mut gpu_infos = Vec::new();
 
                     for device in devices {
-                        if let Some(gpu_info) = self.device_to_gpu_info(&device, &hostname, &time) {
+                        if let Some(mut gpu_info) =
+                            self.device_to_gpu_info(&device, &hostname, &time)
+                        {
+                            // Add driver version to detail
+                            gpu_info
+                                .detail
+                                .insert("driver_version".to_string(), driver_version.clone());
                             gpu_infos.push(gpu_info);
                         }
                     }
@@ -247,16 +259,15 @@ impl FuriosaReader {
         detail.insert("device_name".to_string(), device_info.name());
         detail.insert("pci_bdf".to_string(), device_info.bdf());
         detail.insert("numa_node".to_string(), device_info.numa_node().to_string());
+        detail.insert("major".to_string(), device_info.major().to_string());
+        detail.insert("minor".to_string(), device_info.minor().to_string());
 
         // Get firmware and pert versions
         let firmware_ver = device_info.firmware_version();
-        detail.insert(
-            "firmware_version".to_string(),
-            format!("{:?}", firmware_ver),
-        );
+        detail.insert("firmware_version".to_string(), firmware_ver.to_string());
 
         let pert_ver = device_info.pert_version();
-        detail.insert("pert_version".to_string(), format!("{:?}", pert_ver));
+        detail.insert("pert_version".to_string(), pert_ver.to_string());
 
         // Get temperature
         let temperature = match device.device_temperature() {
@@ -264,8 +275,48 @@ impl FuriosaReader {
             Err(_) => 0,
         };
 
+        // Add ambient temperature if available
+        if let Ok(temp) = device.device_temperature() {
+            detail.insert(
+                "ambient_temperature".to_string(),
+                format!("{:.1}", temp.ambient()),
+            );
+        }
+
         // Get power consumption
         let power = device.power_consumption().unwrap_or(0.0);
+
+        // Get memory frequency
+        if let Ok(mem_freq) = device.memory_frequency() {
+            detail.insert(
+                "memory_frequency_mhz".to_string(),
+                mem_freq.frequency().to_string(),
+            );
+        }
+
+        // Get liveness status
+        if let Ok(liveness) = device.liveness() {
+            detail.insert("liveness".to_string(), liveness.to_string());
+        }
+
+        // Get device files information
+        if let Ok(device_files) = device.device_files() {
+            let file_paths: Vec<String> =
+                device_files.iter().map(|f| f.path().to_string()).collect();
+            if !file_paths.is_empty() {
+                detail.insert("device_files".to_string(), file_paths.join(", "));
+            }
+        }
+
+        // Get core status
+        if let Ok(core_status) = device.core_status() {
+            let pe_statuses: Vec<String> = core_status
+                .pe_status()
+                .iter()
+                .map(|pe| format!("core{}:{:?}", pe.core(), pe.status()))
+                .collect();
+            detail.insert("core_status".to_string(), pe_statuses.join(", "));
+        }
 
         // Get frequency
         let frequency = match device.core_frequency() {
@@ -283,13 +334,23 @@ impl FuriosaReader {
             Err(_) => 1000,
         };
 
-        // Get utilization from core utilization
+        // Get utilization from core utilization with additional details
         let utilization = match device.core_utilization() {
             Ok(core_util) => {
                 let pe_utils = core_util.pe_utilization();
                 if pe_utils.is_empty() {
                     0.0
                 } else {
+                    // Store per-core utilization details
+                    let per_core_utils: Vec<String> = pe_utils
+                        .iter()
+                        .map(|pe| format!("core{}:{:.1}%", pe.core(), pe.pe_usage_percentage()))
+                        .collect();
+                    detail.insert(
+                        "per_core_utilization".to_string(),
+                        per_core_utils.join(", "),
+                    );
+
                     // Calculate average utilization
                     let sum: f64 = pe_utils
                         .iter()
@@ -300,6 +361,24 @@ impl FuriosaReader {
             }
             Err(_) => 0.0,
         };
+
+        // Get performance counter information
+        if let Ok(perf_counter) = device.device_performance_counter() {
+            let pe_counters = perf_counter.pe_performance_counters();
+            if !pe_counters.is_empty() {
+                // Get first PE's performance info as sample
+                if let Some(first_pe) = pe_counters.first() {
+                    detail.insert(
+                        "task_execution_cycles".to_string(),
+                        first_pe.task_execution_cycle().to_string(),
+                    );
+                    detail.insert(
+                        "cycle_count".to_string(),
+                        first_pe.cycle_count().to_string(),
+                    );
+                }
+            }
+        }
 
         // Get governor profile
         if let Ok(governor) = device.governor_profile() {
