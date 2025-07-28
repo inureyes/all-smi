@@ -71,9 +71,8 @@ struct FuriosaPeUtilization {
 #[derive(Debug, Deserialize)]
 struct FuriosaSmiProcessJson {
     pid: u32,
-    device: String,
-    memory_usage: Option<u64>,
-    command: String,
+    dev_name: String, // Format: "npu0:[0, 7]" where [0, 7] is the core range
+    cmdline: String,
 }
 
 /// Configuration for Furiosa reader
@@ -558,6 +557,25 @@ impl FuriosaReader {
         }
     }
 
+    /// Parse device name to extract device ID and core range
+    /// Format: "npu0:[0, 7]" returns ("npu0", Some((0, 7)))
+    fn parse_device_name(dev_name: &str) -> (String, Option<(u32, u32)>) {
+        if let Some((device, core_range)) = dev_name.split_once(':') {
+            // Parse core range "[0, 7]" -> (0, 7)
+            let core_range = core_range.trim_matches(|c| c == '[' || c == ']');
+            if let Some((start, end)) = core_range.split_once(',') {
+                if let (Ok(start), Ok(end)) =
+                    (start.trim().parse::<u32>(), end.trim().parse::<u32>())
+                {
+                    return (device.to_string(), Some((start, end)));
+                }
+            }
+            (device.to_string(), None)
+        } else {
+            (dev_name.to_string(), None)
+        }
+    }
+
     /// Parse furiosa-smi ps JSON output
     fn parse_furiosa_smi_ps_json(&self, output: &str) -> Vec<ProcessInfo> {
         match serde_json::from_str::<Vec<FuriosaSmiProcessJson>>(output) {
@@ -565,9 +583,18 @@ impl FuriosaReader {
                 processes
                     .into_iter()
                     .map(|proc| {
-                        // Extract process name from command
+                        // Parse device name and core range
+                        let (device_name, _core_range) = Self::parse_device_name(&proc.dev_name);
+
+                        // Extract device ID from device name (e.g., "npu0" -> 0)
+                        let device_id = device_name
+                            .strip_prefix("npu")
+                            .and_then(|id| id.parse::<usize>().ok())
+                            .unwrap_or(0);
+
+                        // Extract process name from cmdline
                         let process_name = proc
-                            .command
+                            .cmdline
                             .split_whitespace()
                             .next()
                             .and_then(|cmd| cmd.split('/').next_back())
@@ -579,11 +606,11 @@ impl FuriosaReader {
                             crate::device::process_utils::get_system_process_info(proc.pid);
 
                         ProcessInfo {
-                            device_id: 0, // TODO: Map device name to index
-                            device_uuid: proc.device.clone(),
+                            device_id,
+                            device_uuid: device_name, // Use device name as UUID since we don't have actual UUID
                             pid: proc.pid,
                             process_name,
-                            used_memory: proc.memory_usage.unwrap_or(0),
+                            used_memory: sys_info.as_ref().map(|s| s.2).unwrap_or(0), // Use RSS from system
                             cpu_percent: sys_info.as_ref().map(|s| s.0).unwrap_or(0.0),
                             memory_percent: sys_info.as_ref().map(|s| s.1).unwrap_or(0.0),
                             memory_rss: sys_info.as_ref().map(|s| s.2).unwrap_or(0),
@@ -592,7 +619,7 @@ impl FuriosaReader {
                             state: sys_info.as_ref().map(|s| s.5.clone()).unwrap_or_default(),
                             start_time: sys_info.as_ref().map(|s| s.6.clone()).unwrap_or_default(),
                             cpu_time: sys_info.as_ref().map(|s| s.7).unwrap_or(0),
-                            command: proc.command,
+                            command: proc.cmdline,
                             ppid: sys_info.as_ref().map(|s| s.9).unwrap_or(0),
                             threads: sys_info.as_ref().map(|s| s.10).unwrap_or(0),
                             uses_gpu: true, // Using NPU
