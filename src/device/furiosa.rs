@@ -117,6 +117,85 @@ impl FuriosaReader {
         }
     }
 
+    /// Get all processes from the system
+    fn get_all_system_processes() -> Vec<ProcessInfo> {
+        let mut processes = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir("/proc") {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(filename) = path.file_name() {
+                    if let Some(pid_str) = filename.to_str() {
+                        if let Ok(pid) = pid_str.parse::<u32>() {
+                            if let Some(proc_info) = Self::get_process_info_from_pid(pid) {
+                                processes.push(proc_info);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        processes
+    }
+
+    /// Get process info from PID
+    fn get_process_info_from_pid(pid: u32) -> Option<ProcessInfo> {
+        use crate::device::process_utils;
+
+        // Use the existing process_utils to get system process info
+        if let Some((
+            cpu_percent,
+            memory_percent,
+            memory_rss,
+            memory_vms,
+            user,
+            state,
+            start_time,
+            cpu_time,
+            command,
+            ppid,
+            threads,
+        )) = process_utils::get_system_process_info(pid)
+        {
+            let process_name = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                .ok()
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| {
+                    command
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("unknown")
+                        .to_string()
+                });
+
+            Some(ProcessInfo {
+                device_id: 0,
+                device_uuid: String::new(),
+                pid,
+                process_name,
+                used_memory: 0,
+                cpu_percent,
+                memory_percent,
+                memory_rss,
+                memory_vms,
+                user,
+                state,
+                start_time,
+                cpu_time,
+                command,
+                ppid,
+                threads,
+                uses_gpu: false,
+                priority: 0,
+                nice_value: 0,
+                gpu_utilization: 0.0,
+            })
+        } else {
+            None
+        }
+    }
+
     #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
     fn ensure_initialized(&self) -> SmiResult<()> {
         if !self.initialized.get() {
@@ -528,8 +607,43 @@ impl FuriosaReader {
 
     /// Get processes using Furiosa NPUs
     fn collect_process_info(&self) -> Vec<ProcessInfo> {
-        // For now, only command-line method is available for process info
-        self.get_furiosa_processes_via_furiosa_smi()
+        // First, get all processes from the system
+        let mut all_processes = Self::get_all_system_processes();
+
+        // Then get NPU usage information
+        let npu_processes = self.get_furiosa_processes_via_furiosa_smi();
+
+        // Create a map to quickly look up NPU usage by PID
+        let mut npu_usage_map: HashMap<u32, (String, usize, u64, String)> = HashMap::new();
+        for proc in npu_processes {
+            npu_usage_map.insert(
+                proc.pid,
+                (
+                    proc.device_uuid,
+                    proc.device_id,
+                    proc.used_memory,
+                    proc.command,
+                ),
+            );
+        }
+
+        // Update processes with NPU usage information
+        for process in &mut all_processes {
+            if let Some((device_uuid, device_id, used_memory, command)) =
+                npu_usage_map.get(&process.pid)
+            {
+                process.uses_gpu = true;
+                process.device_uuid = device_uuid.clone();
+                process.device_id = *device_id;
+                process.used_memory = *used_memory;
+                // Update command if we got more detailed info from furiosa-smi
+                if !command.is_empty() {
+                    process.command = command.clone();
+                }
+            }
+        }
+
+        all_processes
     }
 
     /// Get processes using Furiosa NPUs via furiosa-smi
