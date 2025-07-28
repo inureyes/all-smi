@@ -5,38 +5,51 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::process::Command;
 
+// Import furiosa-smi-rs if available on Linux
+#[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
+use furiosa_smi_rs::{Device, SmiResult};
+
 /// Collection method for Furiosa NPU metrics
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum CollectionMethod {
-    /// Use furiosactl command-line tool
-    Furiosactl,
-    /// Read directly from device files in /dev
-    DeviceFile,
+    /// Use furiosa-smi command-line tool
+    FuriosaSmi,
+    /// Use furiosa-smi-rs crate
+    FuriosaSmiRs,
 }
 
-/// JSON structure for furiosactl info output
+/// JSON structure for furiosa-smi info output
 #[derive(Debug, Deserialize)]
-struct FuriosaInfoJson {
-    #[allow(dead_code)]
+struct FuriosaSmiInfoJson {
+    index: String,
+    arch: String,
     dev_name: String,
-    product_name: String,
     device_uuid: String,
     device_sn: String,
     firmware: String,
+    pert: String,
     temperature: String,
     power: String,
-    clock: String,
+    core_clock: String,
+    governor: String,
     pci_bdf: String,
     pci_dev: String,
 }
 
-/// JSON structure for furiosactl list output
+/// JSON structure for furiosa-smi status output
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct FuriosaListJson {
-    npu: String,
+struct FuriosaSmiStatusJson {
+    index: String,
+    #[allow(dead_code)]
+    arch: String,
+    #[allow(dead_code)]
+    device: String,
+    #[allow(dead_code)]
+    liveness: String,
+    #[allow(dead_code)]
     cores: Vec<FuriosaCoreInfo>,
-    devfiles: Vec<String>,
+    pe_utilizations: Vec<FuriosaPeUtilization>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,12 +59,20 @@ struct FuriosaCoreInfo {
     status: String,
 }
 
-/// JSON structure for furiosactl ps output
 #[derive(Debug, Deserialize)]
-struct FuriosaProcessJson {
-    npu: String,
+struct FuriosaPeUtilization {
+    #[allow(dead_code)]
+    pe_core: u32,
+    pe_utilization: f64,
+}
+
+/// JSON structure for furiosa-smi ps output
+#[derive(Debug, Deserialize)]
+struct FuriosaSmiProcessJson {
     pid: u32,
-    cmd: String,
+    device: String,
+    memory_usage: Option<u64>,
+    command: String,
 }
 
 /// Configuration for Furiosa reader
@@ -65,14 +86,22 @@ pub struct FuriosaConfig {
 impl Default for FuriosaConfig {
     fn default() -> Self {
         Self {
-            primary_method: CollectionMethod::Furiosactl,
-            fallback_method: Some(CollectionMethod::DeviceFile),
+            #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
+            primary_method: CollectionMethod::FuriosaSmiRs,
+            #[cfg(not(all(target_os = "linux", feature = "furiosa-smi-rs")))]
+            primary_method: CollectionMethod::FuriosaSmi,
+            #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
+            fallback_method: Some(CollectionMethod::FuriosaSmi),
+            #[cfg(not(all(target_os = "linux", feature = "furiosa-smi-rs")))]
+            fallback_method: None,
         }
     }
 }
 
 pub struct FuriosaReader {
     config: FuriosaConfig,
+    #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
+    initialized: std::cell::Cell<bool>,
 }
 
 impl FuriosaReader {
@@ -81,82 +110,68 @@ impl FuriosaReader {
     }
 
     pub fn with_config(config: FuriosaConfig) -> Self {
-        FuriosaReader { config }
-    }
-
-    /// Extract base NPU name from device string
-    /// e.g., "npu0pe0-1" -> "npu0"
-    fn get_base_npu_name(device: &str) -> String {
-        if let Some(idx) = device.find("pe") {
-            device[..idx].to_string()
-        } else {
-            device.to_string()
+        FuriosaReader {
+            config,
+            #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
+            initialized: std::cell::Cell::new(false),
         }
     }
 
-    /// Get NPU utilization from furiosactl top (single sample)
-    fn get_npu_utilization(&self) -> Option<HashMap<String, f64>> {
-        use std::io::{BufRead, BufReader};
-        use std::process::Stdio;
+    #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
+    fn ensure_initialized(&self) -> SmiResult<()> {
+        if !self.initialized.get() {
+            furiosa_smi_rs::init()?;
+            self.initialized.set(true);
+        }
+        Ok(())
+    }
 
-        // Run furiosactl top with a short interval to get one sample
-        let mut child = Command::new("furiosactl")
-            .args(["top", "--interval", "100"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .ok()?;
-
-        let stdout = child.stdout.take()?;
-        let reader = BufReader::new(stdout);
-        let mut utilization_map = HashMap::new();
-        let mut lines_read = 0;
-
-        // Read a few lines to get utilization data
-        for line in reader.lines().map_while(Result::ok) {
-            if line.contains("Device") && line.contains("NPU(%)") {
-                // Skip header line
-                continue;
-            }
-
-            // Parse data line: "2023-03-21T09:45:56.699483936Z  152616    npu1pe0-1      19.06    100.00     0.00   ./npu_runtime_test"
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 6 {
-                if let (Some(device), Some(npu_util)) = (parts.get(2), parts.get(3)) {
-                    if let Ok(util) = npu_util.parse::<f64>() {
-                        let base_npu = Self::get_base_npu_name(device);
-                        // Store the maximum utilization for each NPU
-                        utilization_map
-                            .entry(base_npu)
-                            .and_modify(|e: &mut f64| *e = e.max(util))
-                            .or_insert(util);
+    /// Get NPU status including utilization
+    fn get_npu_status(&self) -> Option<Vec<FuriosaSmiStatusJson>> {
+        match Command::new("furiosa-smi")
+            .args(["status", "--format", "json"])
+            .output()
+        {
+            Ok(output) => {
+                if output.status.success() {
+                    let output_str = String::from_utf8_lossy(&output.stdout);
+                    match serde_json::from_str::<Vec<FuriosaSmiStatusJson>>(&output_str) {
+                        Ok(status) => Some(status),
+                        Err(e) => {
+                            eprintln!("Failed to parse furiosa-smi status JSON: {e}");
+                            None
+                        }
                     }
+                } else {
+                    eprintln!(
+                        "furiosa-smi status failed: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    None
                 }
             }
-
-            lines_read += 1;
-            if lines_read > 10 {
-                break;
+            Err(e) => {
+                eprintln!("Failed to execute furiosa-smi status: {e}");
+                None
             }
         }
+    }
 
-        // Kill the process after getting some data
-        let _ = child.kill();
-        let _ = child.wait();
-
-        if utilization_map.is_empty() {
-            None
-        } else {
-            Some(utilization_map)
+    /// Calculate average PE utilization for a device
+    fn calculate_avg_utilization(pe_utilizations: &[FuriosaPeUtilization]) -> f64 {
+        if pe_utilizations.is_empty() {
+            return 0.0;
         }
+        let sum: f64 = pe_utilizations.iter().map(|pe| pe.pe_utilization).sum();
+        sum / pe_utilizations.len() as f64
     }
 
     /// Collect NPU info using the configured method with fallback
     fn collect_npu_info(&self) -> Vec<GpuInfo> {
         // Try primary method first
         let mut result = match self.config.primary_method {
-            CollectionMethod::Furiosactl => self.collect_via_furiosactl(),
-            CollectionMethod::DeviceFile => self.collect_via_device_files(),
+            CollectionMethod::FuriosaSmi => self.collect_via_furiosa_smi(),
+            CollectionMethod::FuriosaSmiRs => self.collect_via_furiosa_smi_rs(),
         };
 
         // If primary method failed and we have a fallback, try it
@@ -167,8 +182,8 @@ impl FuriosaReader {
                     self.config.primary_method, fallback
                 );
                 result = match fallback {
-                    CollectionMethod::Furiosactl => self.collect_via_furiosactl(),
-                    CollectionMethod::DeviceFile => self.collect_via_device_files(),
+                    CollectionMethod::FuriosaSmi => self.collect_via_furiosa_smi(),
+                    CollectionMethod::FuriosaSmiRs => self.collect_via_furiosa_smi_rs(),
                 };
             }
         }
@@ -176,53 +191,177 @@ impl FuriosaReader {
         result
     }
 
-    /// Collect NPU information using furiosactl
-    fn collect_via_furiosactl(&self) -> Vec<GpuInfo> {
-        match Command::new("furiosactl")
+    /// Collect NPU information using furiosa-smi-rs crate
+    fn collect_via_furiosa_smi_rs(&self) -> Vec<GpuInfo> {
+        #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
+        {
+            // Initialize library if needed
+            if let Err(e) = self.ensure_initialized() {
+                eprintln!("Failed to initialize furiosa-smi-rs: {e}");
+                return vec![];
+            }
+
+            // Get all NPU devices
+            match furiosa_smi_rs::list_devices() {
+                Ok(devices) => {
+                    let hostname = get_hostname();
+                    let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+                    let mut gpu_infos = Vec::new();
+
+                    for device in devices {
+                        if let Some(gpu_info) = self.device_to_gpu_info(&device, &hostname, &time) {
+                            gpu_infos.push(gpu_info);
+                        }
+                    }
+
+                    gpu_infos
+                }
+                Err(e) => {
+                    eprintln!("Failed to list Furiosa devices: {e}");
+                    vec![]
+                }
+            }
+        }
+        #[cfg(not(all(target_os = "linux", feature = "furiosa-smi-rs")))]
+        {
+            eprintln!("furiosa-smi-rs crate support not compiled in");
+            vec![]
+        }
+    }
+
+    #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
+    fn device_to_gpu_info(&self, device: &Device, hostname: &str, time: &str) -> Option<GpuInfo> {
+        // Get device information
+        let device_info = device.device_info().ok()?;
+        let index = device_info.index();
+        let name = format!("npu{}", index);
+        let uuid = device_info.uuid();
+        let arch = format!("{:?}", device_info.arch());
+
+        // Get device details
+        let mut detail = HashMap::new();
+        detail.insert("device_index".to_string(), index.to_string());
+        detail.insert("architecture".to_string(), arch.clone());
+        detail.insert("core_count".to_string(), device_info.core_num().to_string());
+        detail.insert("serial_number".to_string(), device_info.serial());
+        detail.insert("device_name".to_string(), device_info.name());
+        detail.insert("pci_bdf".to_string(), device_info.bdf());
+        detail.insert("numa_node".to_string(), device_info.numa_node().to_string());
+
+        // Get firmware and pert versions
+        let firmware_ver = device_info.firmware_version();
+        detail.insert(
+            "firmware_version".to_string(),
+            format!("{:?}", firmware_ver),
+        );
+
+        let pert_ver = device_info.pert_version();
+        detail.insert("pert_version".to_string(), format!("{:?}", pert_ver));
+
+        // Get temperature
+        let temperature = match device.device_temperature() {
+            Ok(temp) => temp.soc_peak() as u32,
+            Err(_) => 0,
+        };
+
+        // Get power consumption
+        let power = device.power_consumption().unwrap_or(0.0);
+
+        // Get frequency
+        let frequency = match device.core_frequency() {
+            Ok(core_freq) => {
+                // Get average frequency from all PE cores
+                let pe_freqs = core_freq.pe_frequency();
+                if pe_freqs.is_empty() {
+                    1000
+                } else {
+                    // Assuming PeFrequency has a method to get the frequency value
+                    // For now, use a default
+                    1000
+                }
+            }
+            Err(_) => 1000,
+        };
+
+        // Get utilization from core utilization
+        let utilization = match device.core_utilization() {
+            Ok(core_util) => {
+                let pe_utils = core_util.pe_utilization();
+                if pe_utils.is_empty() {
+                    0.0
+                } else {
+                    // Calculate average utilization
+                    let sum: f64 = pe_utils
+                        .iter()
+                        .map(|pe| pe.pe_usage_percentage() as f64)
+                        .sum();
+                    sum / pe_utils.len() as f64
+                }
+            }
+            Err(_) => 0.0,
+        };
+
+        // Get governor profile
+        if let Ok(governor) = device.governor_profile() {
+            detail.insert("governor".to_string(), format!("{:?}", governor));
+        }
+
+        Some(GpuInfo {
+            uuid,
+            time: time.to_string(),
+            name: format!("Furiosa {} {}", arch.to_uppercase(), name),
+            device_type: "NPU".to_string(),
+            host_id: hostname.to_string(),
+            hostname: hostname.to_string(),
+            instance: name,
+            utilization,
+            ane_utilization: 0.0,
+            dla_utilization: None,
+            temperature,
+            used_memory: 0,  // TODO: Get memory info when available in crate
+            total_memory: 0, // TODO: Get memory info when available in crate
+            frequency: frequency as u32,
+            power_consumption: power,
+            detail,
+        })
+    }
+
+    /// Collect NPU information using furiosa-smi
+    fn collect_via_furiosa_smi(&self) -> Vec<GpuInfo> {
+        // First get status data for utilization
+        let status_data = self.get_npu_status();
+
+        // Then get info data
+        match Command::new("furiosa-smi")
             .args(["info", "--format", "json"])
             .output()
         {
             Ok(output) => {
                 if output.status.success() {
                     let output_str = String::from_utf8_lossy(&output.stdout);
-                    let mut devices = self.parse_furiosactl_info_json(&output_str);
-
-                    // Try to get utilization data
-                    if let Some(utilization_map) = self.get_npu_utilization() {
-                        for device in &mut devices {
-                            if let Some(util) = utilization_map.get(&device.instance) {
-                                device.utilization = *util;
-                            }
-                        }
-                    }
-
-                    devices
+                    self.parse_furiosa_smi_info_json(&output_str, status_data.as_ref())
                 } else {
                     eprintln!(
-                        "furiosactl command failed: {}",
+                        "furiosa-smi info failed: {}",
                         String::from_utf8_lossy(&output.stderr)
                     );
                     vec![]
                 }
             }
             Err(e) => {
-                eprintln!("Failed to execute furiosactl: {e}");
+                eprintln!("Failed to execute furiosa-smi info: {e}");
                 vec![]
             }
         }
     }
 
-    /// Collect NPU information by reading device files
-    fn collect_via_device_files(&self) -> Vec<GpuInfo> {
-        // TODO: Implement device file reading
-        // This will read from /dev/furiosa* or similar device files
-        eprintln!("Device file collection not yet implemented");
-        vec![]
-    }
-
-    /// Parse furiosactl info JSON output
-    fn parse_furiosactl_info_json(&self, output: &str) -> Vec<GpuInfo> {
-        match serde_json::from_str::<Vec<FuriosaInfoJson>>(output) {
+    /// Parse furiosa-smi info JSON output
+    fn parse_furiosa_smi_info_json(
+        &self,
+        output: &str,
+        status_data: Option<&Vec<FuriosaSmiStatusJson>>,
+    ) -> Vec<GpuInfo> {
+        match serde_json::from_str::<Vec<FuriosaSmiInfoJson>>(output) {
             Ok(devices) => {
                 let hostname = get_hostname();
                 let time = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
@@ -233,15 +372,18 @@ impl FuriosaReader {
                         let mut detail = HashMap::new();
                         detail.insert("serial_number".to_string(), device.device_sn);
                         detail.insert("firmware".to_string(), device.firmware);
+                        detail.insert("pert".to_string(), device.pert);
                         detail.insert("pci_address".to_string(), device.pci_bdf);
                         detail.insert("pci_device".to_string(), device.pci_dev);
+                        detail.insert("governor".to_string(), device.governor);
+                        detail.insert("architecture".to_string(), device.arch.clone());
 
                         // Parse temperature (remove °C suffix)
                         let temperature = device
                             .temperature
                             .trim_end_matches("°C")
-                            .parse::<u32>()
-                            .unwrap_or(0);
+                            .parse::<f64>()
+                            .unwrap_or(0.0) as u32;
 
                         // Parse power (remove W suffix)
                         let power = device
@@ -252,20 +394,34 @@ impl FuriosaReader {
 
                         // Parse frequency (remove MHz suffix)
                         let frequency = device
-                            .clock
+                            .core_clock
                             .trim_end_matches(" MHz")
                             .parse::<u32>()
                             .unwrap_or(0);
 
+                        // Get utilization from status data if available
+                        let utilization = status_data
+                            .and_then(|status_vec| {
+                                status_vec
+                                    .iter()
+                                    .find(|s| s.index == device.index)
+                                    .map(|s| Self::calculate_avg_utilization(&s.pe_utilizations))
+                            })
+                            .unwrap_or(0.0);
+
                         GpuInfo {
                             uuid: device.device_uuid,
                             time: time.clone(),
-                            name: format!("Furiosa {}", device.product_name),
+                            name: format!(
+                                "Furiosa {} {}",
+                                device.arch.to_uppercase(),
+                                device.dev_name
+                            ),
                             device_type: "NPU".to_string(),
-                            host_id: hostname.clone(), // For local mode, host_id is just the hostname
-                            hostname: hostname.clone(), // DNS hostname
-                            instance: hostname.clone(),
-                            utilization: 0.0, // TODO: Get from furiosactl top or other source
+                            host_id: hostname.clone(),
+                            hostname: hostname.clone(),
+                            instance: device.dev_name,
+                            utilization,
                             ane_utilization: 0.0,
                             dla_utilization: None,
                             temperature,
@@ -279,49 +435,53 @@ impl FuriosaReader {
                     .collect()
             }
             Err(e) => {
-                eprintln!("Failed to parse furiosactl JSON output: {e}");
+                eprintln!("Failed to parse furiosa-smi info JSON output: {e}");
                 vec![]
             }
         }
     }
 
-    /// Get processes using Furiosa NPUs via furiosactl
-    fn get_furiosa_processes_via_furiosactl(&self) -> Vec<ProcessInfo> {
-        match Command::new("furiosactl")
+    /// Get processes using Furiosa NPUs
+    fn collect_process_info(&self) -> Vec<ProcessInfo> {
+        // For now, only command-line method is available for process info
+        self.get_furiosa_processes_via_furiosa_smi()
+    }
+
+    /// Get processes using Furiosa NPUs via furiosa-smi
+    fn get_furiosa_processes_via_furiosa_smi(&self) -> Vec<ProcessInfo> {
+        match Command::new("furiosa-smi")
             .args(["ps", "--format", "json"])
             .output()
         {
             Ok(output) => {
                 if output.status.success() {
                     let output_str = String::from_utf8_lossy(&output.stdout);
-                    self.parse_furiosactl_ps_json(&output_str)
+                    self.parse_furiosa_smi_ps_json(&output_str)
                 } else {
                     eprintln!(
-                        "furiosactl ps failed: {}",
+                        "furiosa-smi ps failed: {}",
                         String::from_utf8_lossy(&output.stderr)
                     );
                     vec![]
                 }
             }
             Err(e) => {
-                eprintln!("Failed to execute furiosactl ps: {e}");
+                eprintln!("Failed to execute furiosa-smi ps: {e}");
                 vec![]
             }
         }
     }
 
-    /// Parse furiosactl ps JSON output
-    fn parse_furiosactl_ps_json(&self, output: &str) -> Vec<ProcessInfo> {
-        match serde_json::from_str::<Vec<FuriosaProcessJson>>(output) {
+    /// Parse furiosa-smi ps JSON output
+    fn parse_furiosa_smi_ps_json(&self, output: &str) -> Vec<ProcessInfo> {
+        match serde_json::from_str::<Vec<FuriosaSmiProcessJson>>(output) {
             Ok(processes) => {
                 processes
                     .into_iter()
                     .map(|proc| {
-                        let base_npu = Self::get_base_npu_name(&proc.npu);
-
                         // Extract process name from command
                         let process_name = proc
-                            .cmd
+                            .command
                             .split_whitespace()
                             .next()
                             .and_then(|cmd| cmd.split('/').next_back())
@@ -333,11 +493,11 @@ impl FuriosaReader {
                             crate::device::process_utils::get_system_process_info(proc.pid);
 
                         ProcessInfo {
-                            device_id: 0, // TODO: Map NPU name to device index
-                            device_uuid: base_npu,
+                            device_id: 0, // TODO: Map device name to index
+                            device_uuid: proc.device.clone(),
                             pid: proc.pid,
                             process_name,
-                            used_memory: 0, // TODO: Get from actual data when available
+                            used_memory: proc.memory_usage.unwrap_or(0),
                             cpu_percent: sys_info.as_ref().map(|s| s.0).unwrap_or(0.0),
                             memory_percent: sys_info.as_ref().map(|s| s.1).unwrap_or(0.0),
                             memory_rss: sys_info.as_ref().map(|s| s.2).unwrap_or(0),
@@ -346,13 +506,13 @@ impl FuriosaReader {
                             state: sys_info.as_ref().map(|s| s.5.clone()).unwrap_or_default(),
                             start_time: sys_info.as_ref().map(|s| s.6.clone()).unwrap_or_default(),
                             cpu_time: sys_info.as_ref().map(|s| s.7).unwrap_or(0),
-                            command: proc.cmd,
+                            command: proc.command,
                             ppid: sys_info.as_ref().map(|s| s.9).unwrap_or(0),
                             threads: sys_info.as_ref().map(|s| s.10).unwrap_or(0),
                             uses_gpu: true, // Using NPU
                             priority: 0,
                             nice_value: 0,
-                            gpu_utilization: 0.0, // TODO: Get from furiosactl top
+                            gpu_utilization: 0.0, // TODO: Get from status data if per-process util is available
                         }
                     })
                     .collect()
@@ -360,38 +520,11 @@ impl FuriosaReader {
             Err(e) => {
                 // Empty array is valid JSON, no need to log error
                 if output.trim() != "[]" {
-                    eprintln!("Failed to parse furiosactl ps JSON output: {e}");
+                    eprintln!("Failed to parse furiosa-smi ps JSON output: {e}");
                 }
                 vec![]
             }
         }
-    }
-
-    /// Get processes using Furiosa NPUs via device files
-    fn get_furiosa_processes_via_device_files(&self) -> Vec<ProcessInfo> {
-        // TODO: Get processes using Furiosa NPUs via /dev
-        vec![]
-    }
-
-    /// Collect process info using the configured method with fallback
-    fn collect_process_info(&self) -> Vec<ProcessInfo> {
-        // Try primary method first
-        let mut result = match self.config.primary_method {
-            CollectionMethod::Furiosactl => self.get_furiosa_processes_via_furiosactl(),
-            CollectionMethod::DeviceFile => self.get_furiosa_processes_via_device_files(),
-        };
-
-        // If primary method failed and we have a fallback, try it
-        if result.is_empty() {
-            if let Some(fallback) = self.config.fallback_method {
-                result = match fallback {
-                    CollectionMethod::Furiosactl => self.get_furiosa_processes_via_furiosactl(),
-                    CollectionMethod::DeviceFile => self.get_furiosa_processes_via_device_files(),
-                };
-            }
-        }
-
-        result
     }
 }
 

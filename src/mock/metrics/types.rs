@@ -9,6 +9,7 @@ pub enum PlatformType {
     Amd,
     Tenstorrent,
     Rebellions,
+    Furiosa,
 }
 
 impl PlatformType {
@@ -21,6 +22,7 @@ impl PlatformType {
             "amd" => PlatformType::Amd,
             "tenstorrent" | "tt" => PlatformType::Tenstorrent,
             "rebellions" | "rbln" => PlatformType::Rebellions,
+            "furiosa" => PlatformType::Furiosa,
             _ => {
                 eprintln!("Unknown platform '{platform_str}', defaulting to nvidia");
                 PlatformType::Nvidia

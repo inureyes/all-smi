@@ -15,7 +15,7 @@ pub struct Args {
     #[arg(
         long,
         default_value = "nvidia",
-        help = "Platform type: nvidia, apple, jetson, intel, amd, tenstorrent, rebellions"
+        help = "Platform type: nvidia, apple, jetson, intel, amd, tenstorrent, rebellions, furiosa"
     )]
     pub platform: String,
 

@@ -98,6 +98,19 @@ pub fn has_furiosa() -> bool {
         return true;
     }
 
+    // Use lspci to check for Furiosa devices
+    if let Ok(output) = Command::new("lspci").output() {
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            // Look for Furiosa devices (case insensitive)
+            for line in output_str.lines() {
+                if line.to_lowercase().contains("furiosa") {
+                    return true;
+                }
+            }
+        }
+    }
+
     // On macOS, use system_profiler
     if std::env::consts::OS == "macos" {
         if let Ok(output) = Command::new("system_profiler")
@@ -113,12 +126,17 @@ pub fn has_furiosa() -> bool {
         }
     }
 
-    // Check if furiosactl can list devices
-    if let Ok(output) = Command::new("furiosactl").args(["list"]).output() {
+    // Check if furiosa-smi can list devices
+    if let Ok(output) = Command::new("furiosa-smi")
+        .args(["status", "--format", "json"])
+        .output()
+    {
         if output.status.success() {
             let output_str = String::from_utf8_lossy(&output.stdout);
             // Check if output contains actual device entries
-            return output_str.lines().count() > 1; // More than just header
+            if output_str.contains("\"index\"") && output_str.contains("\"device\"") {
+                return true;
+            }
         }
     }
 

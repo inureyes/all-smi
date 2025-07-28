@@ -103,13 +103,14 @@ pub fn build_response_template(
         }
     }
 
-    // GPU vendor info metrics (NVIDIA, Jetson, Tenstorrent, and Rebellions)
+    // GPU vendor info metrics (NVIDIA, Jetson, Tenstorrent, Rebellions, and Furiosa)
     if matches!(
         platform,
         PlatformType::Nvidia
             | PlatformType::Jetson
             | PlatformType::Tenstorrent
             | PlatformType::Rebellions
+            | PlatformType::Furiosa
     ) {
         template.push_str("# HELP all_smi_gpu_info GPU vendor-specific information\n");
         template.push_str("# TYPE all_smi_gpu_info info\n");
@@ -218,6 +219,21 @@ pub fn build_response_template(
                     labels.push("pcie_width_max=\"16\"".to_string());
                     labels.push("performance_state=\"P14\"".to_string());
                 }
+                PlatformType::Furiosa => {
+                    // Furiosa NPU specific labels
+                    labels[4] = "type=\"NPU\"".to_string(); // Override type to NPU
+
+                    // Always use RNGD architecture for Furiosa
+                    labels.push("driver_version=\"2025.3.0\"".to_string());
+                    labels.push("architecture=\"RNGD\"".to_string());
+                    labels.push("firmware=\"2025.2.0+d3c908a\"".to_string());
+                    labels.push("pert=\"2025.2.0+a78ebff\"".to_string());
+                    labels.push("governor=\"OnDemand\"".to_string());
+                    labels.push("pcie_gen_current=\"3\"".to_string());
+                    labels.push("pcie_gen_max=\"3\"".to_string());
+                    labels.push("pcie_width_current=\"16\"".to_string());
+                    labels.push("pcie_width_max=\"16\"".to_string());
+                }
                 _ => {}
             }
 
@@ -237,6 +253,11 @@ pub fn build_response_template(
         // Add Rebellions-specific metrics
         if let PlatformType::Rebellions = platform {
             add_rebellions_metrics(&mut template, instance_name, gpu_name, gpus);
+        }
+
+        // Add Furiosa-specific metrics
+        if let PlatformType::Furiosa = platform {
+            add_furiosa_metrics(&mut template, instance_name, gpu_name, gpus);
         }
     }
 
@@ -371,6 +392,76 @@ fn add_nvidia_numeric_metrics(
         template.push_str(&format!(
             "all_smi_gpu_performance_state{{{labels}}} {placeholder}\n"
         ));
+    }
+}
+
+fn add_furiosa_metrics(
+    template: &mut String,
+    instance_name: &str,
+    gpu_name: &str,
+    gpus: &[GpuMetrics],
+) {
+    // NPU firmware info
+    template.push_str("# HELP all_smi_furiosa_firmware_info Furiosa NPU firmware version\n");
+    template.push_str("# TYPE all_smi_furiosa_firmware_info info\n");
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", firmware=\"2025.2.0+d3c908a\", pert=\"2025.2.0+a78ebff\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        template.push_str(&format!("all_smi_furiosa_firmware_info{{{labels}}} 1\n"));
+    }
+
+    // Core status info (8 cores per NPU)
+    template.push_str("# HELP all_smi_furiosa_core_status Furiosa NPU core status\n");
+    template.push_str("# TYPE all_smi_furiosa_core_status gauge\n");
+    for (i, gpu) in gpus.iter().enumerate() {
+        for core_idx in 0..8 {
+            let labels = format!(
+                "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", core=\"{}\"",
+                gpu_name, instance_name, gpu.uuid, i, core_idx
+            );
+            // 1 = available, 0 = unavailable
+            template.push_str(&format!("all_smi_furiosa_core_status{{{labels}}} 1\n"));
+        }
+    }
+
+    // PE (Processing Element) utilization per core
+    template.push_str("# HELP all_smi_furiosa_pe_utilization PE utilization percentage per core\n");
+    template.push_str("# TYPE all_smi_furiosa_pe_utilization gauge\n");
+    for (i, _gpu) in gpus.iter().enumerate() {
+        for core_idx in 0..8 {
+            let labels = format!(
+                "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", pe_core=\"{}\"",
+                gpu_name, instance_name, gpus[i].uuid, i, core_idx
+            );
+            let placeholder = format!("{{{{PE_UTIL_{i}_{core_idx}}}}}");
+            template.push_str(&format!(
+                "all_smi_furiosa_pe_utilization{{{labels}}} {placeholder}\n"
+            ));
+        }
+    }
+
+    // Device liveness status
+    template.push_str("# HELP all_smi_furiosa_liveness Device liveness status\n");
+    template.push_str("# TYPE all_smi_furiosa_liveness info\n");
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", liveness=\"alive\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        template.push_str(&format!("all_smi_furiosa_liveness{{{labels}}} 1\n"));
+    }
+
+    // Governor mode
+    template.push_str("# HELP all_smi_furiosa_governor_info Power governor mode\n");
+    template.push_str("# TYPE all_smi_furiosa_governor_info info\n");
+    for (i, gpu) in gpus.iter().enumerate() {
+        let labels = format!(
+            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", governor=\"OnDemand\"",
+            gpu_name, instance_name, gpu.uuid, i
+        );
+        template.push_str(&format!("all_smi_furiosa_governor_info{{{labels}}} 1\n"));
     }
 }
 
@@ -747,6 +838,25 @@ pub fn render_response(
                 * 10; // Different counter for each NPU
 
             response = response.replace(&format!("{{{{HEARTBEAT_{i}}}}}"), &heartbeat.to_string());
+        }
+
+        // Replace Furiosa-specific metrics
+        if let PlatformType::Furiosa = platform {
+            use rand::{rng, Rng};
+            let mut rng = rng();
+
+            // PE utilization per core (8 cores per NPU)
+            for core_idx in 0..8 {
+                // Generate different utilization for each core, correlated with overall GPU utilization
+                let base_util = gpu.utilization;
+                let core_variation = rng.random_range(-15.0..15.0);
+                let core_util = (base_util + core_variation).clamp(0.0, 100.0);
+
+                response = response.replace(
+                    &format!("{{{{PE_UTIL_{i}_{core_idx}}}}}"),
+                    &format!("{core_util:.2}"),
+                );
+            }
         }
     }
 
