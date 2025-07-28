@@ -373,6 +373,12 @@ impl FuriosaReader {
             );
         }
 
+        // Get memory utilization
+        let (used_memory, total_memory) = match device.memory_utilization() {
+            Ok(mem_util) => (mem_util.in_use_bytes(), mem_util.total_bytes()),
+            Err(_) => (0, 48 * 1024 * 1024 * 1024), // Default to 48GB if unavailable
+        };
+
         // Get liveness status
         if let Ok(liveness) = device.liveness() {
             detail.insert("liveness".to_string(), liveness.to_string());
@@ -482,8 +488,8 @@ impl FuriosaReader {
             ane_utilization: 0.0,
             dla_utilization: None,
             temperature,
-            used_memory: 0, // TODO: Get memory usage from device
-            total_memory: 48 * 1024 * 1024 * 1024, // 48GB HBM3
+            used_memory,
+            total_memory,
             frequency: frequency as u32,
             power_consumption: power,
             detail,
@@ -495,6 +501,16 @@ impl FuriosaReader {
         // First get status data for utilization
         let status_data = self.get_npu_status();
 
+        // Get process data to calculate memory usage per device
+        let processes = self.get_furiosa_processes_via_furiosa_smi();
+        let mut device_memory_usage: HashMap<String, u64> = HashMap::new();
+
+        // Aggregate memory usage by device
+        for proc in processes {
+            let device_name = proc.device_uuid.clone(); // Using device name as UUID
+            *device_memory_usage.entry(device_name).or_insert(0) += proc.used_memory;
+        }
+
         // Then get info data
         match Command::new("furiosa-smi")
             .args(["info", "--format", "json"])
@@ -503,7 +519,11 @@ impl FuriosaReader {
             Ok(output) => {
                 if output.status.success() {
                     let output_str = String::from_utf8_lossy(&output.stdout);
-                    self.parse_furiosa_smi_info_json(&output_str, status_data.as_ref())
+                    self.parse_furiosa_smi_info_json(
+                        &output_str,
+                        status_data.as_ref(),
+                        &device_memory_usage,
+                    )
                 } else {
                     eprintln!(
                         "furiosa-smi info failed: {}",
@@ -524,6 +544,7 @@ impl FuriosaReader {
         &self,
         output: &str,
         status_data: Option<&Vec<FuriosaSmiStatusJson>>,
+        device_memory_usage: &HashMap<String, u64>,
     ) -> Vec<GpuInfo> {
         match serde_json::from_str::<Vec<FuriosaSmiInfoJson>>(output) {
             Ok(devices) => {
@@ -533,6 +554,9 @@ impl FuriosaReader {
                 devices
                     .into_iter()
                     .map(|device| {
+                        // Extract device name from index (e.g., "0" -> "npu0")
+                        let device_name = format!("npu{}", device.index);
+
                         let mut detail = HashMap::new();
                         detail.insert("serial_number".to_string(), device.device_sn);
                         detail.insert("firmware".to_string(), device.firmware);
@@ -577,6 +601,10 @@ impl FuriosaReader {
                             })
                             .unwrap_or(0.0);
 
+                        // Get memory usage from aggregated process data
+                        let used_memory =
+                            device_memory_usage.get(&device_name).copied().unwrap_or(0);
+
                         GpuInfo {
                             uuid: device.device_uuid,
                             time: time.clone(),
@@ -589,7 +617,7 @@ impl FuriosaReader {
                             ane_utilization: 0.0,
                             dla_utilization: None,
                             temperature,
-                            used_memory: 0, // TODO: Get memory usage info
+                            used_memory,
                             total_memory: 48 * 1024 * 1024 * 1024, // 48GB HBM3
                             frequency,
                             power_consumption: power,
