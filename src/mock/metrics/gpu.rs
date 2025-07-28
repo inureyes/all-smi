@@ -17,7 +17,7 @@ pub struct GpuMetrics {
 
 impl GpuMetrics {
     /// Update GPU metrics with realistic variations
-    pub fn update(&mut self) {
+    pub fn update(&mut self, platform: &super::PlatformType) {
         let mut rng = rng();
 
         // GPU utilization: gradual changes
@@ -50,13 +50,18 @@ impl GpuMetrics {
         // Random variation (±15W)
         let random_variation = rng.random_range(-15.0..15.0);
 
-        // Calculate total power consumption
+        // Calculate total power consumption with platform-specific limits
+        let max_power = match platform {
+            super::PlatformType::Furiosa => 180.0, // Furiosa RNGD TDP is 180W
+            _ => 700.0,
+        };
+
         self.power_consumption_watts = (base_power
             + util_power_contribution
             + memory_power_contribution
             + gpu_bias
             + random_variation)
-            .clamp(80.0, 700.0);
+            .clamp(80.0, max_power);
 
         // GPU temperature: correlate with power consumption and utilization
         let base_temp = 45.0;
@@ -68,13 +73,20 @@ impl GpuMetrics {
             (base_temp + util_temp_contribution + power_temp_contribution + temp_variation)
                 .clamp(35.0, 85.0) as u32;
 
-        // GPU frequency: correlate with utilization (higher util = higher freq)
-        let base_freq = 1200.0;
-        let util_freq_contribution = self.utilization * 6.0; // Up to 600MHz boost at 100% util
-        let freq_variation = rng.random_range(-100.0..100.0);
-
-        self.frequency_mhz =
-            (base_freq + util_freq_contribution + freq_variation).clamp(1000.0, 1980.0) as u32;
+        // GPU frequency: platform-specific behavior
+        self.frequency_mhz = match platform {
+            super::PlatformType::Furiosa => {
+                // Furiosa RNGD runs at fixed 1.0GHz
+                1000
+            }
+            _ => {
+                // Other platforms: correlate with utilization (higher util = higher freq)
+                let base_freq = 1200.0;
+                let util_freq_contribution = self.utilization * 6.0; // Up to 600MHz boost at 100% util
+                let freq_variation = rng.random_range(-100.0..100.0);
+                (base_freq + util_freq_contribution + freq_variation).clamp(1000.0, 1980.0) as u32
+            }
+        };
 
         // Update ANE utilization for Apple Silicon
         if self.ane_utilization_watts > 0.0 {

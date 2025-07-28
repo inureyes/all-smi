@@ -29,7 +29,10 @@ pub fn extract_gpu_memory_gb(gpu_name: &str) -> u64 {
 
 /// Generate initial GPU metrics for all GPUs
 pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics> {
-    let gpu_memory_gb = extract_gpu_memory_gb(gpu_name);
+    let gpu_memory_gb = match platform {
+        PlatformType::Furiosa => 48, // Furiosa RNGD has 48GB HBM3
+        _ => extract_gpu_memory_gb(gpu_name),
+    };
     let memory_total_bytes = gpu_memory_gb * 1024 * 1024 * 1024;
     let mut rng = rng();
 
@@ -46,9 +49,13 @@ pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics>
             let util_power_contribution = utilization * rng.random_range(4.0..6.0);
             let memory_power_contribution = memory_usage_percent * rng.random_range(1.0..2.0);
             let gpu_bias = rng.random_range(-30.0..30.0);
+            let max_power = match platform {
+                PlatformType::Furiosa => 180.0, // Furiosa RNGD TDP is 180W
+                _ => 700.0,
+            };
             let power_consumption_watts =
                 (base_power + util_power_contribution + memory_power_contribution + gpu_bias)
-                    .clamp(80.0, 700.0);
+                    .clamp(80.0, max_power);
 
             // Calculate realistic initial temperature
             let base_temp = 45.0;
@@ -58,9 +65,17 @@ pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics>
                 .clamp(35.0, 85.0) as u32;
 
             // Calculate realistic initial frequency
-            let base_freq = 1200.0;
-            let util_freq_contribution = utilization * 6.0;
-            let frequency_mhz = (base_freq + util_freq_contribution).clamp(1000.0, 1980.0) as u32;
+            let frequency_mhz = match platform {
+                PlatformType::Furiosa => {
+                    // Furiosa RNGD runs at fixed 1.0GHz
+                    1000
+                }
+                _ => {
+                    let base_freq = 1200.0;
+                    let util_freq_contribution = utilization * 6.0;
+                    (base_freq + util_freq_contribution).clamp(1000.0, 1980.0) as u32
+                }
+            };
 
             // ANE utilization only for Apple Silicon
             let ane_utilization_watts = if *platform == PlatformType::Apple {

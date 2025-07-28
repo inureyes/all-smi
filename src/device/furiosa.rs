@@ -275,9 +275,9 @@ impl FuriosaReader {
                 if pe_freqs.is_empty() {
                     1000
                 } else {
-                    // Assuming PeFrequency has a method to get the frequency value
-                    // For now, use a default
-                    1000
+                    // Calculate average frequency across all PE cores
+                    let sum: u32 = pe_freqs.iter().map(|pe| pe.frequency()).sum();
+                    sum / pe_freqs.len() as u32
                 }
             }
             Err(_) => 1000,
@@ -306,10 +306,16 @@ impl FuriosaReader {
             detail.insert("governor".to_string(), format!("{:?}", governor));
         }
 
+        // Note about memory
+        detail.insert("memory_type".to_string(), "HBM3".to_string());
+        detail.insert("memory_capacity".to_string(), "48GB".to_string());
+        detail.insert("memory_bandwidth".to_string(), "1.5TB/s".to_string());
+        detail.insert("on_chip_sram".to_string(), "256MB".to_string());
+
         Some(GpuInfo {
             uuid,
             time: time.to_string(),
-            name: format!("Furiosa {} {}", arch.to_uppercase(), name),
+            name: format!("Furiosa {}", arch.to_uppercase()),
             device_type: "NPU".to_string(),
             host_id: hostname.to_string(),
             hostname: hostname.to_string(),
@@ -318,8 +324,8 @@ impl FuriosaReader {
             ane_utilization: 0.0,
             dla_utilization: None,
             temperature,
-            used_memory: 0,  // TODO: Get memory info when available in crate
-            total_memory: 0, // TODO: Get memory info when available in crate
+            used_memory: 0, // TODO: Get memory usage from device
+            total_memory: 48 * 1024 * 1024 * 1024, // 48GB HBM3
             frequency: frequency as u32,
             power_consumption: power,
             detail,
@@ -377,6 +383,10 @@ impl FuriosaReader {
                         detail.insert("pci_device".to_string(), device.pci_dev);
                         detail.insert("governor".to_string(), device.governor);
                         detail.insert("architecture".to_string(), device.arch.clone());
+                        detail.insert("memory_type".to_string(), "HBM3".to_string());
+                        detail.insert("memory_capacity".to_string(), "48GB".to_string());
+                        detail.insert("memory_bandwidth".to_string(), "1.5TB/s".to_string());
+                        detail.insert("on_chip_sram".to_string(), "256MB".to_string());
 
                         // Parse temperature (remove °C suffix)
                         let temperature = device
@@ -412,11 +422,7 @@ impl FuriosaReader {
                         GpuInfo {
                             uuid: device.device_uuid,
                             time: time.clone(),
-                            name: format!(
-                                "Furiosa {} {}",
-                                device.arch.to_uppercase(),
-                                device.dev_name
-                            ),
+                            name: format!("Furiosa {}", device.arch.to_uppercase()),
                             device_type: "NPU".to_string(),
                             host_id: hostname.clone(),
                             hostname: hostname.clone(),
@@ -425,8 +431,8 @@ impl FuriosaReader {
                             ane_utilization: 0.0,
                             dla_utilization: None,
                             temperature,
-                            used_memory: 0,  // TODO: Get memory info when available
-                            total_memory: 0, // TODO: Get memory info when available
+                            used_memory: 0, // TODO: Get memory usage info
+                            total_memory: 48 * 1024 * 1024 * 1024, // 48GB HBM3
                             frequency,
                             power_consumption: power,
                             detail,
