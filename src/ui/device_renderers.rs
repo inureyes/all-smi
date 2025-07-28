@@ -7,6 +7,22 @@ use crate::storage::info::StorageInfo;
 use crate::ui::text::{print_colored_text, truncate_to_width};
 use crate::ui::widgets::{draw_bar, draw_bar_multi, BarSegment};
 
+/// Formats a hostname for display with scrolling animation if it exceeds 9 characters
+fn format_hostname_with_scroll(hostname: &str, scroll_offset: usize) -> String {
+    if hostname.len() > 9 {
+        let scroll_len = hostname.len() + 3;
+        let start_pos = scroll_offset % scroll_len;
+        let extended_hostname = format!("{hostname}   {hostname}");
+        extended_hostname
+            .chars()
+            .skip(start_pos)
+            .take(9)
+            .collect::<String>()
+    } else {
+        hostname.to_string()
+    }
+}
+
 pub fn print_gpu_info<W: Write>(
     stdout: &mut W,
     _index: usize,
@@ -27,23 +43,11 @@ pub fn print_gpu_info<W: Write>(
             .collect::<String>();
         visible_name
     } else {
-        info.name.clone()
+        format!("{:<15}", info.name)
     };
 
     // Format hostname with scrolling if needed
-    let hostname_display = if info.hostname.len() > 9 {
-        let scroll_len = info.hostname.len() + 3;
-        let start_pos = hostname_scroll_offset % scroll_len;
-        let extended_hostname = format!("{}   {}", info.hostname, info.hostname);
-        let visible_hostname = extended_hostname
-            .chars()
-            .skip(start_pos)
-            .take(9)
-            .collect::<String>();
-        visible_hostname
-    } else {
-        info.hostname.clone()
-    };
+    let hostname_display = format_hostname_with_scroll(&info.hostname, hostname_scroll_offset);
 
     // Calculate values
     let memory_gb = info.used_memory as f64 / (1024.0 * 1024.0 * 1024.0);
@@ -228,18 +232,32 @@ pub fn print_cpu_info<W: Write>(
     info: &CpuInfo,
     width: usize,
     show_per_core: bool,
+    cpu_name_scroll_offset: usize,
+    hostname_scroll_offset: usize,
 ) {
+    // Format CPU name with scrolling if needed (same as GPU: 15 chars)
+    let cpu_name = if info.cpu_model.len() > 15 {
+        let scroll_len = info.cpu_model.len() + 3;
+        let start_pos = cpu_name_scroll_offset % scroll_len;
+        let extended_name = format!("{0}   {0}", info.cpu_model);
+        let visible_name = extended_name
+            .chars()
+            .skip(start_pos)
+            .take(15)
+            .collect::<String>();
+        visible_name
+    } else {
+        format!("{:<15}", info.cpu_model)
+    };
+
+    // Format hostname with scrolling if needed (same as GPU: 9 chars)
+    let hostname_display = format_hostname_with_scroll(&info.hostname, hostname_scroll_offset);
+
     // Print CPU info line
     print_colored_text(stdout, "CPU ", Color::Cyan, None, None);
-    print_colored_text(
-        stdout,
-        &format!("{:<15}", truncate_to_width(&info.cpu_model, 15)),
-        Color::White,
-        None,
-        None,
-    );
+    print_colored_text(stdout, &cpu_name, Color::White, None, None);
     print_colored_text(stdout, " @ ", Color::DarkGreen, None, None);
-    print_colored_text(stdout, &info.hostname, Color::White, None, None);
+    print_colored_text(stdout, &hostname_display, Color::White, None, None);
     print_colored_text(stdout, " Arch:", Color::Yellow, None, None);
     print_colored_text(stdout, &info.architecture, Color::White, None, None);
     print_colored_text(stdout, " Sockets:", Color::Yellow, None, None);
@@ -564,15 +582,25 @@ pub fn print_cpu_info<W: Write>(
     }
 }
 
-pub fn print_memory_info<W: Write>(stdout: &mut W, _index: usize, info: &MemoryInfo, width: usize) {
+pub fn print_memory_info<W: Write>(
+    stdout: &mut W,
+    _index: usize,
+    info: &MemoryInfo,
+    width: usize,
+    hostname_scroll_offset: usize,
+) {
     // Convert bytes to GB for display
     let total_gb = info.total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
     let used_gb = info.used_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
     let available_gb = info.available_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
 
+    // Format hostname with scrolling if needed (same as GPU/CPU: 9 chars)
+    let hostname_display = format_hostname_with_scroll(&info.hostname, hostname_scroll_offset);
+
     // Print Memory info line
-    print_colored_text(stdout, "Memory @ ", Color::Cyan, None, None);
-    print_colored_text(stdout, &info.hostname, Color::White, None, None);
+    print_colored_text(stdout, "Host Memory         ", Color::Cyan, None, None);
+    print_colored_text(stdout, " @ ", Color::DarkGreen, None, None);
+    print_colored_text(stdout, &hostname_display, Color::White, None, None);
     print_colored_text(stdout, " Total:", Color::Green, None, None);
     print_colored_text(
         stdout,
@@ -667,6 +695,7 @@ pub fn print_storage_info<W: Write>(
     _index: usize,
     info: &StorageInfo,
     width: usize,
+    hostname_scroll_offset: usize,
 ) {
     // Convert bytes to appropriate units
     let total_gb = info.total_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
@@ -699,7 +728,8 @@ pub fn print_storage_info<W: Write>(
         None,
     );
     print_colored_text(stdout, " @ ", Color::DarkGreen, None, None);
-    print_colored_text(stdout, &info.hostname, Color::White, None, None);
+    let hostname_display = format_hostname_with_scroll(&info.hostname, hostname_scroll_offset);
+    print_colored_text(stdout, &hostname_display, Color::White, None, None);
     print_colored_text(stdout, " Total:", Color::Green, None, None);
     print_colored_text(
         stdout,

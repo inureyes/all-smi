@@ -180,8 +180,10 @@ impl UiLoop {
     fn update_scroll_offsets(&self, state: &mut AppState) {
         let mut new_device_name_scroll_offsets = state.device_name_scroll_offsets.clone();
         let mut new_hostname_scroll_offsets = state.host_id_scroll_offsets.clone();
+        let mut new_cpu_name_scroll_offsets = state.cpu_name_scroll_offsets.clone();
         let mut processed_hostnames = HashSet::new();
 
+        // Update GPU scroll offsets
         for gpu in &state.gpu_info {
             if gpu.name.len() > 15 {
                 let offset = new_device_name_scroll_offsets
@@ -196,8 +198,25 @@ impl UiLoop {
                 *offset = (*offset + 1) % (gpu.hostname.len() + 3);
             }
         }
+
+        // Update CPU scroll offsets
+        for cpu in &state.cpu_info {
+            if cpu.cpu_model.len() > 15 {
+                let key = format!("{}-{}", cpu.hostname, cpu.cpu_model);
+                let offset = new_cpu_name_scroll_offsets.entry(key).or_insert(0);
+                *offset = (*offset + 1) % (cpu.cpu_model.len() + 3);
+            }
+            if cpu.hostname.len() > 9 && processed_hostnames.insert(cpu.host_id.clone()) {
+                let offset = new_hostname_scroll_offsets
+                    .entry(cpu.host_id.clone())
+                    .or_insert(0);
+                *offset = (*offset + 1) % (cpu.hostname.len() + 3);
+            }
+        }
+
         state.device_name_scroll_offsets = new_device_name_scroll_offsets;
         state.host_id_scroll_offsets = new_hostname_scroll_offsets;
+        state.cpu_name_scroll_offsets = new_cpu_name_scroll_offsets;
     }
 
     fn render_help_popup_content(
@@ -384,7 +403,26 @@ impl UiLoop {
                 .collect();
 
             for (i, cpu_info) in cpu_info_to_display.iter().enumerate() {
-                print_cpu_info(buffer, i, cpu_info, width, state.show_per_core_cpu);
+                // Get scroll offsets for CPU name and hostname
+                let cpu_name_scroll_offset = state
+                    .cpu_name_scroll_offsets
+                    .get(&format!("{}-{}", cpu_info.hostname, cpu_info.cpu_model))
+                    .copied()
+                    .unwrap_or(0);
+                let hostname_scroll_offset = state
+                    .host_id_scroll_offsets
+                    .get(&cpu_info.host_id)
+                    .copied()
+                    .unwrap_or(0);
+                print_cpu_info(
+                    buffer,
+                    i,
+                    cpu_info,
+                    width,
+                    state.show_per_core_cpu,
+                    cpu_name_scroll_offset,
+                    hostname_scroll_offset,
+                );
             }
 
             // Memory information for specific host
@@ -395,7 +433,12 @@ impl UiLoop {
                 .collect();
 
             for (i, memory_info) in memory_info_to_display.iter().enumerate() {
-                print_memory_info(buffer, i, memory_info, width);
+                let hostname_scroll_offset = state
+                    .host_id_scroll_offsets
+                    .get(&memory_info.host_id)
+                    .copied()
+                    .unwrap_or(0);
+                print_memory_info(buffer, i, memory_info, width, hostname_scroll_offset);
             }
 
             // Storage information for specific host
@@ -411,7 +454,12 @@ impl UiLoop {
                 .take(10);
 
             for (i, storage_info) in visible_storage.enumerate() {
-                print_storage_info(buffer, i, storage_info, width);
+                let hostname_scroll_offset = state
+                    .host_id_scroll_offsets
+                    .get(&storage_info.host_id)
+                    .copied()
+                    .unwrap_or(0);
+                print_storage_info(buffer, i, storage_info, width, hostname_scroll_offset);
             }
         }
     }
@@ -528,17 +576,46 @@ impl UiLoop {
     fn render_local_devices(&self, buffer: &mut BufferWriter, state: &AppState, width: usize) {
         // CPU information for local mode
         for (i, cpu_info) in state.cpu_info.iter().enumerate() {
-            print_cpu_info(buffer, i, cpu_info, width, state.show_per_core_cpu);
+            // Get scroll offsets for CPU name and hostname
+            let cpu_name_scroll_offset = state
+                .cpu_name_scroll_offsets
+                .get(&format!("{}-{}", cpu_info.hostname, cpu_info.cpu_model))
+                .copied()
+                .unwrap_or(0);
+            let hostname_scroll_offset = state
+                .host_id_scroll_offsets
+                .get(&cpu_info.host_id)
+                .copied()
+                .unwrap_or(0);
+            print_cpu_info(
+                buffer,
+                i,
+                cpu_info,
+                width,
+                state.show_per_core_cpu,
+                cpu_name_scroll_offset,
+                hostname_scroll_offset,
+            );
         }
 
         // Memory information for local mode
         for (i, memory_info) in state.memory_info.iter().enumerate() {
-            print_memory_info(buffer, i, memory_info, width);
+            let hostname_scroll_offset = state
+                .host_id_scroll_offsets
+                .get(&memory_info.host_id)
+                .copied()
+                .unwrap_or(0);
+            print_memory_info(buffer, i, memory_info, width, hostname_scroll_offset);
         }
 
         // Storage information for local mode
         for (i, storage_info) in state.storage_info.iter().enumerate() {
-            print_storage_info(buffer, i, storage_info, width);
+            let hostname_scroll_offset = state
+                .host_id_scroll_offsets
+                .get(&storage_info.host_id)
+                .copied()
+                .unwrap_or(0);
+            print_storage_info(buffer, i, storage_info, width, hostname_scroll_offset);
         }
 
         // Process information for local mode (if available)
