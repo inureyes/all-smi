@@ -24,6 +24,7 @@ pub enum CollectionMethod {
 struct FuriosaSmiInfoJson {
     index: String,
     arch: String,
+    #[allow(dead_code)]
     dev_name: String,
     device_uuid: String,
     device_sn: String,
@@ -398,7 +399,7 @@ impl FuriosaReader {
             device_type: "NPU".to_string(),
             host_id: hostname.to_string(),
             hostname: hostname.to_string(),
-            instance: name,
+            instance: hostname.to_string(),
             utilization,
             ane_utilization: 0.0,
             dla_utilization: None,
@@ -505,7 +506,7 @@ impl FuriosaReader {
                             device_type: "NPU".to_string(),
                             host_id: hostname.clone(),
                             hostname: hostname.clone(),
-                            instance: device.dev_name,
+                            instance: hostname.clone(),
                             utilization,
                             ane_utilization: 0.0,
                             dla_utilization: None,
