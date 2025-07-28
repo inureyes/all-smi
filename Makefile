@@ -8,6 +8,7 @@ help:
 	@echo "Setup & Building:"
 	@echo "  local                Run for local view mode"
 	@echo "  remote               Run for remote view mode"
+	@echo "  api                  Run for API mode"
 	@echo "  mock                 Run mock server for testing"
 	@echo ""
 	@echo "Quality & Testing:"
@@ -24,6 +25,10 @@ help:
 
 local:
 	cargo run --bin all-smi -- view 
+
+api:
+	cargo run --bin all-smi -- api
+
 
 remote:
 	cargo run --bin all-smi -- view --hostfile ./hosts.csv
