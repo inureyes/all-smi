@@ -61,7 +61,7 @@ pub fn print_gpu_info<W: Write>(
     // Print info line: <device_type> <name> @ <hostname> Util:4.0% Mem:25.2/128GB Temp:0°C Pwr:0.0W
     print_colored_text(
         stdout,
-        &format!("{} ", info.device_type),
+        &format!("{:<5}", info.device_type),
         Color::Cyan,
         None,
         None,
@@ -254,7 +254,7 @@ pub fn print_cpu_info<W: Write>(
     let hostname_display = format_hostname_with_scroll(&info.hostname, hostname_scroll_offset);
 
     // Print CPU info line
-    print_colored_text(stdout, "CPU ", Color::Cyan, None, None);
+    print_colored_text(stdout, "CPU  ", Color::Cyan, None, None);
     print_colored_text(stdout, &cpu_name, Color::White, None, None);
     print_colored_text(stdout, " @ ", Color::DarkGreen, None, None);
     print_colored_text(stdout, &hostname_display, Color::White, None, None);
