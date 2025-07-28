@@ -38,10 +38,17 @@ pub fn build_response_template(
         template.push_str(&format!("# TYPE {metric_name} gauge\n"));
 
         for (i, gpu) in gpus.iter().enumerate() {
-            let labels = format!(
-                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-                gpu_name, instance_name, gpu.uuid, i
-            );
+            let labels = if let PlatformType::Furiosa = platform {
+                format!(
+                    "gpu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\"",
+                    gpu_name, i, gpu.uuid, i
+                )
+            } else {
+                format!(
+                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                    gpu_name, instance_name, gpu.uuid, i
+                )
+            };
 
             let placeholder = match metric_name {
                 "all_smi_gpu_utilization" => format!("{{{{UTIL_{i}}}}}"),
@@ -57,16 +64,23 @@ pub fn build_response_template(
         }
     }
 
-    // ANE utilization metrics (Apple Silicon only)
-    if let PlatformType::Apple = platform {
+    // ANE utilization metrics (Apple Silicon and Furiosa - though Furiosa always returns 0)
+    if matches!(platform, PlatformType::Apple | PlatformType::Furiosa) {
         template.push_str("# HELP all_smi_ane_utilization ANE utilization in mW\n");
         template.push_str("# TYPE all_smi_ane_utilization gauge\n");
 
         for (i, gpu) in gpus.iter().enumerate() {
-            let labels = format!(
-                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-                gpu_name, instance_name, gpu.uuid, i
-            );
+            let labels = if let PlatformType::Furiosa = platform {
+                format!(
+                    "gpu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\"",
+                    gpu_name, i, gpu.uuid, i
+                )
+            } else {
+                format!(
+                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                    gpu_name, instance_name, gpu.uuid, i
+                )
+            };
             let placeholder = format!("{{{{ANE_{i}}}}}");
             template.push_str(&format!(
                 "all_smi_ane_utilization{{{labels}}} {placeholder}\n"
@@ -78,10 +92,17 @@ pub fn build_response_template(
         template.push_str("# TYPE all_smi_ane_power_watts gauge\n");
 
         for (i, gpu) in gpus.iter().enumerate() {
-            let labels = format!(
-                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-                gpu_name, instance_name, gpu.uuid, i
-            );
+            let labels = if let PlatformType::Furiosa = platform {
+                format!(
+                    "gpu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\"",
+                    gpu_name, i, gpu.uuid, i
+                )
+            } else {
+                format!(
+                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
+                    gpu_name, instance_name, gpu.uuid, i
+                )
+            };
             let placeholder = format!("{{{{ANE_WATTS_{i}}}}}");
             template.push_str(&format!(
                 "all_smi_ane_power_watts{{{labels}}} {placeholder}\n"
@@ -94,10 +115,17 @@ pub fn build_response_template(
 
         for (i, gpu) in gpus.iter().enumerate() {
             if let Some(ref level) = gpu.thermal_pressure_level {
-                let labels = format!(
-                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", level=\"{}\"",
-                    gpu_name, instance_name, gpu.uuid, i, level
-                );
+                let labels = if let PlatformType::Furiosa = platform {
+                    format!(
+                        "gpu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\", level=\"{}\"",
+                        gpu_name, i, gpu.uuid, i, level
+                    )
+                } else {
+                    format!(
+                        "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", level=\"{}\"",
+                        gpu_name, instance_name, gpu.uuid, i, level
+                    )
+                };
                 template.push_str(&format!("all_smi_thermal_pressure_info{{{labels}}} 1\n"));
             }
         }
@@ -223,16 +251,23 @@ pub fn build_response_template(
                     // Furiosa NPU specific labels
                     labels[4] = "type=\"NPU\"".to_string(); // Override type to NPU
 
-                    // Always use RNGD architecture for Furiosa
-                    labels.push("driver_version=\"2025.3.0\"".to_string());
-                    labels.push("architecture=\"RNGD\"".to_string());
+                    // Generate realistic serial number and PCI info
+                    let serial_number = format!("RNGD00005{}", i + 1);
+                    let pci_device = format!("510:{}", i * 19); // Matches real pattern: 510:0, 510:19, 510:38, 510:57
+                    let pci_bus = format!("{:02x}", 0x3a + (i * 0x02)); // Generates 3a, 3c, ad, be pattern
+                    let pci_address = format!("0000:{pci_bus}:00.0");
+
+                    labels.push(format!("serial_number=\"{serial_number}\""));
                     labels.push("firmware=\"2025.2.0+d3c908a\"".to_string());
+                    labels.push("architecture=\"rngd\"".to_string()); // lowercase like real device
                     labels.push("pert=\"2025.2.0+a78ebff\"".to_string());
+                    labels.push(format!("pci_device=\"{pci_device}\""));
+                    labels.push(format!("pci_address=\"{pci_address}\""));
+                    labels.push("memory_type=\"HBM3\"".to_string());
                     labels.push("governor=\"OnDemand\"".to_string());
-                    labels.push("pcie_gen_current=\"3\"".to_string());
-                    labels.push("pcie_gen_max=\"3\"".to_string());
-                    labels.push("pcie_width_current=\"16\"".to_string());
-                    labels.push("pcie_width_max=\"16\"".to_string());
+                    labels.push("memory_capacity=\"48GB\"".to_string());
+                    labels.push("memory_bandwidth=\"1.5TB/s\"".to_string());
+                    labels.push("on_chip_sram=\"256MB\"".to_string());
                 }
                 _ => {}
             }
@@ -401,15 +436,15 @@ fn add_furiosa_metrics(
     gpu_name: &str,
     gpus: &[GpuMetrics],
 ) {
-    // NPU firmware info
-    template.push_str("# HELP all_smi_furiosa_firmware_info Furiosa NPU firmware version\n");
-    template.push_str("# TYPE all_smi_furiosa_firmware_info info\n");
+    // NPU firmware info - using the same metric name as real device
+    template.push_str("# HELP all_smi_npu_firmware_info NPU firmware version\n");
+    template.push_str("# TYPE all_smi_npu_firmware_info info\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", firmware=\"2025.2.0+d3c908a\", pert=\"2025.2.0+a78ebff\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\", firmware=\"2025.2.0+d3c908a\"",
+            gpu_name, i, gpu.uuid, i
         );
-        template.push_str(&format!("all_smi_furiosa_firmware_info{{{labels}}} 1\n"));
+        template.push_str(&format!("all_smi_npu_firmware_info{{{labels}}} 1\n"));
     }
 
     // Core status info (8 cores per NPU)
@@ -764,8 +799,8 @@ pub fn render_response(
             )
             .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
 
-        // Replace ANE metrics for Apple Silicon
-        if let PlatformType::Apple = platform {
+        // Replace ANE metrics for Apple Silicon and Furiosa
+        if matches!(platform, PlatformType::Apple | PlatformType::Furiosa) {
             // ANE utilization in mW
             response = response.replace(
                 &format!("{{{{ANE_{i}}}}}"),

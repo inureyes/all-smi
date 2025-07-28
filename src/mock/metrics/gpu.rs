@@ -20,16 +20,61 @@ impl GpuMetrics {
     pub fn update(&mut self, platform: &super::PlatformType) {
         let mut rng = rng();
 
-        // GPU utilization: gradual changes
-        let utilization_delta = rng.random_range(-5.0..5.0);
-        self.utilization = (self.utilization + utilization_delta).clamp(0.0, 100.0);
+        // GPU utilization: platform-specific behavior
+        match platform {
+            super::PlatformType::Furiosa => {
+                // Furiosa: can switch between idle and active states
+                if self.utilization == 0.0 {
+                    // Chance to start a workload
+                    if rng.random_bool(0.1) {
+                        // 10% chance to start
+                        self.utilization = rng.random_range(10.0..90.0);
+                    }
+                } else {
+                    // Running workload
+                    if rng.random_bool(0.05) {
+                        // 5% chance to stop
+                        self.utilization = 0.0;
+                    } else {
+                        // Normal variation
+                        let utilization_delta = rng.random_range(-5.0..5.0);
+                        self.utilization = (self.utilization + utilization_delta).clamp(1.0, 100.0);
+                    }
+                }
+            }
+            _ => {
+                // Other platforms: gradual changes
+                let utilization_delta = rng.random_range(-5.0..5.0);
+                self.utilization = (self.utilization + utilization_delta).clamp(0.0, 100.0);
+            }
+        }
 
-        // GPU memory: change by less than 3GB
-        let memory_delta = rng.random_range(-(3 * 1024 * 1024 * 1024)..(3 * 1024 * 1024 * 1024));
-        self.memory_used_bytes = self
-            .memory_used_bytes
-            .saturating_add_signed(memory_delta)
-            .min(self.memory_total_bytes);
+        // GPU memory: platform-specific behavior
+        match platform {
+            super::PlatformType::Furiosa => {
+                // Furiosa: memory usage tied to utilization
+                if self.utilization == 0.0 {
+                    self.memory_used_bytes = 0;
+                } else {
+                    // When running, memory usage varies
+                    let memory_delta =
+                        rng.random_range(-(1024 * 1024 * 1024)..(1024 * 1024 * 1024));
+                    self.memory_used_bytes = self
+                        .memory_used_bytes
+                        .saturating_add_signed(memory_delta)
+                        .clamp(1024 * 1024 * 1024, self.memory_total_bytes); // At least 1GB when active
+                }
+            }
+            _ => {
+                // Other platforms: change by less than 3GB
+                let memory_delta =
+                    rng.random_range(-(3 * 1024 * 1024 * 1024)..(3 * 1024 * 1024 * 1024));
+                self.memory_used_bytes = self
+                    .memory_used_bytes
+                    .saturating_add_signed(memory_delta)
+                    .min(self.memory_total_bytes);
+            }
+        }
 
         // Calculate realistic power consumption based on utilization and memory usage
         let memory_usage_percent =
@@ -56,28 +101,41 @@ impl GpuMetrics {
             _ => 700.0,
         };
 
-        self.power_consumption_watts = (base_power
-            + util_power_contribution
-            + memory_power_contribution
-            + gpu_bias
-            + random_variation)
-            .clamp(80.0, max_power);
+        self.power_consumption_watts = match platform {
+            super::PlatformType::Furiosa => {
+                // Furiosa at idle is around 40-41W
+                40.0 + rng.random_range(-1.0..2.0) + (self.utilization * 0.01 * 140.0)
+            }
+            _ => (base_power
+                + util_power_contribution
+                + memory_power_contribution
+                + gpu_bias
+                + random_variation)
+                .clamp(80.0, max_power),
+        };
 
-        // GPU temperature: correlate with power consumption and utilization
-        let base_temp = 45.0;
-        let util_temp_contribution = self.utilization * 0.25; // 0.25°C per % utilization
-        let power_temp_contribution = (self.power_consumption_watts - 200.0) * 0.05; // Temperature increases with power
-        let temp_variation = rng.random_range(-3.0..3.0);
-
-        self.temperature_celsius =
-            (base_temp + util_temp_contribution + power_temp_contribution + temp_variation)
-                .clamp(35.0, 85.0) as u32;
+        // GPU temperature: platform-specific behavior
+        self.temperature_celsius = match platform {
+            super::PlatformType::Furiosa => {
+                // Furiosa runs cooler, 35-39°C at idle
+                (35.0 + rng.random_range(0.0..4.0) + (self.utilization * 0.01 * 20.0))
+                    .clamp(35.0, 70.0) as u32
+            }
+            _ => {
+                let base_temp = 45.0;
+                let util_temp_contribution = self.utilization * 0.25;
+                let power_temp_contribution = (self.power_consumption_watts - 200.0) * 0.05;
+                let temp_variation = rng.random_range(-3.0..3.0);
+                (base_temp + util_temp_contribution + power_temp_contribution + temp_variation)
+                    .clamp(35.0, 85.0) as u32
+            }
+        };
 
         // GPU frequency: platform-specific behavior
         self.frequency_mhz = match platform {
             super::PlatformType::Furiosa => {
-                // Furiosa RNGD runs at fixed 1.0GHz
-                1000
+                // Furiosa RNGD runs at fixed 500MHz
+                500
             }
             _ => {
                 // Other platforms: correlate with utilization (higher util = higher freq)
@@ -101,7 +159,7 @@ pub fn generate_uuid() -> String {
     let mut rng = rng();
     let bytes: [u8; 16] = rng.random();
     format!(
-        "GPU-{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        "{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
         bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
     )

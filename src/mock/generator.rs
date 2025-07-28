@@ -30,7 +30,7 @@ pub fn extract_gpu_memory_gb(gpu_name: &str) -> u64 {
 /// Generate initial GPU metrics for all GPUs
 pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics> {
     let gpu_memory_gb = match platform {
-        PlatformType::Furiosa => 48, // Furiosa RNGD has 48GB HBM3
+        PlatformType::Furiosa => 48, // Furiosa RNGD has 48GB HBM3 (51539607552 bytes)
         _ => extract_gpu_memory_gb(gpu_name),
     };
     let memory_total_bytes = gpu_memory_gb * 1024 * 1024 * 1024;
@@ -38,9 +38,29 @@ pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics>
 
     (0..NUM_GPUS)
         .map(|_| {
-            let utilization = rng.random_range(10.0..90.0);
-            let memory_used_bytes =
-                rng.random_range(memory_total_bytes / 10..memory_total_bytes * 9 / 10);
+            let utilization = match platform {
+                PlatformType::Furiosa => {
+                    // Furiosa can be idle (0%) or running workloads
+                    if rng.random_bool(0.7) {
+                        // 70% chance of being idle
+                        0.0
+                    } else {
+                        rng.random_range(10.0..90.0)
+                    }
+                }
+                _ => rng.random_range(10.0..90.0),
+            };
+            let memory_used_bytes = match platform {
+                PlatformType::Furiosa => {
+                    // Furiosa memory usage correlates with utilization
+                    if utilization == 0.0 {
+                        0 // No memory used when idle
+                    } else {
+                        rng.random_range(memory_total_bytes / 10..memory_total_bytes * 9 / 10)
+                    }
+                }
+                _ => rng.random_range(memory_total_bytes / 10..memory_total_bytes * 9 / 10),
+            };
             let memory_usage_percent =
                 (memory_used_bytes as f32 / memory_total_bytes as f32) * 100.0;
 
@@ -53,22 +73,36 @@ pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics>
                 PlatformType::Furiosa => 180.0, // Furiosa RNGD TDP is 180W
                 _ => 700.0,
             };
-            let power_consumption_watts =
-                (base_power + util_power_contribution + memory_power_contribution + gpu_bias)
-                    .clamp(80.0, max_power);
+            let power_consumption_watts = match platform {
+                PlatformType::Furiosa => {
+                    // Furiosa at idle is around 40-41W
+                    40.0 + rng.random_range(-1.0..2.0) + (utilization * 0.01 * 140.0)
+                }
+                _ => (base_power + util_power_contribution + memory_power_contribution + gpu_bias)
+                    .clamp(80.0, max_power),
+            };
 
             // Calculate realistic initial temperature
-            let base_temp = 45.0;
-            let util_temp_contribution = utilization * 0.25;
-            let power_temp_contribution = (power_consumption_watts - 200.0) * 0.05;
-            let temperature_celsius = (base_temp + util_temp_contribution + power_temp_contribution)
-                .clamp(35.0, 85.0) as u32;
+            let temperature_celsius = match platform {
+                PlatformType::Furiosa => {
+                    // Furiosa runs cooler, 35-39°C at idle
+                    (35.0 + rng.random_range(0.0..4.0) + (utilization * 0.01 * 20.0))
+                        .clamp(35.0, 70.0) as u32
+                }
+                _ => {
+                    let base_temp = 45.0;
+                    let util_temp_contribution = utilization * 0.25;
+                    let power_temp_contribution = (power_consumption_watts - 200.0) * 0.05;
+                    (base_temp + util_temp_contribution + power_temp_contribution).clamp(35.0, 85.0)
+                        as u32
+                }
+            };
 
             // Calculate realistic initial frequency
             let frequency_mhz = match platform {
                 PlatformType::Furiosa => {
-                    // Furiosa RNGD runs at fixed 1.0GHz
-                    1000
+                    // Furiosa RNGD runs at fixed 500MHz
+                    500
                 }
                 _ => {
                     let base_freq = 1200.0;
@@ -467,15 +501,16 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
         }
         PlatformType::Furiosa => {
             // Furiosa NPU server (typically Intel/AMD CPU)
+            // Use realistic model names with (R) marks
             let models = [
-                "Intel Xeon Gold 6348",
+                "Intel(R) Xeon(R) Platinum 8452Y",
+                "Intel(R) Xeon(R) Gold 6448Y",
                 "AMD EPYC 7543",
-                "Intel Xeon Platinum 8358",
             ];
             let model = models[rng.random_range(0..models.len())].to_string();
 
             let socket_count = 2; // Dual socket configurations common for AI workloads
-            let cores_per_socket = rng.random_range(28..40);
+            let cores_per_socket = rng.random_range(36..72); // Intel 8452Y has 36 cores per socket
             let total_cores = socket_count * cores_per_socket;
             let total_threads = total_cores * 2;
 
