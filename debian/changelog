@@ -1,0 +1,9 @@
+all-smi (0.6.3-1) jammy; urgency=medium
+
+  * Initial release for Ubuntu 22.04 (Jammy)
+  * Multi-platform GPU monitoring support (NVIDIA, Apple Silicon, etc.)
+  * Terminal UI with tabs and scrolling
+  * Remote monitoring capabilities
+  * Prometheus metrics export
+
+ -- Jeongkyu Shin <inureyes@gmail.com>  Wed, 29 Jan 2025 00:00:00 +0000

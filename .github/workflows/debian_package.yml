@@ -1,0 +1,256 @@
+# .github/workflows/debian_package.yml
+name: Build and Upload Debian Package
+
+# ═══════════════════════════════════════════════════════════════
+# Workflow Triggers
+# ═══════════════════════════════════════════════════════════════
+# This workflow runs when:
+# 1. The release workflow completes successfully
+# 2. Manually triggered via workflow_dispatch
+# ───────────────────────────────────────────────────────────────
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+    branches: [main]
+  
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to build packages for (e.g. v0.6.3)'
+        required: true
+      upload_to_ppa:
+        description: 'Upload to Ubuntu PPA after build'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════
+  # Job: Build Debian Packages
+  # ═══════════════════════════════════════════════════════════════
+  # Creates .deb packages using pre-built binaries from releases
+  # ───────────────────────────────────────────────────────────────
+  build-deb:
+    name: Build Debian Package (${{ matrix.distro }}, ${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    
+    # Only run if the release workflow succeeded or manual trigger
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    # Access secrets from "packaging" environment
+    environment: packaging
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04 LTS (Jammy) - AMD64
+          - distro: jammy
+            version: "22.04"
+            arch: amd64
+            binary_asset: all-smi-linux-x86_64.tar.gz
+          
+          # Ubuntu 22.04 LTS (Jammy) - ARM64
+          - distro: jammy
+            version: "22.04"
+            arch: arm64
+            binary_asset: all-smi-linux-aarch64.tar.gz
+          
+          # Ubuntu 24.04 LTS (Noble) - AMD64
+          - distro: noble
+            version: "24.04"
+            arch: amd64
+            binary_asset: all-smi-linux-x86_64.tar.gz
+          
+          # Ubuntu 24.04 LTS (Noble) - ARM64
+          - distro: noble
+            version: "24.04"
+            arch: arm64
+            binary_asset: all-smi-linux-aarch64.tar.gz
+          
+          # Ubuntu 24.10 (Oracular) - AMD64
+          - distro: oracular
+            version: "24.10"
+            arch: amd64
+            binary_asset: all-smi-linux-x86_64.tar.gz
+          
+          # Ubuntu 24.10 (Oracular) - ARM64
+          - distro: oracular
+            version: "24.10"
+            arch: arm64
+            binary_asset: all-smi-linux-aarch64.tar.gz
+    
+    steps:
+    # ───────────────────────────────────────────────────────────────
+    # Step 1: Checkout source code
+    # ───────────────────────────────────────────────────────────────
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for changelog generation
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 2: Determine release tag
+    # ───────────────────────────────────────────────────────────────
+    - name: Get release tag
+      id: get_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "tag=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+        else
+          # Get the latest release tag
+          TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+        fi
+      env:
+        GH_TOKEN: ${{ github.token }}
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 3: Download pre-built binary from release
+    # ───────────────────────────────────────────────────────────────
+    - name: Download release binary
+      run: |
+        gh release download "${{ steps.get_tag.outputs.tag }}" \
+          --pattern "${{ matrix.binary_asset }}" \
+          --output "${{ matrix.binary_asset }}"
+        
+        # Extract the binary
+        tar -xzf "${{ matrix.binary_asset }}"
+        
+        # Verify the binary exists
+        if [ ! -f "all-smi" ]; then
+          echo "Error: Binary not found after extraction"
+          exit 1
+        fi
+        
+        # Make it executable
+        chmod +x all-smi
+      env:
+        GH_TOKEN: ${{ github.token }}
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 4: Setup build environment
+    # ───────────────────────────────────────────────────────────────
+    - name: Install build dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          devscripts \
+          debhelper \
+          dh-make \
+          fakeroot \
+          lintian \
+          dput \
+          gpg \
+          dpkg-dev
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 5: Prepare for building
+    # ───────────────────────────────────────────────────────────────
+    - name: Prepare package version
+      run: |
+        # Get version from release tag (remove 'v' prefix)
+        VERSION="${{ steps.get_tag.outputs.tag }}"
+        VERSION="${VERSION#v}"
+        echo "PACKAGE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+        
+        # Update debian changelog for the target distro
+        DEBEMAIL="inureyes@gmail.com" \
+        DEBFULLNAME="Jeongkyu Shin" \
+        dch --distribution ${{ matrix.distro }} \
+            --newversion "${VERSION}-1~${{ matrix.distro }}1" \
+            --force-distribution \
+            "Release ${VERSION} for ${{ matrix.distro }}"
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 6: Prepare architecture-specific build
+    # ───────────────────────────────────────────────────────────────
+    - name: Prepare for architecture-specific build
+      run: |
+        # Update debian/control for the target architecture
+        sed -i "s/Architecture: .*/Architecture: ${{ matrix.arch }}/" debian/control
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 7: Import GPG signing key
+    # ───────────────────────────────────────────────────────────────
+    - name: Import GPG key
+      if: github.event.workflow_run.conclusion == 'success' || github.event.inputs.upload_to_ppa == 'true'
+      run: |
+        echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+        # Trust the key
+        echo -e "5\ny\n" | gpg --command-fd 0 --expert --edit-key "${{ secrets.GPG_KEY_ID }}" trust
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 8: Build binary package
+    # ───────────────────────────────────────────────────────────────
+    - name: Build binary package
+      run: |
+        # Build binary package using the pre-built binary
+        dpkg-buildpackage -b -uc -us
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 9: Run lintian checks
+    # ───────────────────────────────────────────────────────────────
+    - name: Check package with lintian
+      run: |
+        lintian --info --display-level ">=warning" ../*.deb || true
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 10: Build source package (only for amd64 to avoid duplicates)
+    # ───────────────────────────────────────────────────────────────
+    - name: Build source package
+      if: matrix.arch == 'amd64'
+      run: |
+        # Clean the build directory
+        debian/rules clean
+        
+        # Remove the pre-built binary to create a clean source package
+        rm -f all-smi
+        
+        # Restore original Architecture field for source package
+        sed -i "s/Architecture: .*/Architecture: amd64 arm64/" debian/control
+        
+        # Build source package for PPA
+        dpkg-buildpackage -S -sa -k"${{ secrets.GPG_KEY_ID }}"
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 11: Upload to PPA (only source packages from amd64 builds)
+    # ───────────────────────────────────────────────────────────────
+    - name: Upload to Ubuntu PPA
+      if: (github.event.workflow_run.conclusion == 'success' || github.event.inputs.upload_to_ppa == 'true') && matrix.arch == 'amd64'
+      run: |
+        # Configure dput for PPA upload
+        cat > ~/.dput.cf << EOF
+        [all-smi-ppa]
+        fqdn = ppa.launchpad.net
+        method = ftp
+        incoming = ~inureyes/ubuntu/all-smi/
+        login = anonymous
+        allow_unsigned_uploads = 0
+        EOF
+        
+        # Upload source package to PPA
+        # The PPA will build binary packages for all architectures
+        dput all-smi-ppa ../*_source.changes
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 12: Upload artifacts
+    # ───────────────────────────────────────────────────────────────
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: debian-package-${{ matrix.distro }}-${{ matrix.arch }}
+        path: |
+          ../*.deb
+          ../*.dsc
+          ../*.changes
+          ../*.buildinfo
+          ../*.tar.*
+        retention-days: 7

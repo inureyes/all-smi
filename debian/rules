@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+
+# Enable all hardening options
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# No build needed - using pre-built binary
+	@echo "Using pre-built binary from GitHub release"
+
+override_dh_auto_install:
+	# Install the pre-built binary
+	# The binary should be extracted to the project root before building the package
+	install -D -m 0755 all-smi debian/all-smi/usr/bin/all-smi
+	# Install the man page if it exists
+	if [ -f docs/all-smi.1 ]; then \
+		install -D -m 0644 docs/all-smi.1 debian/all-smi/usr/share/man/man1/all-smi.1; \
+	fi
+
+override_dh_auto_test:
+	# Skip tests for pre-built binary
+	@echo "Skipping tests - using pre-built binary"
+
+override_dh_auto_clean:
+	dh_auto_clean
