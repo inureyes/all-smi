@@ -48,7 +48,7 @@ You can also manually trigger the workflow:
 
 ## PPA Configuration
 
-The workflow is configured to upload to: `ppa:inureyes/all-smi`
+The workflow is configured to upload to: `ppa:lablup/backend-ai`
 
 To change this:
 1. Edit `.github/workflows/debian_package.yml`
@@ -63,7 +63,7 @@ Once packages are uploaded and built by Launchpad:
 
 ```bash
 # Add the PPA
-sudo add-apt-repository ppa:inureyes/all-smi
+sudo add-apt-repository ppa:lablup/backend-ai
 sudo apt update
 
 # Install all-smi

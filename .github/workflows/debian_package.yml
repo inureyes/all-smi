@@ -228,17 +228,17 @@ jobs:
       run: |
         # Configure dput for PPA upload
         cat > ~/.dput.cf << EOF
-        [all-smi-ppa]
+        [backend-ai-ppa]
         fqdn = ppa.launchpad.net
         method = ftp
-        incoming = ~inureyes/ubuntu/all-smi/
+        incoming = ~lablup/ubuntu/backend-ai/
         login = anonymous
         allow_unsigned_uploads = 0
         EOF
         
         # Upload source package to PPA
         # The PPA will build binary packages for all architectures
-        dput all-smi-ppa ../*_source.changes
+        dput backend-ai-ppa ../*_source.changes
     
     # ───────────────────────────────────────────────────────────────
     # Step 12: Upload artifacts
