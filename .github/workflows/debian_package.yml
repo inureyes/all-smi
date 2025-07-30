@@ -22,7 +22,7 @@ on:
       upload_to_ppa:
         description: 'Upload to Ubuntu PPA after build'
         required: false
-        default: 'true'
+        default: 'false'
         type: choice
         options:
           - 'true'
