@@ -1,0 +1,27 @@
+Source: all-smi
+Section: utils
+Priority: optional
+Maintainer: Jeongkyu Shin <inureyes@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://github.com/inureyes/all-smi
+Vcs-Browser: https://github.com/inureyes/all-smi
+Vcs-Git: https://github.com/inureyes/all-smi.git
+Rules-Requires-Root: no
+
+Package: all-smi
+Architecture: amd64 arm64
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: nvidia-utils | nvidia-driver
+Suggests: tenstorrent-driver, rebellions-driver, furiosa-driver
+Description: Command-line utility for monitoring GPU hardware
+ all-smi is a real-time monitoring tool for GPU hardware that provides:
+ .
+  * GPU utilization and memory usage monitoring
+  * Temperature, power consumption, and other metrics
+  * Support for multiple GPU vendors (NVIDIA, Apple Silicon, Tenstorrent, etc.)
+  * Remote monitoring capabilities via HTTP API
+  * Terminal-based user interface with scrolling and tabs
+ .
+ It supports local monitoring with TUI mode and remote monitoring via
+ API endpoints for distributed GPU cluster management.
