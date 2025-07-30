@@ -149,7 +149,8 @@ jobs:
           lintian \
           dput \
           gpg \
-          dpkg-dev
+          dpkg-dev \
+          build-essential
     
     # ───────────────────────────────────────────────────────────────
     # Step 5: Prepare for building
