@@ -28,8 +28,9 @@ on:
           - 'true'
           - 'false'
 
+# Required permissions for release uploads
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   # ═══════════════════════════════════════════════════════════════
