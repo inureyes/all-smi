@@ -175,8 +175,11 @@ jobs:
     # ───────────────────────────────────────────────────────────────
     - name: Prepare for architecture-specific build
       run: |
-        # Update debian/control for the target architecture
-        sed -i "s/Architecture: .*/Architecture: ${{ matrix.arch }}/" debian/control
+        # Set target architecture properly in control file
+        sed -i '/^Architecture:/c\Architecture: '${{ matrix.arch }} debian/control
+        echo "::group::Updated debian/control"
+        cat debian/control
+        echo "::endgroup::"
     
     # ───────────────────────────────────────────────────────────────
     # Step 7: Import GPG signing key
@@ -242,16 +245,23 @@ jobs:
         dput backend-ai-ppa ../*_source.changes
     
     # ───────────────────────────────────────────────────────────────
-    # Step 12: Upload artifacts
+    # Step 12: Move build artifacts to local directory for upload
+    # ───────────────────────────────────────────────────────────────
+    - name: Move build artifacts
+      run: |
+        mkdir -p artifacts
+        mv ../*.deb artifacts/ || true
+        mv ../*.dsc artifacts/ || true
+        mv ../*.changes artifacts/ || true
+        mv ../*.buildinfo artifacts/ || true
+        mv ../*.tar.* artifacts/ || true
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 13: Upload artifacts
     # ───────────────────────────────────────────────────────────────
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: debian-package-${{ matrix.distro }}-${{ matrix.arch }}
-        path: |
-          ../*.deb
-          ../*.dsc
-          ../*.changes
-          ../*.buildinfo
-          ../*.tar.*
+        path: artifacts/
         retention-days: 7

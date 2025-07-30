@@ -14,8 +14,8 @@ Architecture: amd64 arm64
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: nvidia-utils | nvidia-driver
 Suggests: tenstorrent-driver, rebellions-driver, furiosa-driver
-Description: Command-line utility for monitoring GPU hardware
- all-smi is a real-time monitoring tool for GPU hardware that provides:
+Description: Command-line utility for monitoring GPU/NPU hardware
+ all-smi is a real-time monitoring tool for GPU/NPU hardware that provides:
  .
   * GPU utilization and memory usage monitoring
   * Temperature, power consumption, and other metrics
