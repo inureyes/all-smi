@@ -1,4 +1,4 @@
-all-smi (0.6.3-1) jammy; urgency=medium
+all-smi (0.6.3-0) jammy; urgency=medium
 
   * Initial release for Ubuntu 22.04 (Jammy)
   * Multi-platform GPU monitoring support (NVIDIA, Apple Silicon, etc.)
