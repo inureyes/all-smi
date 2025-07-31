@@ -377,9 +377,37 @@ EOF
         path: artifacts/
         retention-days: 7
 
+    # ───────────────────────────────────────────────────────────────
+    # Step 14: Delete existing release artifacts (if any)
+    # ───────────────────────────────────────────────────────────────
+    - name: Delete existing release artifacts
+      if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+      run: |
+        # Get list of assets to delete
+        TAG="${{ steps.get_tag.outputs.tag }}"
+        DIST="${{ matrix.distro }}"
+        ARCH="${{ matrix.arch }}"
+        
+        # Delete existing .deb files for this specific distribution/architecture
+        gh release view "$TAG" --json assets -q '.assets[].name' | while read -r asset; do
+          if [[ "$asset" == *"ubuntu"*"$DIST"*"$ARCH"*".deb" ]]; then
+            echo "Deleting existing asset: $asset"
+            gh release delete-asset "$TAG" "$asset" -y || true
+          fi
+        done
+      env:
+        GH_TOKEN: ${{ github.token }}
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 15: Upload new release artifacts
+    # ───────────────────────────────────────────────────────────────
     - name: Upload release artifact
       if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_tag.outputs.tag }}
         files: artifacts/*.deb
+        # Don't fail if some files don't match the pattern
+        fail_on_unmatched_files: false
+        # Don't update the "latest" release pointer
+        make_latest: false
