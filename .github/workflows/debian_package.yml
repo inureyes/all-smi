@@ -232,7 +232,7 @@ jobs:
         fi
         
         # Set target architecture in control file
-        sed -i '/^Architecture:/c\Architecture: ${{ matrix.arch }}' debian/control
+        sed -i '/^Architecture:/c\Architecture: '${{ matrix.arch }} debian/control
     
     # ───────────────────────────────────────────────────────────────
     # Step 9: Build binary package
@@ -304,19 +304,19 @@ jobs:
         chmod 700 $GNUPGHOME
         
         # Configure gpg-agent for batch mode
-        cat > $GNUPGHOME/gpg-agent.conf << EOF
-allow-loopback-pinentry
-default-cache-ttl 300
-max-cache-ttl 3600
-EOF
+        cat > $GNUPGHOME/gpg-agent.conf << 'EOF'
+        allow-loopback-pinentry
+        default-cache-ttl 300
+        max-cache-ttl 3600
+        EOF
         
         # Configure gpg for batch mode
-        cat > $GNUPGHOME/gpg.conf << EOF
-use-agent
-pinentry-mode loopback
-batch
-no-tty
-EOF
+        cat > $GNUPGHOME/gpg.conf << 'EOF'
+        use-agent
+        pinentry-mode loopback
+        batch
+        no-tty
+        EOF
         
         # Restart gpg-agent with new config
         gpgconf --kill gpg-agent
@@ -342,7 +342,7 @@ EOF
       if: (github.event.workflow_run.conclusion == 'success' || github.event.inputs.upload_to_ppa == 'true') && matrix.arch == 'amd64'
       run: |
         # Configure dput for PPA upload
-        cat > ~/.dput.cf << EOF
+        cat > ~/.dput.cf << 'EOF'
         [backend-ai-ppa]
         fqdn = ppa.launchpad.net
         method = ftp
@@ -368,7 +368,7 @@ EOF
         echo "📦 Package will be available at: https://launchpad.net/~lablup/+archive/ubuntu/backend-ai"
     
     # ───────────────────────────────────────────────────────────────
-    # Step 13: Upload artifacts
+    # Step 14: Upload artifacts
     # ───────────────────────────────────────────────────────────────
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -378,7 +378,7 @@ EOF
         retention-days: 7
 
     # ───────────────────────────────────────────────────────────────
-    # Step 14: Delete existing release artifacts (if any)
+    # Step 15: Delete existing release artifacts (if any)
     # ───────────────────────────────────────────────────────────────
     - name: Delete existing release artifacts
       if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
@@ -399,7 +399,7 @@ EOF
         GH_TOKEN: ${{ github.token }}
     
     # ───────────────────────────────────────────────────────────────
-    # Step 15: Upload new release artifacts
+    # Step 16: Upload new release artifacts
     # ───────────────────────────────────────────────────────────────
     - name: Upload release artifact
       if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
