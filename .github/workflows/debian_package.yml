@@ -59,40 +59,40 @@ jobs:
             os: ubuntu-22.04
             binary_asset: all-smi-linux-x86_64.tar.gz
 
-          # Ubuntu 22.04 LTS (Jammy) - ARM64
-          - distro: jammy
-            version: "22.04"
-            arch: arm64
-            os: ubuntu-22.04-arm
-            binary_asset: all-smi-linux-aarch64.tar.gz
-          
-          # Ubuntu 24.04 LTS (Noble) - AMD64
-          - distro: noble
-            version: "24.04"
-            arch: amd64
-            os: ubuntu-24.04
-            binary_asset: all-smi-linux-x86_64.tar.gz
-          
-          # Ubuntu 24.04 LTS (Noble) - ARM64
-          - distro: noble
-            version: "24.04"
-            arch: arm64
-            os: ubuntu-24.04-arm
-            binary_asset: all-smi-linux-aarch64.tar.gz
-          
-          # Ubuntu 24.10 (Oracular) - AMD64
-          - distro: oracular
-            version: "24.10"
-            arch: amd64
-            os: ubuntu-24.04
-            binary_asset: all-smi-linux-x86_64.tar.gz
-          
-          # Ubuntu 24.10 (Oracular) - ARM64  
-          - distro: oracular
-            version: "24.10"
-            arch: arm64
-            os: ubuntu-24.04-arm
-            binary_asset: all-smi-linux-aarch64.tar.gz
+          # # Ubuntu 22.04 LTS (Jammy) - ARM64
+          # - distro: jammy
+          #   version: "22.04"
+          #   arch: arm64
+          #   os: ubuntu-22.04-arm
+          #   binary_asset: all-smi-linux-aarch64.tar.gz
+          # 
+          # # Ubuntu 24.04 LTS (Noble) - AMD64
+          # - distro: noble
+          #   version: "24.04"
+          #   arch: amd64
+          #   os: ubuntu-24.04
+          #   binary_asset: all-smi-linux-x86_64.tar.gz
+          # 
+          # # Ubuntu 24.04 LTS (Noble) - ARM64
+          # - distro: noble
+          #   version: "24.04"
+          #   arch: arm64
+          #   os: ubuntu-24.04-arm
+          #   binary_asset: all-smi-linux-aarch64.tar.gz
+          # 
+          # # Ubuntu 24.10 (Oracular) - AMD64
+          # - distro: oracular
+          #   version: "24.10"
+          #   arch: amd64
+          #   os: ubuntu-24.04
+          #   binary_asset: all-smi-linux-x86_64.tar.gz
+          # 
+          # # Ubuntu 24.10 (Oracular) - ARM64  
+          # - distro: oracular
+          #   version: "24.10"
+          #   arch: arm64
+          #   os: ubuntu-24.04-arm
+          #   binary_asset: all-smi-linux-aarch64.tar.gz
     
     steps:
     # ───────────────────────────────────────────────────────────────
