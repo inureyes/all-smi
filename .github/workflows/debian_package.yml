@@ -92,7 +92,7 @@ jobs:
     # NEW Step: Regenerate debian/changelog for the requested tag
     - name: Update debian/changelog from release
       run: |
-        ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
+        bash ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
       env:
         GH_TOKEN: ${{ github.token }}
 
