@@ -230,21 +230,28 @@ jobs:
         EOF
         chmod +x debian/rules
         
-        # Build source package without signing first
-        # -d flag skips build dependency check (source package doesn't need them)
-        dpkg-buildpackage -S -sa -us -uc -d
-        
-        # Sign the source package separately with debsign
-        echo "Signing source package..."
+        # Configure environment for signing
         export GNUPGHOME=/home/runner/.gnupg
         
-        # Use debsign with passphrase
+        # Build and sign source package in one step
         if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
-          echo "${{ secrets.GPG_PASSPHRASE }}" | \
-          debsign --no-conf -p"gpg --batch --pinentry-mode loopback --passphrase-fd 0" \
-                  -k"$GPG_FINGERPRINT" ../*.changes
+          echo "Building and signing source package with passphrase..."
+          # Create a script to handle GPG signing with passphrase
+          cat > /tmp/gpg-sign.sh << 'SCRIPT'
+#!/bin/bash
+echo "$GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback "$@"
+SCRIPT
+          chmod +x /tmp/gpg-sign.sh
+          
+          # Export passphrase for the script
+          export GPG_PASSPHRASE="${{ secrets.GPG_PASSPHRASE }}"
+          
+          # Build with custom gpg command
+          dpkg-buildpackage -S -sa -k"$GPG_FINGERPRINT" -d \
+            --sign-command="/tmp/gpg-sign.sh"
         else
-          debsign -k"$GPG_FINGERPRINT" --no-re-sign ../*.changes
+          echo "Building and signing source package without passphrase..."
+          dpkg-buildpackage -S -sa -k"$GPG_FINGERPRINT" -d
         fi
         
         echo "Source package built and signed successfully"
