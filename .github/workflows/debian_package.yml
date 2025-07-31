@@ -339,8 +339,8 @@ jobs:
         EOF
         
         # Restart gpg-agent with new config
-        gpgconf --kill gpg-agent
-        gpg-agent --daemon
+        gpgconf --kill gpg-agent || true
+        gpg-agent --daemon || true
         
         # Get the full fingerprint for signing
         FINGERPRINT=$(gpg --list-secret-keys --with-colons | grep '^fpr:' | head -1 | cut -d: -f10)
