@@ -201,9 +201,17 @@ jobs:
     - name: Import GPG key
       if: github.event.workflow_run.conclusion == 'success' || github.event.inputs.upload_to_ppa == 'true'
       run: |
+        # Import the GPG key
         echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
-        # Trust the key
-        echo -e "5\ny\n" | gpg --command-fd 0 --expert --edit-key "${{ secrets.GPG_KEY_ID }}" trust
+        
+        # List the imported key to verify
+        gpg --list-secret-keys --keyid-format LONG
+        
+        # Trust the key using --import-ownertrust (non-interactive)
+        echo "${{ secrets.GPG_KEY_ID }}:6:" | gpg --import-ownertrust
+        
+        # Verify the trust level
+        gpg --list-keys --with-colons "${{ secrets.GPG_KEY_ID }}" | grep -E '^(pub|uid):' || true
     
     # ───────────────────────────────────────────────────────────────
     # Step 8: Build binary package
@@ -261,8 +269,12 @@ jobs:
         rm -rf target/
         debian/rules clean || true
         
-        # Ensure GPG key is trusted
-        echo "${{ secrets.GPG_KEY_ID }}:6:" | gpg --import-ownertrust
+        # Configure GPG for non-interactive signing
+        export GNUPGHOME=/home/runner/.gnupg
+        echo "use-agent" >> $GNUPGHOME/gpg.conf
+        echo "pinentry-mode loopback" >> $GNUPGHOME/gpg.conf
+        echo "allow-loopback-pinentry" >> $GNUPGHOME/gpg-agent.conf
+        gpgconf --kill gpg-agent
         
         # Build source package for PPA
         dpkg-buildpackage -S -sa -k"${{ secrets.GPG_KEY_ID }}"
