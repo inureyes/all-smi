@@ -93,6 +93,8 @@ jobs:
     - name: Update debian/changelog from release
       run: |
         ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
+      env:
+        GH_TOKEN: ${{ github.token }}
 
     # ───────────────────────────────────────────────────────────────
     # Step 2: Determine release tag
