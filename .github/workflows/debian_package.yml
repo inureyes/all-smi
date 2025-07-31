@@ -207,11 +207,15 @@ jobs:
         # List the imported key to verify
         gpg --list-secret-keys --keyid-format LONG
         
-        # Trust the key using --import-ownertrust (non-interactive)
-        echo "${{ secrets.GPG_KEY_ID }}:6:" | gpg --import-ownertrust
+        # Get the full fingerprint for the key
+        FINGERPRINT=$(gpg --list-secret-keys --with-colons | grep '^fpr:' | head -1 | cut -d: -f10)
+        echo "Key fingerprint: $FINGERPRINT"
+        
+        # Trust the key using the full fingerprint
+        echo "${FINGERPRINT}:6:" | gpg --import-ownertrust
         
         # Verify the trust level
-        gpg --list-keys --with-colons "${{ secrets.GPG_KEY_ID }}" | grep -E '^(pub|uid):' || true
+        gpg --list-keys --with-colons | grep -E '^(pub|uid):' || true
     
     # ───────────────────────────────────────────────────────────────
     # Step 8: Build binary package

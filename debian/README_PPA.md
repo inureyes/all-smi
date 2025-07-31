@@ -27,7 +27,9 @@ The workflow requires the following secrets to be configured in the GitHub repos
    # Find your key ID
    gpg --list-secret-keys --keyid-format=long
    
-   # Use the ID after "sec rsa4096/" (e.g., "3AA5C34371567BD2")
+   # Use the ID after the key type (e.g., "3AA5C34371567BD2")
+   # For ed25519 keys: look for the ID after "sec ed25519/"
+   # For rsa4096 keys: look for the ID after "sec rsa4096/"
    ```
 
 ## Workflow Usage
