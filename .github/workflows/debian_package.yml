@@ -191,16 +191,46 @@ jobs:
       run: |
         # Build binary package using the pre-built binary
         dpkg-buildpackage -b -uc -us
-    
+
     # ───────────────────────────────────────────────────────────────
     # Step 9: Run lintian checks
     # ───────────────────────────────────────────────────────────────
     - name: Check package with lintian
       run: |
         lintian --info --display-level ">=warning" ../*.deb || true
-    
+
+
     # ───────────────────────────────────────────────────────────────
-    # Step 10: Build source package (only for amd64 to avoid duplicates)
+    # Step 10: Rename build outputs to custom naming scheme
+    # ───────────────────────────────────────────────────────────────
+    - name: Rename .deb & friends to policy filenames
+      run: |
+        set -e
+        VER="${{ env.PACKAGE_VERSION }}"
+        DIST="${{ matrix.distro }}"
+        SERIES="${{ matrix.version }}"
+        ARCH="${{ matrix.arch }}"
+
+        mkdir -p artifacts
+
+        for f in ../*_${ARCH}.deb; do
+          mv "$f" "artifacts/all-smi_${VER}_ubuntu${SERIES}.${DIST}_${ARCH}.deb"
+        done
+
+        for f in ../*_${ARCH}.buildinfo; do
+          mv "$f" "artifacts/all-smi_${VER}_ubuntu${SERIES}.${DIST}_${ARCH}.buildinfo"
+        done
+
+        if [ "${ARCH}" = "amd64" ]; then
+          for f in ../*.dsc ../*.tar.* ../*_source.changes; do
+            [ -e "$f" ] || continue
+            base=$(basename "$f")
+            mv "$f" "artifacts/${base/all-smi_*/all-smi_${VER}_ubuntu${SERIES}.${DIST}_source}"
+          done
+        fi
+        
+    # ───────────────────────────────────────────────────────────────
+    # Step 11: Build source package (only for amd64 to avoid duplicates)
     # ───────────────────────────────────────────────────────────────
     - name: Build source package
       if: matrix.arch == 'amd64'
@@ -218,7 +248,7 @@ jobs:
         dpkg-buildpackage -S -sa -k"${{ secrets.GPG_KEY_ID }}"
     
     # ───────────────────────────────────────────────────────────────
-    # Step 11: Upload to PPA (only source packages from amd64 builds)
+    # Step 12: Upload to PPA (only source packages from amd64 builds)
     # ───────────────────────────────────────────────────────────────
     - name: Upload to Ubuntu PPA
       if: (github.event.workflow_run.conclusion == 'success' || github.event.inputs.upload_to_ppa == 'true') && matrix.arch == 'amd64'
@@ -238,24 +268,12 @@ jobs:
         dput backend-ai-ppa ../*_source.changes
     
     # ───────────────────────────────────────────────────────────────
-    # Step 12: Move build artifacts to local directory for upload
-    # ───────────────────────────────────────────────────────────────
-    - name: Move build artifacts
-      run: |
-        mkdir -p artifacts
-        mv ../*.deb artifacts/ || true
-        mv ../*.dsc artifacts/ || true
-        mv ../*.changes artifacts/ || true
-        mv ../*.buildinfo artifacts/ || true
-        mv ../*.tar.* artifacts/ || true
-
-    # ───────────────────────────────────────────────────────────────
     # Step 13: Upload artifacts
     # ───────────────────────────────────────────────────────────────
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: all-smi_${{ steps.get_tag.outputs.tag }}_ubuntu${{ matrix.version }}.${{ matrix.distro }}_${{ matrix.arch }}
+        name: all-smi_${{ env.PACKAGE_VERSION }}_ubuntu${{ matrix.version }}.${{ matrix.distro }}_${{ matrix.arch }}
         path: artifacts/
         retention-days: 7
 
@@ -265,4 +283,3 @@ jobs:
       with:
         tag_name: ${{ steps.get_tag.outputs.tag }}
         files: artifacts/*.deb
-        # name: all-smi_${{ steps.get_tag.outputs.tag }}_ubuntu${{ matrix.version }}.${{ matrix.distro }}_${{ matrix.arch }}.deb
