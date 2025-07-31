@@ -1,0 +1,271 @@
+# .github/workflows/debian_build.yml
+name: Build Debian Packages
+
+# ═══════════════════════════════════════════════════════════════
+# Workflow Triggers
+# ═══════════════════════════════════════════════════════════════
+# This workflow runs when:
+# 1. The release workflow completes successfully
+# 2. Manually triggered via workflow_dispatch
+# ───────────────────────────────────────────────────────────────
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+    branches: [main]
+  
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to build packages for (e.g. v0.5.0). Empty = latest release'
+        required: false
+
+# Required permissions for release uploads
+permissions:
+  contents: write
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════
+  # Job: Build Debian Packages
+  # ═══════════════════════════════════════════════════════════════
+  # Creates .deb packages using pre-built binaries from releases
+  # ───────────────────────────────────────────────────────────────
+  build-deb:
+    name: Build Debian Package (${{ matrix.distro }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    
+    # Only run if the release workflow succeeded or manual trigger
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Ubuntu 22.04 LTS (Jammy) - AMD64
+          - distro: jammy
+            version: "22.04"
+            arch: amd64
+            os: ubuntu-22.04
+            binary_asset: all-smi-linux-x86_64.tar.gz
+
+          # Ubuntu 22.04 LTS (Jammy) - ARM64
+          - distro: jammy
+            version: "22.04"
+            arch: arm64
+            os: ubuntu-22.04-arm
+            binary_asset: all-smi-linux-aarch64.tar.gz
+          
+          # Ubuntu 24.04 LTS (Noble) - AMD64
+          - distro: noble
+            version: "24.04"
+            arch: amd64
+            os: ubuntu-24.04
+            binary_asset: all-smi-linux-x86_64.tar.gz
+          
+          # Ubuntu 24.04 LTS (Noble) - ARM64
+          - distro: noble
+            version: "24.04"
+            arch: arm64
+            os: ubuntu-24.04-arm
+            binary_asset: all-smi-linux-aarch64.tar.gz
+          
+          # Ubuntu 24.10 (Oracular) - AMD64
+          - distro: oracular
+            version: "24.10"
+            arch: amd64
+            os: ubuntu-24.04
+            binary_asset: all-smi-linux-x86_64.tar.gz
+          
+          # Ubuntu 24.10 (Oracular) - ARM64  
+          - distro: oracular
+            version: "24.10"
+            arch: arm64
+            os: ubuntu-24.04-arm
+            binary_asset: all-smi-linux-aarch64.tar.gz
+    
+    steps:
+    # ───────────────────────────────────────────────────────────────
+    # Step 1: Checkout source code
+    # ───────────────────────────────────────────────────────────────
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for changelog generation
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 2: Determine release tag
+    # ───────────────────────────────────────────────────────────────
+    - name: Get release tag
+      id: get_tag
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.release_tag }}" ]; then
+          echo "tag=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+        else
+          # Get the latest release tag
+          TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+        fi
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 3: Update changelog
+    # ───────────────────────────────────────────────────────────────
+    - name: Update debian/changelog from release
+      run: |
+        bash ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        
+    # ───────────────────────────────────────────────────────────────
+    # Step 4: Download pre-built binary from release
+    # ───────────────────────────────────────────────────────────────
+    - name: Download release binary
+      run: |
+        gh release download "${{ steps.get_tag.outputs.tag }}" \
+          --pattern "${{ matrix.binary_asset }}" \
+          --output "${{ matrix.binary_asset }}"
+        
+        # Extract the binary
+        tar -xzf "${{ matrix.binary_asset }}"
+        
+        # Verify the binary exists
+        if [ ! -f "all-smi" ]; then
+          echo "Error: Binary not found after extraction"
+          exit 1
+        fi
+        
+        # Make it executable
+        chmod +x all-smi
+      env:
+        GH_TOKEN: ${{ github.token }}
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 5: Setup build environment
+    # ───────────────────────────────────────────────────────────────
+    - name: Install build dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          devscripts \
+          debhelper \
+          dh-make \
+          fakeroot \
+          lintian \
+          dpkg-dev \
+          build-essential
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 6: Prepare for building
+    # ───────────────────────────────────────────────────────────────
+    - name: Prepare package version
+      run: |
+        # Get version from release tag (remove 'v' prefix)
+        VERSION="${{ steps.get_tag.outputs.tag }}"
+        VERSION="${VERSION#v}"
+        echo "PACKAGE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+        
+        # Verify changelog was updated correctly
+        head -n 1 debian/changelog | grep -q "${VERSION}-1~${{ matrix.distro }}1" || {
+          echo "Error: Changelog version mismatch. Expected ${VERSION}-1~${{ matrix.distro }}1"
+          echo "Found: $(head -n 1 debian/changelog)"
+          exit 1
+        }
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 7: Setup for binary package build
+    # ───────────────────────────────────────────────────────────────
+    - name: Setup for binary build
+      run: |
+        # Use binary-specific packaging files
+        if [ -f debian/control.binary ]; then
+          cp debian/control.binary debian/control
+        fi
+        if [ -f debian/rules.binary ]; then
+          cp debian/rules.binary debian/rules
+          chmod +x debian/rules
+        fi
+        
+        # Set target architecture in control file
+        sed -i '/^Architecture:/c\Architecture: '${{ matrix.arch }} debian/control
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 8: Build binary package
+    # ───────────────────────────────────────────────────────────────
+    - name: Build binary package
+      run: |
+        # Build binary package using the pre-built binary
+        dpkg-buildpackage -b -uc -us
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 9: Run lintian checks
+    # ───────────────────────────────────────────────────────────────
+    - name: Check package with lintian
+      run: |
+        lintian --info --display-level ">=warning" ../*.deb || true
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 10: Prepare artifacts
+    # ───────────────────────────────────────────────────────────────
+    - name: Prepare artifacts
+      run: |
+        set -e
+        VER="${{ env.PACKAGE_VERSION }}"
+        DIST="${{ matrix.distro }}"
+        SERIES="${{ matrix.version }}"
+        ARCH="${{ matrix.arch }}"
+
+        mkdir -p artifacts
+
+        for f in ../*_${ARCH}.deb; do
+          mv "$f" "artifacts/all-smi_${VER}_ubuntu${SERIES}.${DIST}_${ARCH}.deb"
+        done
+
+        for f in ../*_${ARCH}.buildinfo; do
+          mv "$f" "artifacts/all-smi_${VER}_ubuntu${SERIES}.${DIST}_${ARCH}.buildinfo"
+        done
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 11: Upload build artifacts
+    # ───────────────────────────────────────────────────────────────
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: all-smi_${{ env.PACKAGE_VERSION }}_ubuntu${{ matrix.version }}.${{ matrix.distro }}_${{ matrix.arch }}
+        path: artifacts/
+        retention-days: 7
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 12: Delete existing release artifacts (if any)
+    # ───────────────────────────────────────────────────────────────
+    - name: Delete existing release artifacts
+      if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+      run: |
+        # Get list of assets to delete
+        TAG="${{ steps.get_tag.outputs.tag }}"
+        DIST="${{ matrix.distro }}"
+        ARCH="${{ matrix.arch }}"
+        
+        # Delete existing .deb files for this specific distribution/architecture
+        gh release view "$TAG" --json assets -q '.assets[].name' | while read -r asset; do
+          if [[ "$asset" == *"ubuntu"*"$DIST"*"$ARCH"*".deb" ]]; then
+            echo "Deleting existing asset: $asset"
+            gh release delete-asset "$TAG" "$asset" -y || true
+          fi
+        done
+      env:
+        GH_TOKEN: ${{ github.token }}
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 13: Upload new release artifacts
+    # ───────────────────────────────────────────────────────────────
+    - name: Upload release artifact
+      if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.get_tag.outputs.tag }}
+        files: artifacts/*.deb
+        # Don't fail if some files don't match the pattern
+        fail_on_unmatched_files: false
+        # Don't update the "latest" release pointer
+        make_latest: false

@@ -1,0 +1,265 @@
+# .github/workflows/launchpad_ppa.yml
+name: Upload to Launchpad PPA
+
+# ═══════════════════════════════════════════════════════════════
+# Workflow Triggers
+# ═══════════════════════════════════════════════════════════════
+# This workflow runs when:
+# 1. Manually triggered via workflow_dispatch
+# 2. Called from another workflow
+# ───────────────────────────────────────────────────────────────
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to upload to PPA (e.g. v0.5.0). Empty = latest release'
+        required: false
+      distributions:
+        description: 'Target distributions (comma-separated: jammy,noble,oracular)'
+        required: false
+        default: 'jammy,noble,oracular'
+
+# Required permissions
+permissions:
+  contents: read
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════
+  # Job: Upload to Launchpad PPA
+  # ═══════════════════════════════════════════════════════════════
+  # Creates source packages and uploads them to Ubuntu PPA
+  # ───────────────────────────────────────────────────────────────
+  upload-ppa:
+    name: Upload to PPA (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    
+    # Access secrets from "packaging" environment
+    environment: packaging
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [jammy, noble, oracular]
+    
+    steps:
+    # ───────────────────────────────────────────────────────────────
+    # Step 1: Checkout source code
+    # ───────────────────────────────────────────────────────────────
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for changelog generation
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 2: Check if distribution is requested
+    # ───────────────────────────────────────────────────────────────
+    - name: Check distribution
+      id: check_distro
+      run: |
+        DISTRIBUTIONS="${{ github.event.inputs.distributions }}"
+        if [[ ",$DISTRIBUTIONS," == *",${{ matrix.distro }},"* ]]; then
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "should_run=false" >> "$GITHUB_OUTPUT"
+          echo "Skipping ${{ matrix.distro }} - not in requested distributions"
+        fi
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 3: Determine release tag
+    # ───────────────────────────────────────────────────────────────
+    - name: Get release tag
+      if: steps.check_distro.outputs.should_run == 'true'
+      id: get_tag
+      run: |
+        if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+          echo "tag=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+        else
+          # Get the latest release tag
+          TAG=$(gh release list --limit 1 --json tagName -q '.[0].tagName')
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+        fi
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 4: Update changelog
+    # ───────────────────────────────────────────────────────────────
+    - name: Update debian/changelog from release
+      if: steps.check_distro.outputs.should_run == 'true'
+      run: |
+        bash ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 5: Install build dependencies
+    # ───────────────────────────────────────────────────────────────
+    - name: Install build dependencies
+      if: steps.check_distro.outputs.should_run == 'true'
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          devscripts \
+          debhelper \
+          dh-make \
+          fakeroot \
+          dput \
+          gpg \
+          dpkg-dev \
+          build-essential
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 6: Prepare package version
+    # ───────────────────────────────────────────────────────────────
+    - name: Prepare package version
+      if: steps.check_distro.outputs.should_run == 'true'
+      run: |
+        # Get version from release tag (remove 'v' prefix)
+        VERSION="${{ steps.get_tag.outputs.tag }}"
+        VERSION="${VERSION#v}"
+        echo "PACKAGE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+        
+        # Verify changelog was updated correctly
+        head -n 1 debian/changelog | grep -q "${VERSION}-1~${{ matrix.distro }}1" || {
+          echo "Error: Changelog version mismatch"
+          exit 1
+        }
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 7: Import GPG signing key
+    # ───────────────────────────────────────────────────────────────
+    - name: Import GPG key
+      if: steps.check_distro.outputs.should_run == 'true'
+      run: |
+        # Import the GPG key
+        echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+        
+        # List the imported key to verify
+        gpg --list-secret-keys --keyid-format LONG
+        
+        # Get the full fingerprint for the key
+        FINGERPRINT=$(gpg --list-secret-keys --with-colons | grep '^fpr:' | head -1 | cut -d: -f10)
+        echo "Key fingerprint: $FINGERPRINT"
+        echo "GPG_FINGERPRINT=$FINGERPRINT" >> "$GITHUB_ENV"
+        
+        # Trust the key using the full fingerprint
+        echo "${FINGERPRINT}:6:" | gpg --import-ownertrust
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 8: Configure GPG for non-interactive signing
+    # ───────────────────────────────────────────────────────────────
+    - name: Configure GPG
+      if: steps.check_distro.outputs.should_run == 'true'
+      run: |
+        export GNUPGHOME=/home/runner/.gnupg
+        mkdir -p $GNUPGHOME
+        chmod 700 $GNUPGHOME
+        
+        # Configure gpg-agent for batch mode
+        cat > $GNUPGHOME/gpg-agent.conf << 'EOF'
+        allow-loopback-pinentry
+        default-cache-ttl 300
+        max-cache-ttl 3600
+        EOF
+        
+        # Configure gpg for batch mode
+        cat > $GNUPGHOME/gpg.conf << 'EOF'
+        use-agent
+        pinentry-mode loopback
+        batch
+        no-tty
+        EOF
+        
+        # Restart gpg-agent with new config
+        gpgconf --kill gpg-agent || true
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 9: Build source package
+    # ───────────────────────────────────────────────────────────────
+    - name: Build source package
+      if: steps.check_distro.outputs.should_run == 'true'
+      run: |
+        # Clean any build artifacts
+        rm -f all-smi
+        rm -rf target/
+        
+        # Ensure Architecture field is 'any' for source package
+        sed -i 's/Architecture: .*/Architecture: any/' debian/control
+        
+        # Create minimal debian/rules for source package
+        cat > debian/rules << 'EOF'
+        #!/usr/bin/make -f
+        
+        export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+        export HOME = /tmp/build-home
+        export CARGO_HOME = $(HOME)/.cargo
+        export PATH := $(CARGO_HOME)/bin:$(PATH)
+        
+        %:
+        	dh $@
+        
+        override_dh_auto_configure:
+        	mkdir -p $(HOME)
+        	if [ ! -f $(CARGO_HOME)/bin/cargo ]; then \
+        		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; \
+        	fi
+        	$(CARGO_HOME)/bin/rustc --version
+        	$(CARGO_HOME)/bin/cargo --version
+        
+        override_dh_auto_build:
+        	$(CARGO_HOME)/bin/cargo build --release --locked
+        
+        override_dh_auto_install:
+        	install -D -m 0755 target/release/all-smi debian/all-smi/usr/bin/all-smi
+        
+        override_dh_auto_test:
+        	@echo "Skipping tests for PPA build"
+        
+        override_dh_auto_clean:
+        	rm -rf target/ $(HOME)
+        	dh_auto_clean
+        
+        override_dh_builddeb:
+        	dh_builddeb --destdir=../
+        EOF
+        chmod +x debian/rules
+        
+        # Build source package without signing first
+        dpkg-buildpackage -S -sa -us -uc
+        
+        # Sign the source package separately with debsign
+        echo "Signing source package..."
+        debsign -k"$GPG_FINGERPRINT" --no-re-sign ../*.changes
+        
+        echo "Source package built and signed successfully"
+
+    # ───────────────────────────────────────────────────────────────
+    # Step 10: Upload to PPA
+    # ───────────────────────────────────────────────────────────────
+    - name: Upload to Ubuntu PPA
+      if: steps.check_distro.outputs.should_run == 'true'
+      run: |
+        # Configure dput for PPA upload
+        cat > ~/.dput.cf << 'EOF'
+        [backend-ai-ppa]
+        fqdn = ppa.launchpad.net
+        method = ftp
+        incoming = ~lablup/ubuntu/backend-ai/
+        login = anonymous
+        allow_unsigned_uploads = 0
+        EOF
+        
+        # Verify the .changes file exists
+        CHANGES_FILE=$(ls ../*_source.changes 2>/dev/null | head -1)
+        if [ -z "$CHANGES_FILE" ]; then
+          echo "Error: No source .changes file found"
+          exit 1
+        fi
+        
+        echo "Uploading $CHANGES_FILE to PPA lablup/backend-ai"
+        
+        # Upload source package to PPA
+        dput backend-ai-ppa "$CHANGES_FILE"
+        
+        echo "✅ Successfully uploaded to PPA"
+        echo "📦 Package will be available at: https://launchpad.net/~lablup/+archive/ubuntu/backend-ai"
