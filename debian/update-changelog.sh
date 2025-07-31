@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # --------------------------------------------------------------
 # Regenerates debian/changelog from GitHub releases.
-#   • If <tag> 인자를 주면 그 릴리스 하나만 반영
-#   • 여러 태그를 공백으로 구분해 주면 그 순서대로
-#   • 인자가 없으면 모든 릴리스를 최신순 100개
-#   • -d|--distro 로 배포판(jammy/noble 등) 지정 (기본 jammy)
+# •	If you pass a <tag> argument, only that release is processed.
+# •	If you pass multiple tags separated by spaces, they’re processed in that order.
+# •	If no tags are supplied, the script processes the latest 100 releases.
+# •	Use -d | --distro to set the target distribution (e.g., jammy, noble); the default is jammy.
 # --------------------------------------------------------------
 
 set -euo pipefail
@@ -12,7 +12,7 @@ set -euo pipefail
 DISTRO="jammy"
 TAGS=()
 
-# --------------------- CLI 파싱 -------------------------------
+# --------------------- CLI parsing ---------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -d|--distro)
@@ -24,17 +24,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# --------------------- 의존성 체크 ----------------------------
+# --------------------- Dependency check ----------------------
 command -v gh   >/dev/null || { echo "❌ gh CLI not found"; exit 1; }
 command -v jq   >/dev/null || { echo "❌ jq not found"; exit 1; }
 
-# --------------------- 릴리스 목록 수집 ------------------------
+# --------------------- Collect release list ------------------
 if [[ ${#TAGS[@]} -eq 0 ]]; then
-  # 최신 100개 전체
+  # Latest 100 tags if no specific tags provided
   MAPFILE -t TAGS < <(gh release list --limit 100 --json tagName -q '.[].tagName')
 fi
 
-# debian/changelog 새로 작성
+# debian/changelog 
 > debian/changelog.tmp
 
 for TAG in "${TAGS[@]}"; do
@@ -46,7 +46,7 @@ for TAG in "${TAGS[@]}"; do
   NAME=$(echo "$rel_json" | jq -r '.name')
   BODY=$(echo "$rel_json" | jq -r '.body')
 
-  # Debian 날짜 형식
+  # Debian date format
   FORMATTED_DATE=$(date -d "$DATE" "+%a, %d %b %Y %H:%M:%S %z")
 
   cat >> debian/changelog.tmp <<EOF
