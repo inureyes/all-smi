@@ -17,8 +17,8 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag to build packages for (e.g. v0.6.3)'
-        required: true
+        description: 'Release tag to build packages for (e.g. v0.5.0). Empty = latest release'
+        required: false
       upload_to_ppa:
         description: 'Upload to Ubuntu PPA after build'
         required: false
@@ -88,7 +88,12 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Full history for changelog generation
-    
+
+    # NEW Step: Regenerate debian/changelog for the requested tag
+    - name: Update debian/changelog from release
+      run: |
+        ./scripts/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
+
     # ───────────────────────────────────────────────────────────────
     # Step 2: Determine release tag
     # ───────────────────────────────────────────────────────────────
@@ -158,10 +163,10 @@ jobs:
         # Update debian changelog for the target distro
         DEBEMAIL="inureyes@gmail.com" \
         DEBFULLNAME="Jeongkyu Shin" \
-        dch --distribution ${{ matrix.distro }} \
-            --newversion "${VERSION}-1~${{ matrix.distro }}1" \
-            --force-distribution \
-            "Release ${VERSION} for ${{ matrix.distro }}"
+    #    dch --distribution ${{ matrix.distro }} \
+    #        --newversion "${VERSION}-1~${{ matrix.distro }}1" \
+    #        --force-distribution \
+    #        "Release ${VERSION} for ${{ matrix.distro }}"
     
     # ───────────────────────────────────────────────────────────────
     # Step 6: Prepare architecture-specific build
