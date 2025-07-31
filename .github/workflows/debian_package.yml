@@ -218,7 +218,24 @@ jobs:
         gpg --list-keys --with-colons | grep -E '^(pub|uid):' || true
     
     # ───────────────────────────────────────────────────────────────
-    # Step 8: Build binary package
+    # Step 8: Setup for binary package build
+    # ───────────────────────────────────────────────────────────────
+    - name: Setup for binary build
+      run: |
+        # Use binary-specific packaging files
+        if [ -f debian/control.binary ]; then
+          cp debian/control.binary debian/control
+        fi
+        if [ -f debian/rules.binary ]; then
+          cp debian/rules.binary debian/rules
+          chmod +x debian/rules
+        fi
+        
+        # Set target architecture in control file
+        sed -i '/^Architecture:/c\Architecture: ${{ matrix.arch }}' debian/control
+    
+    # ───────────────────────────────────────────────────────────────
+    # Step 9: Build binary package
     # ───────────────────────────────────────────────────────────────
     - name: Build binary package
       run: |
@@ -226,7 +243,7 @@ jobs:
         dpkg-buildpackage -b -uc -us
 
     # ───────────────────────────────────────────────────────────────
-    # Step 9: Run lintian checks
+    # Step 10: Run lintian checks
     # ───────────────────────────────────────────────────────────────
     - name: Check package with lintian
       run: |
@@ -234,7 +251,7 @@ jobs:
 
 
     # ───────────────────────────────────────────────────────────────
-    # Step 10: Rename build outputs to custom naming scheme
+    # Step 11: Rename build outputs to custom naming scheme
     # ───────────────────────────────────────────────────────────────
     - name: Rename .deb & friends to policy filenames
       run: |
@@ -263,7 +280,7 @@ jobs:
         fi
         
     # ───────────────────────────────────────────────────────────────
-    # Step 11: Build source package (only for amd64 to avoid duplicates)
+    # Step 12: Build source package (only for amd64 to avoid duplicates)
     # ───────────────────────────────────────────────────────────────
     - name: Build source package
       if: matrix.arch == 'amd64'
