@@ -216,8 +216,8 @@ jobs:
         	@echo "Skipping tests for PPA build"
         
         override_dh_auto_clean:
-        	rm -rf target/ $(HOME)
-        	dh_auto_clean
+        	# Skip clean for source package build
+        	@echo "Source package - skipping clean"
         
         override_dh_builddeb:
         	dh_builddeb --destdir=../
