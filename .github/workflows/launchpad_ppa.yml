@@ -170,6 +170,12 @@ jobs:
         no-tty
         EOF
         
+        # Set up passphrase for signing
+        if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
+          echo "${{ secrets.GPG_PASSPHRASE }}" > $GNUPGHOME/passphrase
+          chmod 600 $GNUPGHOME/passphrase
+        fi
+        
         # Restart gpg-agent with new config
         gpgconf --kill gpg-agent || true
 
@@ -230,7 +236,16 @@ jobs:
         
         # Sign the source package separately with debsign
         echo "Signing source package..."
-        debsign -k"$GPG_FINGERPRINT" --no-re-sign ../*.changes
+        export GNUPGHOME=/home/runner/.gnupg
+        
+        # Use debsign with passphrase
+        if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
+          echo "${{ secrets.GPG_PASSPHRASE }}" | \
+          debsign --no-conf -p"gpg --batch --pinentry-mode loopback --passphrase-fd 0" \
+                  -k"$GPG_FINGERPRINT" ../*.changes
+        else
+          debsign -k"$GPG_FINGERPRINT" --no-re-sign ../*.changes
+        fi
         
         echo "Source package built and signed successfully"
 

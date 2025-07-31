@@ -32,6 +32,12 @@ The workflow requires the following secrets to be configured in the GitHub repos
    # For rsa4096 keys: look for the ID after "sec rsa4096/"
    ```
 
+3. **GPG_PASSPHRASE** (Optional)
+   ```bash
+   # If your GPG key has a passphrase, add it as a secret
+   # This is the passphrase you use to unlock your GPG key
+   ```
+
 ## Workflow Usage
 
 ### Automatic Trigger
