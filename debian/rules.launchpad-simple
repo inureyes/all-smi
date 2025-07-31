@@ -14,10 +14,8 @@ export PATH := $(CARGO_HOME)/bin:$(PATH)
 override_dh_auto_configure:
 	# Create temporary home directory
 	mkdir -p $(HOME)
-	# Install Rust toolchain if not present
-	if [ ! -f $(CARGO_HOME)/bin/cargo ]; then \
-		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; \
-	fi
+	# Install Rust toolchain
+	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 	# Verify installation
 	$(CARGO_HOME)/bin/rustc --version
 	$(CARGO_HOME)/bin/cargo --version
@@ -29,10 +27,6 @@ override_dh_auto_build:
 override_dh_auto_install:
 	# Install the compiled binary
 	install -D -m 0755 target/release/all-smi debian/all-smi/usr/bin/all-smi
-	# Install the man page if it exists
-	if [ -f docs/all-smi.1 ]; then \
-		install -D -m 0644 docs/all-smi.1 debian/all-smi/usr/share/man/man1/all-smi.1; \
-	fi
 
 override_dh_auto_test:
 	# Skip tests to save build time on Launchpad

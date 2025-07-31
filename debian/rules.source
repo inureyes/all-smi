@@ -1,0 +1,28 @@
+#!/usr/bin/make -f
+
+# Enable all hardening options
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+# Use vendored dependencies for offline builds
+export CARGO_HOME = $(CURDIR)/debian/cargo
+export CARGO_TARGET_DIR = $(CURDIR)/target
+
+%:
+	dh $@ --buildsystem=cargo
+
+override_dh_auto_build:
+	dh_auto_build -- --release --locked
+
+override_dh_auto_install:
+	# Install the compiled binary
+	install -D -m 0755 target/release/all-smi debian/all-smi/usr/bin/all-smi
+	# Install the man page if it exists
+	if [ -f docs/all-smi.1 ]; then \
+		install -D -m 0644 docs/all-smi.1 debian/all-smi/usr/share/man/man1/all-smi.1; \
+	fi
+
+override_dh_auto_test:
+	dh_auto_test -- --release
+
+override_dh_builddeb:
+	dh_builddeb --destdir=../

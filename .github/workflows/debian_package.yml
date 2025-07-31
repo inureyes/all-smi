@@ -79,6 +79,20 @@ jobs:
             arch: arm64
             os: ubuntu-24.04-arm
             binary_asset: all-smi-linux-aarch64.tar.gz
+          
+          # Ubuntu 24.10 (Oracular) - AMD64
+          - distro: oracular
+            version: "24.10"
+            arch: amd64
+            os: ubuntu-24.04
+            binary_asset: all-smi-linux-x86_64.tar.gz
+          
+          # Ubuntu 24.10 (Oracular) - ARM64  
+          - distro: oracular
+            version: "24.10"
+            arch: arm64
+            os: ubuntu-24.04-arm
+            binary_asset: all-smi-linux-aarch64.tar.gz
     
     steps:
     # ───────────────────────────────────────────────────────────────
@@ -163,13 +177,12 @@ jobs:
         VERSION="${VERSION#v}"
         echo "PACKAGE_VERSION=${VERSION}" >> "$GITHUB_ENV"
         
-        # Update debian changelog for the target distro
-        DEBEMAIL="inureyes@gmail.com" \
-        DEBFULLNAME="Jeongkyu Shin" \
-    #    dch --distribution ${{ matrix.distro }} \
-    #        --newversion "${VERSION}-1~${{ matrix.distro }}1" \
-    #        --force-distribution \
-    #        "Release ${VERSION} for ${{ matrix.distro }}"
+        # Verify changelog was updated correctly
+        head -n 1 debian/changelog | grep -q "${VERSION}-1~${{ matrix.distro }}1" || {
+          echo "Error: Changelog version mismatch. Expected ${VERSION}-1~${{ matrix.distro }}1"
+          echo "Found: $(head -n 1 debian/changelog)"
+          exit 1
+        }
     
     # ───────────────────────────────────────────────────────────────
     # Step 6: Prepare architecture-specific build
@@ -243,20 +256,21 @@ jobs:
     - name: Build source package
       if: matrix.arch == 'amd64'
       run: |
-        # Clean the build directory
-        debian/rules clean
-        
-        # Remove the pre-built binary to create a clean source package
+        # Clean any build artifacts
         rm -f all-smi
+        rm -rf target/
+        debian/rules clean || true
         
-        # Restore original Architecture field for source package
-        sed -i "s/Architecture: .*/Architecture: amd64 arm64/" debian/control
+        # Ensure GPG key is trusted
+        echo "${{ secrets.GPG_KEY_ID }}:6:" | gpg --import-ownertrust
         
         # Build source package for PPA
         dpkg-buildpackage -S -sa -k"${{ secrets.GPG_KEY_ID }}"
+        
+        echo "Source package built successfully"
     
     # ───────────────────────────────────────────────────────────────
-    # Step 12: Upload to PPA (only source packages from amd64 builds)
+    # Step 13: Upload to PPA (only source packages from amd64 builds)
     # ───────────────────────────────────────────────────────────────
     - name: Upload to Ubuntu PPA
       if: (github.event.workflow_run.conclusion == 'success' || github.event.inputs.upload_to_ppa == 'true') && matrix.arch == 'amd64'
@@ -271,9 +285,21 @@ jobs:
         allow_unsigned_uploads = 0
         EOF
         
+        # Verify the .changes file exists
+        CHANGES_FILE=$(ls ../*_source.changes 2>/dev/null | head -1)
+        if [ -z "$CHANGES_FILE" ]; then
+          echo "Error: No source .changes file found"
+          exit 1
+        fi
+        
+        echo "Uploading $CHANGES_FILE to PPA lablup/backend-ai"
+        
         # Upload source package to PPA
         # The PPA will build binary packages for all architectures
-        dput backend-ai-ppa ../*_source.changes
+        dput backend-ai-ppa "$CHANGES_FILE"
+        
+        echo "✅ Successfully uploaded to PPA"
+        echo "📦 Package will be available at: https://launchpad.net/~lablup/+archive/ubuntu/backend-ai"
     
     # ───────────────────────────────────────────────────────────────
     # Step 13: Upload artifacts

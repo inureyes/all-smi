@@ -3,13 +3,13 @@ Section: utils
 Priority: optional
 Maintainer: Jeongkyu Shin <inureyes@gmail.com>
 Build-Depends: debhelper-compat (= 13),
-               build-essential,
-               curl,
-               ca-certificates,
-               pkg-config,
+               cargo,
+               rustc (>= 1.70),
                libssl-dev,
+               pkg-config,
                protobuf-compiler,
-               cmake
+               cmake,
+               build-essential
 Standards-Version: 4.6.2
 Homepage: https://github.com/inureyes/all-smi
 Vcs-Browser: https://github.com/inureyes/all-smi
