@@ -289,14 +289,34 @@ jobs:
         rm -f all-smi
         rm -rf target/
         
-        # Ensure we're using source build rules (not binary rules)
-        if [ -f debian/rules.source ]; then
-          cp debian/rules.source debian/rules
-          chmod +x debian/rules
-        fi
+        # Restore Architecture field to 'any' for source package
+        sed -i 's/Architecture: .*/Architecture: any/' debian/control
         
-        # Clean using proper rules
-        debian/rules clean || true
+        # For source package, we need minimal rules without cargo dependency
+        cat > debian/rules << 'EOF'
+        #!/usr/bin/make -f
+        
+        export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+        
+        %:
+        	dh $@
+        
+        override_dh_auto_clean:
+        	@echo "Source package - skipping clean"
+        
+        override_dh_auto_configure:
+        	@echo "Source package - skipping configure"
+        
+        override_dh_auto_build:
+        	@echo "Source package - will be built on Launchpad"
+        
+        override_dh_auto_install:
+        	@echo "Source package - will be installed on Launchpad"
+        
+        override_dh_auto_test:
+        	@echo "Source package - tests will run on Launchpad"
+        EOF
+        chmod +x debian/rules
         
         # Configure GPG for non-interactive signing
         export GNUPGHOME=/home/runner/.gnupg
