@@ -237,10 +237,10 @@ jobs:
         if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
           echo "Building and signing source package with passphrase..."
           # Create a script to handle GPG signing with passphrase
-          cat > /tmp/gpg-sign.sh << 'SCRIPT'
-#!/bin/bash
-echo "$GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback "$@"
-SCRIPT
+          cat > /tmp/gpg-sign.sh << 'EOSCRIPT'
+        #!/bin/bash
+        echo "$GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback "$@"
+        EOSCRIPT
           chmod +x /tmp/gpg-sign.sh
           
           # Export passphrase for the script
