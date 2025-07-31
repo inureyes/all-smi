@@ -225,7 +225,8 @@ jobs:
         chmod +x debian/rules
         
         # Build source package without signing first
-        dpkg-buildpackage -S -sa -us -uc
+        # -d flag skips build dependency check (source package doesn't need them)
+        dpkg-buildpackage -S -sa -us -uc -d
         
         # Sign the source package separately with debsign
         echo "Signing source package..."
