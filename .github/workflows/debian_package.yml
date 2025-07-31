@@ -288,19 +288,52 @@ jobs:
         # Clean any build artifacts
         rm -f all-smi
         rm -rf target/
+        
+        # Ensure we're using source build rules (not binary rules)
+        if [ -f debian/rules.source ]; then
+          cp debian/rules.source debian/rules
+          chmod +x debian/rules
+        fi
+        
+        # Clean using proper rules
         debian/rules clean || true
         
         # Configure GPG for non-interactive signing
         export GNUPGHOME=/home/runner/.gnupg
-        echo "use-agent" >> $GNUPGHOME/gpg.conf
-        echo "pinentry-mode loopback" >> $GNUPGHOME/gpg.conf
-        echo "allow-loopback-pinentry" >> $GNUPGHOME/gpg-agent.conf
+        mkdir -p $GNUPGHOME
+        chmod 700 $GNUPGHOME
+        
+        # Configure gpg-agent for batch mode
+        cat > $GNUPGHOME/gpg-agent.conf << EOF
+allow-loopback-pinentry
+default-cache-ttl 300
+max-cache-ttl 3600
+EOF
+        
+        # Configure gpg for batch mode
+        cat > $GNUPGHOME/gpg.conf << EOF
+use-agent
+pinentry-mode loopback
+batch
+no-tty
+EOF
+        
+        # Restart gpg-agent with new config
         gpgconf --kill gpg-agent
+        gpg-agent --daemon
         
-        # Build source package for PPA
-        dpkg-buildpackage -S -sa -k"${{ secrets.GPG_KEY_ID }}"
+        # Get the full fingerprint for signing
+        FINGERPRINT=$(gpg --list-secret-keys --with-colons | grep '^fpr:' | head -1 | cut -d: -f10)
+        echo "Using fingerprint: $FINGERPRINT"
         
-        echo "Source package built successfully"
+        # Build source package for PPA without signing first
+        dpkg-buildpackage -S -sa -us -uc
+        
+        # Sign the source package separately with debsign
+        echo "Signing source package with debsign..."
+        debsign -k"$FINGERPRINT" --no-re-sign ../*.changes
+        
+        echo "Source package built and signed successfully"
     
     # ───────────────────────────────────────────────────────────────
     # Step 13: Upload to PPA (only source packages from amd64 builds)
