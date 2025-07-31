@@ -92,7 +92,7 @@ jobs:
     # NEW Step: Regenerate debian/changelog for the requested tag
     - name: Update debian/changelog from release
       run: |
-        ./scripts/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
+        ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
 
     # ───────────────────────────────────────────────────────────────
     # Step 2: Determine release tag
