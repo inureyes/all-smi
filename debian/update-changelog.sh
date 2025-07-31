@@ -31,7 +31,7 @@ command -v jq   >/dev/null || { echo "❌ jq not found"; exit 1; }
 # --------------------- Collect release list ------------------
 if [[ ${#TAGS[@]} -eq 0 ]]; then
   # Latest 100 tags if no specific tags provided
-  MAPFILE -t TAGS < <(gh release list --limit 100 --json tagName -q '.[].tagName')
+  mapfile -t TAGS < <(gh release list --limit 100 --json tagName -q '.[].tagName')
 fi
 
 # debian/changelog 

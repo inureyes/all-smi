@@ -89,13 +89,6 @@ jobs:
       with:
         fetch-depth: 0  # Full history for changelog generation
 
-    # NEW Step: Regenerate debian/changelog for the requested tag
-    - name: Update debian/changelog from release
-      run: |
-        bash ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
-      env:
-        GH_TOKEN: ${{ github.token }}
-
     # ───────────────────────────────────────────────────────────────
     # Step 2: Determine release tag
     # ───────────────────────────────────────────────────────────────
@@ -111,7 +104,15 @@ jobs:
         fi
       env:
         GH_TOKEN: ${{ github.token }}
-    
+
+    # Regenerate debian/changelog for the requested tag
+    - name: Update debian/changelog from release
+      run: |
+        bash ./debian/update-changelog.sh -d ${{ matrix.distro }} ${{ steps.get_tag.outputs.tag }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+        
     # ───────────────────────────────────────────────────────────────
     # Step 3: Download pre-built binary from release
     # ───────────────────────────────────────────────────────────────
