@@ -93,32 +93,23 @@ pub fn is_apple_silicon() -> bool {
 }
 
 pub fn has_furiosa() -> bool {
-    // First check if device files exist
-    if std::path::Path::new("/dev/npu0").exists() {
-        return true;
+    // Check if devices are visible under the /sys/class/rngd_mgmt directory
+    let rngd_mgmt_path = std::path::Path::new("/sys/class/rngd_mgmt");
+    if !rngd_mgmt_path.exists() {
+        return false;
     }
 
-    // On macOS, use system_profiler
-    if std::env::consts::OS == "macos" {
-        if let Ok(output) = Command::new("system_profiler")
-            .arg("SPPCIDataType")
-            .output()
-        {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                if output_str.contains("Furiosa") || output_str.contains("FuriosaAI") {
-                    return true;
-                }
-            }
-        }
+    // Check if /sys/class/rngd_mgmt/rngd!npu0mgmt exists
+    let npu0_mgmt_path = rngd_mgmt_path.join("rngd!npu0mgmt");
+    if !npu0_mgmt_path.exists() {
+        return false;
     }
 
-    // Check if furiosactl can list devices
-    if let Ok(output) = Command::new("furiosactl").args(["list"]).output() {
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            // Check if output contains actual device entries
-            return output_str.lines().count() > 1; // More than just header
+    // Check if the content of platform_type is FuriosaAI
+    let platform_type_path = npu0_mgmt_path.join("platform_type");
+    if let Ok(platform_type) = std::fs::read_to_string(platform_type_path) {
+        if platform_type.trim() == "FuriosaAI" {
+            return true;
         }
     }
 

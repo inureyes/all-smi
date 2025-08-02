@@ -191,12 +191,14 @@ pub async fn start_servers(args: Args) -> Result<()> {
     let mut instance_counter = args.start_index;
 
     // Use appropriate GPU/NPU name based on platform
-    let device_name = if matches!(platform_type, PlatformType::Tenstorrent) {
-        if args.gpu_name == crate::mock::constants::DEFAULT_GPU_NAME {
-            // If using default GPU name, switch to Tenstorrent default
-            crate::mock::constants::DEFAULT_TENSTORRENT_NAME.to_string()
-        } else {
-            args.gpu_name.clone()
+    let device_name = if args.gpu_name == crate::mock::constants::DEFAULT_GPU_NAME {
+        // If using default GPU name, switch to platform-specific default
+        match platform_type {
+            PlatformType::Tenstorrent => {
+                crate::mock::constants::DEFAULT_TENSTORRENT_NAME.to_string()
+            }
+            PlatformType::Furiosa => crate::mock::constants::DEFAULT_FURIOSA_NAME.to_string(),
+            _ => args.gpu_name.clone(),
         }
     } else {
         args.gpu_name.clone()

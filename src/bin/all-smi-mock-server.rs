@@ -51,6 +51,7 @@ mod tests {
             PlatformType::Rebellions
         );
         assert_eq!(PlatformType::from_str("rbln"), PlatformType::Rebellions);
+        assert_eq!(PlatformType::from_str("furiosa"), PlatformType::Furiosa);
         assert_eq!(PlatformType::from_str("unknown"), PlatformType::Nvidia); // Default
     }
 

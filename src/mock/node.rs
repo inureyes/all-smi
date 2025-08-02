@@ -60,7 +60,7 @@ impl MockNode {
 
         // Update GPU metrics
         for gpu in &mut self.gpus {
-            gpu.update();
+            gpu.update(&self.platform_type);
         }
 
         // Update CPU metrics
