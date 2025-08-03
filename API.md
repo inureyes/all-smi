@@ -122,6 +122,66 @@ Note: For Apple Silicon, `gpu_temperature_celsius` is not available; thermal pre
 
 Note: Tenstorrent NPUs use the same basic metric names as GPUs for compatibility with existing monitoring infrastructure. Additional Tenstorrent-specific metrics provide detailed hardware monitoring capabilities.
 
+### Rebellions NPU Metrics
+
+#### Basic NPU Metrics
+| Metric                                | Description                | Unit    | Labels                                    |
+|---------------------------------------|----------------------------|---------|-------------------------------------------|
+| `all_smi_gpu_utilization`             | NPU utilization percentage | percent | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_memory_used_bytes`       | NPU memory used            | bytes   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_memory_total_bytes`      | NPU memory total           | bytes   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_temperature_celsius`     | NPU temperature            | celsius | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_power_consumption_watts` | NPU power consumption      | watts   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_frequency_mhz`           | NPU clock frequency        | MHz     | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_info`                    | NPU device information     | info    | `gpu_index`, `gpu_name`, `driver_version` |
+
+#### Rebellions-Specific Metrics
+| Metric                                    | Description                          | Unit  | Labels                                                               |
+|-------------------------------------------|--------------------------------------|-------|----------------------------------------------------------------------|
+| `all_smi_rebellions_device_info`          | Device model and variant information | info  | `npu`, `instance`, `uuid`, `index`, `model`, `variant`              |
+| `all_smi_rebellions_firmware_info`        | NPU firmware version                 | info  | `npu`, `instance`, `uuid`, `index`, `firmware_version`              |
+| `all_smi_rebellions_kmd_info`             | Kernel Mode Driver version           | info  | `npu`, `instance`, `uuid`, `index`, `kmd_version`                   |
+| `all_smi_rebellions_device_status`        | Device operational status            | gauge | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_rebellions_performance_state`    | NPU performance state (P0-P15)       | gauge | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_rebellions_pcie_generation`      | PCIe generation (Gen4)               | gauge | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_rebellions_pcie_width`           | PCIe link width (x16)                | gauge | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_rebellions_memory_bandwidth_gbps`| Memory bandwidth capacity            | gauge | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_rebellions_compute_tops`         | Compute capacity in TOPS             | gauge | `npu`, `instance`, `uuid`, `index`                                  |
+
+Note: Rebellions NPUs support ATOM, ATOM+, and ATOM Max variants with varying compute and memory capabilities. All variants use PCIe Gen4 x16 interface.
+
+### Furiosa NPU Metrics
+
+#### Basic NPU Metrics
+| Metric                                | Description                | Unit    | Labels                                    |
+|---------------------------------------|----------------------------|---------|-------------------------------------------|
+| `all_smi_gpu_utilization`             | NPU utilization percentage | percent | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_memory_used_bytes`       | NPU memory used            | bytes   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_memory_total_bytes`      | NPU memory total           | bytes   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_temperature_celsius`     | NPU temperature            | celsius | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_power_consumption_watts` | NPU power consumption      | watts   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_frequency_mhz`           | NPU clock frequency        | MHz     | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_info`                    | NPU device information     | info    | `gpu_index`, `gpu_name`, `driver_version` |
+
+#### Furiosa-Specific Metrics
+| Metric                                      | Description                            | Unit    | Labels                                                               |
+|---------------------------------------------|----------------------------------------|---------|----------------------------------------------------------------------|
+| `all_smi_furiosa_device_info`               | Device architecture and model info     | info    | `npu`, `instance`, `uuid`, `index`, `architecture`, `model`         |
+| `all_smi_furiosa_firmware_info`             | NPU firmware version                   | info    | `npu`, `instance`, `uuid`, `index`, `firmware_version`              |
+| `all_smi_furiosa_pert_info`                 | PERT (runtime) version                 | info    | `npu`, `instance`, `uuid`, `index`, `pert_version`                  |
+| `all_smi_furiosa_liveness_status`           | Device liveness status                 | gauge   | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_furiosa_core_count`                | Number of cores in NPU                 | gauge   | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_furiosa_core_status`               | Core availability status               | gauge   | `npu`, `instance`, `uuid`, `index`, `core`                          |
+| `all_smi_furiosa_pe_utilization`            | Processing Element utilization         | percent | `npu`, `instance`, `uuid`, `index`, `core`                          |
+| `all_smi_furiosa_core_frequency_mhz`        | Per-core frequency                     | MHz     | `npu`, `instance`, `uuid`, `index`, `core`                          |
+| `all_smi_furiosa_power_governor_info`       | Power governor mode                    | info    | `npu`, `instance`, `uuid`, `index`, `governor`                      |
+| `all_smi_furiosa_error_count`               | Cumulative error count                 | counter | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_furiosa_pcie_generation`           | PCIe generation                        | gauge   | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_furiosa_pcie_width`                | PCIe link width                        | gauge   | `npu`, `instance`, `uuid`, `index`                                  |
+| `all_smi_furiosa_memory_bandwidth_utilization` | Memory bandwidth utilization        | percent | `npu`, `instance`, `uuid`, `index`                                  |
+
+Note: Furiosa NPUs use the RNGD architecture with 8 cores per NPU. Each core contains multiple Processing Elements (PEs) that handle neural network computations. The power governor supports OnDemand mode for dynamic power management.
+
 ### CPU Metrics (All Platforms)
 
 | Metric                                | Description                | Unit    | Labels   |
@@ -192,13 +252,17 @@ Note: Storage metrics exclude Docker bind mounts and are filtered to show only r
 |------------------------------|----------------|----------------|----------------|-----------------|  
 | Linux + NVIDIA               | ✓ Full         | ✓ Full         | ✓ Full         | ✓ Full          |
 | Linux + Tenstorrent          | ✓ Full***      | ✓ Full         | ✓ Full         | ✗ N/A****       |
+| Linux + Rebellions           | ✓ Full         | ✓ Full         | ✓ Full         | ✗ N/A*****      |
+| Linux + Furiosa              | ✓ Full         | ✓ Full         | ✓ Full         | ✗ N/A******     |
 | macOS + Apple Silicon        | ✓ Partial*     | ✓ Enhanced**   | ✓ Full         | ✓ Basic         |
 | NVIDIA Jetson                | ✓ Full + DLA   | ✓ Full         | ✓ Full         | ✓ Full          |
 
 *Apple Silicon GPU metrics do not include temperature (thermal pressure provided instead)  
 **Apple Silicon provides enhanced P-core/E-core metrics and cluster frequencies  
 ***Tenstorrent provides extensive hardware monitoring including multiple temperature sensors, health counters, and status registers  
-****Tenstorrent NPUs do not expose per-process GPU usage information
+****Tenstorrent NPUs do not expose per-process GPU usage information  
+*****Rebellions NPUs do not expose per-process GPU usage information  
+******Furiosa NPUs do not expose per-process GPU usage information
 
 ## Example Prometheus Queries
 
@@ -249,6 +313,39 @@ all_smi_tenstorrent_throttler > 0
 
 # Health monitoring - ARC processors not incrementing
 rate(all_smi_tenstorrent_arc0_health[5m]) == 0
+```
+
+### Rebellions NPU Specific
+```promql
+# NPUs in low performance state
+all_smi_rebellions_performance_state > 0
+
+# Devices with non-operational status
+all_smi_rebellions_device_status != 1
+
+# Power efficiency (TOPS per watt)
+all_smi_rebellions_compute_tops / all_smi_gpu_power_consumption_watts
+
+# Memory bandwidth saturation check
+(all_smi_gpu_memory_used_bytes / all_smi_gpu_memory_total_bytes) > 0.9
+```
+
+### Furiosa NPU Specific
+```promql
+# NPUs with unavailable cores
+all_smi_furiosa_core_status == 0
+
+# Average PE utilization across all cores
+avg by (instance) (all_smi_furiosa_pe_utilization)
+
+# NPUs with high error rates
+rate(all_smi_furiosa_error_count[5m]) > 0.1
+
+# Power governor not in OnDemand mode
+all_smi_furiosa_power_governor_info{governor!="OnDemand"}
+
+# Memory bandwidth bottleneck detection
+all_smi_furiosa_memory_bandwidth_utilization > 80
 ```
 
 ### Process Monitoring
@@ -304,6 +401,30 @@ groups:
           severity: warning
         annotations:
           summary: "Tenstorrent NPU {{ $labels.instance }} is throttling"
+          
+      - alert: RebellionsNPULowPerformance
+        expr: all_smi_rebellions_performance_state > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rebellions NPU {{ $labels.instance }} stuck in low performance state P{{ $value }}"
+          
+      - alert: FuriosaNPUCoreFailure
+        expr: all_smi_furiosa_core_status == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Furiosa NPU {{ $labels.instance }} has unavailable core {{ $labels.core }}"
+          
+      - alert: FuriosaNPUHighErrorRate
+        expr: rate(all_smi_furiosa_error_count[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Furiosa NPU {{ $labels.instance }} experiencing high error rate"
 ```
 
 ## Update Intervals
@@ -328,3 +449,14 @@ Higher update rates provide more real-time data but increase system load. For pr
    - Power limits (TDP/TDC) and throttling information
    - PCIe and DDR status registers for diagnostics
 7. Tenstorrent utilization is calculated based on power consumption as a proxy metric
+8. Rebellions NPU metrics include:
+   - Performance state monitoring (P0-P15) for power management
+   - Device status and KMD version tracking
+   - Support for ATOM, ATOM+, and ATOM Max variants
+   - PCIe Gen4 x16 interface metrics
+9. Furiosa NPU metrics include:
+   - Per-core PE utilization monitoring
+   - Core availability status tracking
+   - Power governor mode information
+   - Error counting and liveness monitoring
+   - RNGD architecture with 8 cores per NPU

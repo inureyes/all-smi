@@ -6,7 +6,7 @@
 [![dependency status](https://deps.rs/repo/github/inureyes/all-smi/status.svg)](https://deps.rs/repo/github/inureyes/all-smi)
 
 
-`all-smi` is a command-line utility for monitoring GPU hardware across multiple systems. It provides a real-time view of GPU utilization, memory usage, temperature, power consumption, and other metrics. The tool is designed to be a cross-platform alternative to `nvidia-smi`, with support for NVIDIA GPUs, NVIDIA Jetson platforms, Apple Silicon GPUs, and Tenstorrent NPUs.
+`all-smi` is a command-line utility for monitoring GPU and NPU hardware across multiple systems. It provides a real-time view of accelerator utilization, memory usage, temperature, power consumption, and other metrics. The tool is designed to be a cross-platform alternative to `nvidia-smi`, with support for NVIDIA GPUs, NVIDIA Jetson platforms, Apple Silicon GPUs, Tenstorrent NPUs, Rebellions NPUs, and Furiosa NPUs.
 
 The application presents a terminal-based user interface with cluster overview, interactive sorting, and both local and remote monitoring capabilities. It also provides an API mode for Prometheus metrics integration.
 
@@ -119,6 +119,8 @@ http://gpu-node3:9090
   - NVIDIA Jetson: DLA utilization monitoring
   - Apple Silicon: ANE power monitoring, thermal pressure levels
   - Tenstorrent NPUs: Real-time telemetry via luwen library, board-specific TDP calculations
+  - Rebellions NPUs: Performance state monitoring, KMD version tracking, device status
+  - Furiosa NPUs: Per-core PE utilization, power governor modes, firmware version tracking
   
 ### CPU Monitoring
 - **Comprehensive CPU Metrics:**
@@ -173,7 +175,8 @@ http://gpu-node3:9090
   - CPU monitoring via /proc filesystem
   - Memory monitoring with detailed statistics
   - Tenstorrent NPUs (Grayskull, Wormhole, Blackhole) via luwen library
-  - Furiosa NPUs via furiosactl (infrastructure ready)
+  - Rebellions NPUs (ATOM, ATOM+, ATOM Max) via rbln-stat
+  - Furiosa NPUs (RNGD) via furiosa-smi
 - **macOS:** 
   - Apple Silicon GPUs via powermetrics and Metal framework
   - ANE (Apple Neural Engine) power tracking
@@ -212,7 +215,7 @@ http://gpu-node3:9090
   - Simulates realistic GPU clusters with 8 GPUs per node
   - Configurable port ranges for multiple instances
   - Failure simulation for resilience testing
-  - Platform-specific metric generation (NVIDIA, Apple Silicon, Jetson, Tenstorrent)
+  - Platform-specific metric generation (NVIDIA, Apple Silicon, Jetson, Tenstorrent, Rebellions, Furiosa)
   - Background metric updates with realistic variations
 - **Performance Optimized:**
   - Template-based response generation
