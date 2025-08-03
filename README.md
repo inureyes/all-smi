@@ -29,7 +29,37 @@ brew tap lablup/tap
 brew install all-smi
 ```
 
-### Option 2: Install from Cargo
+### Option 2: Install via Ubuntu PPA
+
+For Ubuntu users, all-smi is available through the official PPA:
+
+```bash
+# Add the PPA repository
+sudo add-apt-repository ppa:lablup/backend-ai
+sudo apt update
+
+# Install all-smi
+sudo apt install all-smi
+```
+
+The PPA provides automatic updates and is maintained for Ubuntu 22.04 (Jammy) and 24.04 (Noble).
+
+### Option 3: Install via Debian Package
+
+For Debian and other Debian-based distributions, download the `.deb` package from the [releases page](https://github.com/inureyes/all-smi/releases):
+
+```bash
+# Download the latest .deb package (replace VERSION with the actual version)
+wget https://github.com/inureyes/all-smi/releases/download/vVERSION/all-smi_VERSION_amd64.deb
+
+# Install the package
+sudo dpkg -i all-smi_VERSION_amd64.deb
+
+# If there are dependency issues, fix them with:
+sudo apt-get install -f
+```
+
+### Option 4: Install from Cargo
 
 Install all-smi through Cargo:
 
@@ -39,7 +69,7 @@ cargo install all-smi
 
 After installation, the binary will be available in your `$PATH` as `all-smi`.
 
-### Option 3: Download Pre-built Binary
+### Option 5: Download Pre-built Binary
 
 Download the latest release from the [GitHub releases page](https://github.com/inureyes/all-smi/releases):
 
@@ -47,7 +77,7 @@ Download the latest release from the [GitHub releases page](https://github.com/i
 2. Download the appropriate binary for your platform
 3. Extract the archive and place the binary in your `$PATH`
 
-### Option 4: Build from Source
+### Option 6: Build from Source
 
 See [Building from Source](DEVELOPERS.md#building-from-source) in the developer documentation.
 
