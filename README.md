@@ -175,7 +175,7 @@ http://gpu-node3:9090
   - Tenstorrent NPUs (Grayskull, Wormhole, Blackhole) via luwen library
   - Furiosa NPUs via furiosactl (infrastructure ready)
 - **macOS:** 
-  - Apple Silicon GPUs via powermetrics and Metal framework
+  - Apple Silicon (M1/M2/M3/M4) GPUs via powermetrics and Metal framework
   - ANE (Apple Neural Engine) power tracking
   - Thermal pressure monitoring
   - P/E core architecture support
@@ -292,7 +292,7 @@ This project is licensed under the MIT License. See the LICENSE file for details
 - **v0.6.1 (2025/07/19):** Fixed multi-node view hanging, improved hostname handling, optimized network fetch, and updated Ubuntu release workflows
 - **v0.6.0 (2025/07/18):** Added Tenstorrent NPU support, improved UI alignment and terminal resize handling, modularized API metrics, and enhanced disk filtering
 - **v0.5.0 (2025/07/12):** Enhanced Apple Silicon support with ANE power in watts, P+E frequency display, thermal pressure text, interactive process sorting, and configurable PowerMetrics intervals
-- **v0.4.3 (2025/07/11):** Fix P-CPU/E-CPU gauges for all Apple Silicon variants including M1 Pro hybrid format
+- **v0.4.3 (2025/07/11):** Fix P-CPU/E-CPU gauges for all Apple Silicon variants (M1/M2/M3/M4) including M1 Pro hybrid format
 - **v0.4.2 (2025/07/10):** Eliminate PowerMetrics temp file growth with in-memory buffer, Homebrew installation support
 - **v0.4.1 (2025/07/10):** Mock server improvements, efficient Apple Silicon and NVidia GPU support
 - **v0.4.0 (2025/07/08):** Architectural refactoring, Smart sudo detection and comprehensive unit testing

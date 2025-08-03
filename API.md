@@ -57,7 +57,7 @@ Metrics are available at `http://localhost:9090/metrics`
 | `all_smi_ane_power_watts`       | ANE power consumption  | watts | `gpu_index`, `gpu_name`          |
 | `all_smi_thermal_pressure_info` | Thermal pressure level | info  | `gpu_index`, `gpu_name`, `level` |
 
-Note: For Apple Silicon, `gpu_temperature_celsius` is not available; thermal pressure level is provided instead.
+Note: For Apple Silicon (M1/M2/M3/M4), `gpu_temperature_celsius` is not available; thermal pressure level is provided instead.
 
 ### Tenstorrent NPU Metrics
 
@@ -195,8 +195,8 @@ Note: Storage metrics exclude Docker bind mounts and are filtered to show only r
 | macOS + Apple Silicon        | ✓ Partial*     | ✓ Enhanced**   | ✓ Full         | ✓ Basic         |
 | NVIDIA Jetson                | ✓ Full + DLA   | ✓ Full         | ✓ Full         | ✓ Full          |
 
-*Apple Silicon GPU metrics do not include temperature (thermal pressure provided instead)  
-**Apple Silicon provides enhanced P-core/E-core metrics and cluster frequencies  
+*Apple Silicon (M1/M2/M3/M4) GPU metrics do not include temperature (thermal pressure provided instead)  
+**Apple Silicon (M1/M2/M3/M4) provides enhanced P-core/E-core metrics and cluster frequencies  
 ***Tenstorrent provides extensive hardware monitoring including multiple temperature sensors, health counters, and status registers  
 ****Tenstorrent NPUs do not expose per-process GPU usage information
 
