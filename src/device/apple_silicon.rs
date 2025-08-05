@@ -283,18 +283,28 @@ fn get_gpu_name_and_version() -> (String, Option<String>) {
 
 fn get_gpu_core_count() -> Option<u32> {
     // Run the ioreg command to get GPU core count
-    let output = Command::new("sh")
-        .arg("-c")
-        .arg("ioreg -rc AGXAccelerator -d1 | grep '\"gpu-core-count\"' | awk '{print $3}'")
+    let output = Command::new("ioreg")
+        .arg("-rc")
+        .arg("AGXAccelerator")
+        .arg("-d1")
         .output()
         .ok()?;
 
     if output.status.success() {
         let output_str = String::from_utf8_lossy(&output.stdout);
-        let core_count_str = output_str.trim();
-
-        // Parse the core count
-        core_count_str.parse::<u32>().ok()
+        // Find the line containing "gpu-core-count"
+        for line in output_str.lines() {
+            if line.contains("\"gpu-core-count\"") {
+                // Split the line into whitespace-separated fields and get the third field
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    if let Ok(core_count) = parts[2].parse::<u32>() {
+                        return Some(core_count);
+                    }
+                }
+            }
+        }
+        None
     } else {
         None
     }
