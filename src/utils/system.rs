@@ -67,7 +67,7 @@ fn request_sudo_with_explanation(return_bool: bool) -> bool {
             return true;
         } else {
             // Add a small delay so user can see the message before terminal is cleared
-            std::thread::sleep(std::time::Duration::from_millis(1500));
+            std::thread::sleep(std::time::Duration::from_millis(300));
             return false; // This return value won't be used when return_bool is false
         }
     }
