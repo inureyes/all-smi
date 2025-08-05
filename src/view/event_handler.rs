@@ -43,9 +43,7 @@ pub async fn handle_key_event(key_event: KeyEvent, state: &mut AppState, args: &
 
 fn handle_left_arrow(state: &mut AppState) {
     // Check if we're in local mode ("All" tab + local hostname)
-    if state.tabs.len() == 2
-        || (state.tabs.len() == 4 && state.tabs.contains(&"Process".to_string()))
-    {
+    if state.is_local_mode() {
         // Local mode - handle horizontal scrolling for process list
         if state.process_horizontal_scroll_offset > 0 {
             state.process_horizontal_scroll_offset =
@@ -73,9 +71,7 @@ fn handle_left_arrow(state: &mut AppState) {
 
 fn handle_right_arrow(state: &mut AppState) {
     // Check if we're in local mode ("All" tab + local hostname)
-    if state.tabs.len() == 2
-        || (state.tabs.len() == 4 && state.tabs.contains(&"Process".to_string()))
-    {
+    if state.is_local_mode() {
         // Local mode - handle horizontal scrolling for process list
         state.process_horizontal_scroll_offset += 10;
     } else {
@@ -334,9 +330,7 @@ pub async fn handle_mouse_event(
 
 fn handle_process_header_click(x: u16, y: u16, state: &mut AppState) {
     // Check if we're in local mode with process list visible
-    if state.tabs.len() != 2  // "All" tab + local hostname
-        && !(state.tabs.len() == 4 && state.tabs.contains(&"Process".to_string()))
-    {
+    if !state.is_local_mode() {
         return;
     }
 
