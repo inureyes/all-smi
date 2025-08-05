@@ -11,7 +11,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     let box_width = (cols as usize).min(80);
 
     // Calculate cluster statistics
-    let is_local_mode = state.tabs.len() == 1
+    let is_local_mode = state.tabs.len() == 2  // "All" tab + local hostname
         || (state.tabs.len() <= 4 && state.tabs.contains(&"Process".to_string()));
     let total_nodes = if is_local_mode {
         1 // Local mode has 1 node
