@@ -239,7 +239,7 @@ impl UiLoop {
     ) -> String {
         let mut buffer = BufferWriter::new();
         print_function_keys(&mut buffer, cols, rows, state, is_remote);
-        print_loading_indicator(&mut buffer, cols, rows);
+        print_loading_indicator(&mut buffer, cols, rows, state.frame_counter);
         buffer.get_buffer().to_string()
     }
 
