@@ -146,6 +146,7 @@ impl MetricsParser {
                 total_memory: 0,
                 frequency: 0,
                 power_consumption: 0.0,
+                gpu_core_count: None,
                 detail,
             }
         });

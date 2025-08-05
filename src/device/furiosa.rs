@@ -492,6 +492,7 @@ impl FuriosaReader {
             total_memory,
             frequency: frequency as u32,
             power_consumption: power,
+            gpu_core_count: None,
             detail,
         })
     }
@@ -621,6 +622,7 @@ impl FuriosaReader {
                             total_memory: 48 * 1024 * 1024 * 1024, // 48GB HBM3
                             frequency,
                             power_consumption: power,
+                            gpu_core_count: None,
                             detail,
                         }
                     })

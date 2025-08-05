@@ -280,6 +280,7 @@ mod tests {
             total_memory: 16 * 1024 * 1024 * 1024, // 16GB
             frequency: 1500,
             power_consumption: 250.0,
+            gpu_core_count: None,
             detail: HashMap::new(),
         }
     }

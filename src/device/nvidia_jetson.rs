@@ -104,6 +104,7 @@ impl GpuReader for NvidiaJetsonGpuReader {
             total_memory,
             frequency,
             power_consumption,
+            gpu_core_count: None,
             detail,
         };
 

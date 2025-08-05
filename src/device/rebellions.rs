@@ -295,6 +295,7 @@ impl GpuReader for RebellionsReader {
                                 &device.card_power,
                                 Some("mW"),
                             ) / 1000.0,
+                            gpu_core_count: None,
                             detail,
                         }
                     })

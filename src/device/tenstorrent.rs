@@ -527,6 +527,7 @@ impl TenstorrentReader {
                     total_memory,
                     frequency,
                     power_consumption: power,
+                    gpu_core_count: None,
                     detail,
                 })
             }

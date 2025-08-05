@@ -372,6 +372,7 @@ impl NvidiaGpuReader {
                             .power_usage()
                             .map(|p| p as f64 / 1000.0)
                             .unwrap_or(0.0),
+                        gpu_core_count: None, // NVIDIA doesn't provide core count via NVML
                         detail,
                     };
                     gpu_info.push(info);
@@ -457,6 +458,7 @@ impl NvidiaGpuReader {
                             total_memory: total_memory_mb * 1024 * 1024, // Convert to bytes
                             frequency,
                             power_consumption: power_draw,
+                            gpu_core_count: None, // NVIDIA doesn't provide core count via nvidia-smi
                             detail,
                         };
                         gpu_info.push(info);

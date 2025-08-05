@@ -37,6 +37,25 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
             .unwrap_or(false)
     });
 
+    // Calculate GPU cores/count based on mode
+    // - Remote mode: show number of GPUs in the cluster
+    // - Local Apple Silicon: show actual GPU core count
+    // - Local non-Apple Silicon: show number of GPUs
+    let gpu_cores_display = if !is_local_mode {
+        // Remote mode: show total number of GPUs
+        total_gpus
+    } else if is_apple_silicon {
+        // Local Apple Silicon: show actual GPU core count
+        state
+            .gpu_info
+            .iter()
+            .map(|gpu| gpu.gpu_core_count.unwrap_or(1) as usize)
+            .sum::<usize>()
+    } else {
+        // Local non-Apple Silicon: show number of GPUs
+        total_gpus
+    };
+
     let total_memory_gb = if is_apple_silicon {
         // Use system RAM for Apple Silicon
         state
@@ -185,7 +204,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
                 format_ram_value(total_system_memory_gb),
                 Color::Green,
             ),
-            ("GPU Cores", format!("{total_gpus}"), Color::Cyan),
+            ("GPU Cores", format!("{gpu_cores_display}"), Color::Cyan),
             ("Total VRAM", format_ram_value(total_memory_gb), Color::Blue),
             ("Avg. Temp", avg_temperature_display, Color::Magenta),
             (

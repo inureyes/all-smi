@@ -34,6 +34,7 @@ pub struct GpuInfo {
     pub total_memory: u64,
     pub frequency: u32,
     pub power_consumption: f64,
+    pub gpu_core_count: Option<u32>, // Number of GPU cores (e.g., Apple Silicon)
     pub detail: HashMap<String, String>,
 }
 
