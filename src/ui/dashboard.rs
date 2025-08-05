@@ -48,7 +48,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         state
             .gpu_info
             .iter()
-            .map(|gpu| gpu.gpu_core_count.unwrap_or(1) as usize)
+            .map(|gpu| gpu.gpu_core_count.unwrap_or(0) as usize)
             .sum::<usize>()
     } else {
         // Local non-Apple Silicon: show number of GPUs
