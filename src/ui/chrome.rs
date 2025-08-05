@@ -3,7 +3,7 @@ use std::io::Write;
 use crossterm::{cursor, queue, style::Color};
 
 use crate::app_state::AppState;
-use crate::ui::constants::SCREEN_MARGIN;
+use crate::ui::constants::{ANIMATION_SPEED, BLOCK_SIZE_DIVISOR, BLOCK_SIZE_MAX, SCREEN_MARGIN};
 use crate::ui::text::{display_width, print_colored_text, truncate_to_width};
 
 pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16, frame_counter: u64) {
