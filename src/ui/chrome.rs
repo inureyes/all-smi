@@ -15,7 +15,7 @@ pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16, f
     print_colored_text(stdout, message, Color::Yellow, None, None);
 
     // Progress bar parameters
-    let bar_width = 40.min(cols as usize - 10); // Ensure it fits on screen
+    let bar_width = 40.min(cols as usize - SCREEN_MARGIN); // Ensure it fits on screen
     let bar_x = (cols.saturating_sub(bar_width as u16)) / 2;
     let bar_y = y + 2; // 2 lines below "Loading..."
 
