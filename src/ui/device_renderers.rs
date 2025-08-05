@@ -131,7 +131,8 @@ pub fn print_gpu_info<W: Write>(
         "N/A".to_string()
     } else if is_apple_silicon {
         // Apple Silicon GPU uses very little power, show 2 decimal places
-        format!("{:.2}W", info.power_consumption)
+        // Use fixed width formatting to prevent trailing characters
+        format!("{:5.2}W", info.power_consumption)
     } else if let Some(power_max_str) = info.detail.get("power_limit_max") {
         if let Ok(power_max) = power_max_str.parse::<f64>() {
             format!("{:.0}/{:.0}W", info.power_consumption, power_max)

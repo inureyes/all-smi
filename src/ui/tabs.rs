@@ -207,6 +207,7 @@ mod tests {
             connection_status: HashMap::new(),
             known_hosts: Vec::new(),
             hostname_to_host_id: HashMap::new(),
+            is_local_mode: false, // Test state assumes remote mode
         }
     }
 

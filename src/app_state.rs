@@ -93,6 +93,8 @@ pub struct AppState {
     pub known_hosts: Vec<String>,
     // Reverse lookup: actual_hostname -> host_id for efficient connection status retrieval
     pub hostname_to_host_id: HashMap<String, String>,
+    // Mode tracking - true for local monitoring, false for remote monitoring
+    pub is_local_mode: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -167,6 +169,7 @@ impl AppState {
             connection_status: HashMap::new(),
             known_hosts: Vec::new(),
             hostname_to_host_id: HashMap::new(),
+            is_local_mode: true, // Default to local mode
         }
     }
 }
@@ -324,5 +327,26 @@ impl SortCriteria {
             SortDirection::Ascending => base_ordering,
             SortDirection::Descending => base_ordering.reverse(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_local_mode() {
+        // Test case 1: Local mode
+        let mut state = AppState::new();
+        state.is_local_mode = true;
+        assert!(state.is_local_mode);
+
+        // Test case 2: Remote mode
+        state.is_local_mode = false;
+        assert!(!state.is_local_mode);
+
+        // Test case 3: Default is local mode
+        let default_state = AppState::new();
+        assert!(default_state.is_local_mode);
     }
 }

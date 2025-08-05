@@ -1,5 +1,6 @@
 pub mod buffer;
 pub mod chrome;
+pub mod constants;
 pub mod dashboard;
 pub mod device_renderers;
 pub mod help;

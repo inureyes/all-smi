@@ -3,9 +3,10 @@ use std::io::Write;
 use crossterm::{cursor, queue, style::Color};
 
 use crate::app_state::AppState;
+use crate::ui::constants::{ANIMATION_SPEED, BLOCK_SIZE_DIVISOR, BLOCK_SIZE_MAX, SCREEN_MARGIN};
 use crate::ui::text::{display_width, print_colored_text, truncate_to_width};
 
-pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
+pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16, frame_counter: u64) {
     // Center the loading message
     let message = "Loading...";
     let x = (cols.saturating_sub(message.len() as u16)) / 2;
@@ -13,6 +14,39 @@ pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16) {
 
     queue!(stdout, cursor::MoveTo(x, y)).unwrap();
     print_colored_text(stdout, message, Color::Yellow, None, None);
+
+    // Progress bar parameters
+    let bar_width = 40.min(cols as usize - SCREEN_MARGIN); // Ensure it fits on screen
+    let bar_x = (cols.saturating_sub(bar_width as u16)) / 2;
+    let bar_y = y + 2; // 2 lines below "Loading..."
+
+    // Create animated progress bar
+    // Lower ANIMATION_SPEED = faster
+    let position = ((frame_counter / ANIMATION_SPEED) % (bar_width as u64 * 2)) as usize;
+
+    // Calculate the sliding block position (ping-pong effect)
+    let block_size = BLOCK_SIZE_MAX.min(bar_width / BLOCK_SIZE_DIVISOR); // Calculate block size relative to bar width
+    let actual_pos = if position < bar_width {
+        position
+    } else {
+        bar_width * 2 - position - 1
+    };
+
+    // Ensure the block doesn't go out of bounds
+    let block_start = actual_pos.min(bar_width.saturating_sub(block_size));
+    let block_end = (block_start + block_size).min(bar_width);
+
+    // Move to progress bar position
+    queue!(stdout, cursor::MoveTo(bar_x, bar_y)).unwrap();
+
+    // Draw the progress bar with thinner characters
+    for i in 0..bar_width {
+        if i >= block_start && i < block_end {
+            print_colored_text(stdout, "━", Color::Cyan, None, None);
+        } else {
+            print_colored_text(stdout, "─", Color::DarkGrey, None, None);
+        }
+    }
 }
 
 pub fn print_function_keys<W: Write>(
