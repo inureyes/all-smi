@@ -172,11 +172,6 @@ impl AppState {
             is_local_mode: true, // Default to local mode
         }
     }
-
-    /// Check if the application is running in local mode.
-    pub fn is_local_mode(&self) -> bool {
-        self.is_local_mode
-    }
 }
 
 impl SortCriteria {
@@ -344,14 +339,14 @@ mod tests {
         // Test case 1: Local mode
         let mut state = AppState::new();
         state.is_local_mode = true;
-        assert!(state.is_local_mode());
+        assert!(state.is_local_mode);
 
         // Test case 2: Remote mode
         state.is_local_mode = false;
-        assert!(!state.is_local_mode());
+        assert!(!state.is_local_mode);
 
         // Test case 3: Default is local mode
         let default_state = AppState::new();
-        assert!(default_state.is_local_mode());
+        assert!(default_state.is_local_mode);
     }
 }
