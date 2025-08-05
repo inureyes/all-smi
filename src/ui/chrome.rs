@@ -21,8 +21,8 @@ pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16, f
     let bar_y = y + 2; // 2 lines below "Loading..."
 
     // Create animated progress bar
-    let animation_speed = ANIMATION_SPEED; // Lower = faster
-    let position = ((frame_counter / animation_speed) % (bar_width as u64 * 2)) as usize;
+    // Lower ANIMATION_SPEED = faster
+    let position = ((frame_counter / ANIMATION_SPEED) % (bar_width as u64 * 2)) as usize;
 
     // Calculate the sliding block position (ping-pong effect)
     let block_size = BLOCK_SIZE_MAX.min(bar_width / BLOCK_SIZE_DIVISOR); // Smaller block
