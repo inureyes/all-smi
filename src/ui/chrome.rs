@@ -24,7 +24,7 @@ pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16, f
     let position = ((frame_counter / animation_speed) % (bar_width as u64 * 2)) as usize;
 
     // Calculate the sliding block position (ping-pong effect)
-    let block_size = 3.min(bar_width / 4); // Smaller block (was 5)
+    let block_size = 3.min(bar_width / 4); // Smaller block
     let actual_pos = if position < bar_width {
         position
     } else {
