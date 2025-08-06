@@ -67,6 +67,12 @@ pub struct TenstorrentReader {
     config: TenstorrentConfig,
 }
 
+impl Default for TenstorrentReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TenstorrentReader {
     pub fn new() -> Self {
         Self::with_config(TenstorrentConfig::default())

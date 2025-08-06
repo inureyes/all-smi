@@ -1,0 +1,189 @@
+#[cfg(test)]
+mod tests {
+    use super::super::cpu_linux::*;
+    use crate::device::{CoreType, CpuPlatformType, CpuReader};
+    use std::fs;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    // Helper to create a mock /proc/cpuinfo file
+    fn create_mock_cpuinfo(dir: &Path, content: &str) -> std::io::Result<()> {
+        fs::write(dir.join("cpuinfo"), content)
+    }
+
+    // Helper to create a mock /proc/stat file
+    fn create_mock_stat(dir: &Path, content: &str) -> std::io::Result<()> {
+        fs::write(dir.join("stat"), content)
+    }
+
+    #[test]
+    fn test_parse_cpuinfo_intel() {
+        let cpuinfo_content = r#"processor	: 0
+vendor_id	: GenuineIntel
+cpu family	: 6
+model		: 85
+model name	: Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz
+stepping	: 10
+cpu MHz		: 3700.000
+cache size	: 12288 KB
+physical id	: 0
+siblings	: 12
+core id		: 0
+cpu cores	: 6
+processor	: 1
+physical id	: 0
+core id		: 1
+processor	: 11
+physical id	: 0
+core id		: 5"#;
+
+        let reader = LinuxCpuReader::new();
+        let result = reader.parse_cpuinfo(cpuinfo_content);
+        assert!(result.is_ok());
+
+        let (cpu_model, arch, platform, sockets, cores, threads, base_freq, max_freq, cache) =
+            result.unwrap();
+        assert_eq!(cpu_model, "Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz");
+        assert_eq!(platform, CpuPlatformType::Intel);
+        assert_eq!(sockets, 1);
+        assert_eq!(threads, 12); // Based on processor count
+        assert_eq!(base_freq, 3700);
+        assert_eq!(cache, 12); // 12288 KB -> 12 MB
+    }
+
+    #[test]
+    fn test_parse_cpuinfo_amd() {
+        let cpuinfo_content = r#"processor	: 0
+vendor_id	: AuthenticAMD
+model name	: AMD Ryzen 9 5900X 12-Core Processor
+cpu MHz		: 3700.000
+cache size	: 512 KB
+physical id	: 0"#;
+
+        let reader = LinuxCpuReader::new();
+        let result = reader.parse_cpuinfo(cpuinfo_content);
+        assert!(result.is_ok());
+
+        let (cpu_model, _, platform, _, _, _, _, _, _) = result.unwrap();
+        assert_eq!(cpu_model, "AMD Ryzen 9 5900X 12-Core Processor");
+        assert_eq!(platform, CpuPlatformType::Amd);
+    }
+
+    #[test]
+    fn test_parse_cpu_stat() {
+        let stat_content = r#"cpu  10000 0 20000 70000 0 0 0 0 0 0
+cpu0 2500 0 5000 17500 0 0 0 0 0 0
+cpu1 2500 0 5000 17500 0 0 0 0 0 0
+cpu2 2500 0 5000 17500 0 0 0 0 0 0
+cpu3 2500 0 5000 17500 0 0 0 0 0 0"#;
+
+        let reader = LinuxCpuReader::new();
+        let result = reader.parse_cpu_stat(stat_content, 1);
+        assert!(result.is_ok());
+
+        let (overall_util, socket_info, core_utils) = result.unwrap();
+
+        // CPU utilization = (10000 + 20000) / 100000 * 100 = 30%
+        assert_eq!(overall_util, 30.0);
+        assert_eq!(socket_info.len(), 1);
+        assert_eq!(core_utils.len(), 4);
+
+        // Each core should have same utilization
+        for core in &core_utils {
+            assert_eq!(core.utilization, 30.0);
+            assert_eq!(core.core_type, CoreType::Standard);
+        }
+    }
+
+    #[test]
+    fn test_get_core_utilization_from_stat() {
+        let stat_content = r#"cpu  10000 0 20000 70000 0 0 0 0 0 0
+cpu0 2500 0 5000 17500 0 0 0 0 0 0
+cpu1 1000 0 1000 18000 0 0 0 0 0 0
+cpu10 3000 0 7000 15000 0 0 0 0 0 0"#;
+
+        let reader = LinuxCpuReader::new();
+
+        // Test cpu0: (2500 + 5000) / 25000 = 30%
+        let util = reader.get_core_utilization_from_stat(stat_content, 0);
+        assert_eq!(util, 30.0);
+
+        // Test cpu1: (1000 + 1000) / 20000 = 10%
+        let util = reader.get_core_utilization_from_stat(stat_content, 1);
+        assert_eq!(util, 10.0);
+
+        // Test cpu10: (3000 + 7000) / 25000 = 40%
+        let util = reader.get_core_utilization_from_stat(stat_content, 10);
+        assert_eq!(util, 40.0);
+
+        // Test non-existent cpu
+        let util = reader.get_core_utilization_from_stat(stat_content, 99);
+        assert_eq!(util, 0.0);
+    }
+
+    #[test]
+    fn test_container_aware_parsing() {
+        // Create a reader that would detect container environment
+        let reader = LinuxCpuReader::new();
+
+        // Test that container info is properly initialized
+        // Note: This test will behave differently in container vs non-container environments
+        if reader.container_info.is_container {
+            assert!(reader.container_info.effective_cpu_count > 0.0);
+            println!(
+                "Running in container with {} effective CPUs",
+                reader.container_info.effective_cpu_count
+            );
+        } else {
+            assert!(reader.container_info.effective_cpu_count > 0.0);
+            println!(
+                "Running on host with {} CPUs",
+                reader.container_info.effective_cpu_count
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_cpuinfo_with_container_limits() {
+        let cpuinfo_content = r#"processor	: 0
+model name	: Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz
+cpu MHz		: 3700.000
+processor	: 1
+processor	: 2
+processor	: 3"#;
+
+        // Create a mock container-aware reader
+        let mut reader = LinuxCpuReader::new();
+
+        // Simulate container environment with 2 CPU limit
+        reader.container_info = crate::device::container_cpu::ContainerInfo {
+            is_container: true,
+            cpu_quota: Some(200000),
+            cpu_period: Some(100000),
+            cpu_shares: None,
+            cpuset_cpus: None,
+            effective_cpu_count: 2.0,
+        };
+
+        let result = reader.parse_cpuinfo(cpuinfo_content);
+        assert!(result.is_ok());
+
+        // The reader should now be container-aware
+        // In get_cpu_info_from_proc, it would adjust the reported cores
+    }
+
+    #[test]
+    fn test_get_cache_size_from_lscpu() {
+        let reader = LinuxCpuReader::new();
+
+        // This test will try to actually run lscpu if available
+        // The result will vary based on the system
+        let cache_size = reader.get_cache_size_from_lscpu();
+
+        // Just verify it returns Some value or None, both are valid
+        match cache_size {
+            Some(size) => println!("Found cache size: {} MB", size),
+            None => println!("No cache size found (lscpu not available or failed)"),
+        }
+    }
+}

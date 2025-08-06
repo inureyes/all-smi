@@ -13,6 +13,12 @@ pub struct AppleSiliconGpuReader {
     gpu_core_count: Option<u32>,
 }
 
+impl Default for AppleSiliconGpuReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppleSiliconGpuReader {
     pub fn new() -> Self {
         let (name, driver_version) = get_gpu_name_and_version();

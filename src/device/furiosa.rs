@@ -104,6 +104,12 @@ pub struct FuriosaReader {
     initialized: std::cell::Cell<bool>,
 }
 
+impl Default for FuriosaReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FuriosaReader {
     pub fn new() -> Self {
         Self::with_config(FuriosaConfig::default())

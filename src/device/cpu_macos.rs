@@ -24,6 +24,12 @@ pub struct MacOsCpuReader {
     cached_intel_info: RefCell<Option<IntelCpuInfo>>,
 }
 
+impl Default for MacOsCpuReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MacOsCpuReader {
     pub fn new() -> Self {
         let is_apple_silicon = Self::detect_apple_silicon();

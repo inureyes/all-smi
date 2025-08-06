@@ -1,3 +1,4 @@
+use crate::device::container_cpu::{parse_cpu_stat_with_container_limits, ContainerInfo};
 use crate::device::{
     CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo,
 };
@@ -31,12 +32,14 @@ pub struct LinuxCpuReader {
     // - Some(None): lscpu was called but failed
     // - Some(Some(value)): lscpu succeeded with value
     cached_lscpu_cache_size: RefCell<Option<Option<u32>>>,
+    container_info: ContainerInfo,
 }
 
 impl LinuxCpuReader {
     pub fn new() -> Self {
         Self {
             cached_lscpu_cache_size: RefCell::new(None),
+            container_info: ContainerInfo::detect(),
         }
     }
 
@@ -51,13 +54,32 @@ impl LinuxCpuReader {
             cpu_model,
             architecture,
             platform_type,
-            socket_count,
-            total_cores,
-            total_threads,
+            mut socket_count,
+            mut total_cores,
+            mut total_threads,
             base_frequency,
             max_frequency,
             mut cache_size,
         ) = self.parse_cpuinfo(&cpuinfo_content)?;
+
+        // Adjust core/thread counts based on container limits
+        if self.container_info.is_container {
+            // If in a container, adjust the reported cores based on CPU quota
+            let effective_cores = self.container_info.effective_cpu_count.ceil() as u32;
+
+            // If cpuset is specified, use its count
+            if let Some(cpuset) = &self.container_info.cpuset_cpus {
+                total_cores = cpuset.len() as u32;
+                total_threads = total_cores; // Assume no hyperthreading for simplicity
+            } else if effective_cores < total_cores {
+                // Use quota-based limit if it's more restrictive
+                total_cores = effective_cores;
+                total_threads = effective_cores;
+            }
+
+            // Container typically appears as single socket
+            socket_count = 1;
+        }
 
         // If cache_size is 0, try to get it from lscpu
         if cache_size == 0 {
@@ -69,7 +91,37 @@ impl LinuxCpuReader {
         // Read /proc/stat for CPU utilization
         let stat_content = fs::read_to_string("/proc/stat")?;
         let (overall_utilization, per_socket_info, per_core_utilization) =
-            self.parse_cpu_stat(&stat_content, socket_count)?;
+            if self.container_info.is_container {
+                // Use container-aware parsing
+                let (utilization, active_cores) =
+                    parse_cpu_stat_with_container_limits(&stat_content, &self.container_info);
+
+                // Convert active cores to per-core utilization
+                let mut core_utils = Vec::new();
+                for &core_id in &active_cores {
+                    // Parse individual core stats
+                    let core_util = self.get_core_utilization_from_stat(&stat_content, core_id);
+                    core_utils.push(CoreUtilization {
+                        core_id,
+                        core_type: CoreType::Standard,
+                        utilization: core_util,
+                    });
+                }
+
+                // Create socket info for container
+                let socket_info = vec![CpuSocketInfo {
+                    socket_id: 0,
+                    utilization,
+                    cores: total_cores,
+                    threads: total_threads,
+                    temperature: None,
+                    frequency_mhz: base_frequency,
+                }];
+
+                (utilization, socket_info, core_utils)
+            } else {
+                self.parse_cpu_stat(&stat_content, socket_count)?
+            };
 
         // Try to get CPU temperature (may not be available on all systems)
         let temperature = self.get_cpu_temperature();
@@ -404,6 +456,37 @@ impl LinuxCpuReader {
 
         result
     }
+
+    fn get_core_utilization_from_stat(&self, stat_content: &str, core_id: u32) -> f64 {
+        let cpu_line_prefix = format!("cpu{}", core_id);
+
+        for line in stat_content.lines() {
+            if line.starts_with(&cpu_line_prefix)
+                && !line[cpu_line_prefix.len()..].starts_with(|c: char| c.is_ascii_digit())
+            {
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                if fields.len() >= 8 {
+                    let user: u64 = fields[1].parse().unwrap_or(0);
+                    let nice: u64 = fields[2].parse().unwrap_or(0);
+                    let system: u64 = fields[3].parse().unwrap_or(0);
+                    let idle: u64 = fields[4].parse().unwrap_or(0);
+                    let iowait: u64 = fields[5].parse().unwrap_or(0);
+                    let irq: u64 = fields[6].parse().unwrap_or(0);
+                    let softirq: u64 = fields[7].parse().unwrap_or(0);
+
+                    let total_time = user + nice + system + idle + iowait + irq + softirq;
+                    let active_time = total_time - idle - iowait;
+
+                    if total_time > 0 {
+                        return (active_time as f64 / total_time as f64) * 100.0;
+                    }
+                }
+                break;
+            }
+        }
+
+        0.0
+    }
 }
 
 impl CpuReader for LinuxCpuReader {
@@ -429,3 +512,7 @@ impl CpuReader for LinuxCpuReader {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "cpu_linux/tests.rs"]
+mod tests;

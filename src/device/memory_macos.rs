@@ -6,6 +6,12 @@ use crate::utils::get_hostname;
 
 pub struct MacOsMemoryReader;
 
+impl Default for MacOsMemoryReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MacOsMemoryReader {
     pub fn new() -> Self {
         MacOsMemoryReader
