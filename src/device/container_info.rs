@@ -13,6 +13,7 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Default, Debug, Clone)]
+#[allow(dead_code)]
 pub struct MemoryStats {
     pub anon_bytes: u64,
     pub file_bytes: u64,
@@ -27,14 +28,19 @@ pub struct MemoryStats {
 pub struct ContainerInfo {
     pub is_container: bool,
     // CPU limits
+    #[allow(dead_code)]
     pub cpu_quota: Option<i64>,
+    #[allow(dead_code)]
     pub cpu_period: Option<u64>,
+    #[allow(dead_code)]
     pub cpu_shares: Option<u64>,
     pub cpuset_cpus: Option<Vec<u32>>,
     pub effective_cpu_count: f64,
     // Memory limits
     pub memory_limit_bytes: Option<u64>,
+    #[allow(dead_code)]
     pub memory_soft_limit_bytes: Option<u64>,
+    #[allow(dead_code)]
     pub memory_swap_limit_bytes: Option<u64>,
     pub memory_usage_bytes: Option<u64>,
     // Cgroup handle
@@ -334,6 +340,7 @@ impl ContainerInfo {
         quota_limit.min(shares_limit).min(cpuset_limit)
     }
 
+    #[allow(dead_code)]
     pub fn get_cpu_usage_from_cgroup(&self) -> Option<f64> {
         #[cfg(target_os = "linux")]
         if let Some(ref _cg) = self.cgroup {
@@ -538,6 +545,7 @@ impl ContainerInfo {
         None
     }
 
+    #[allow(dead_code)]
     pub fn get_detailed_memory_stats(&self) -> Option<MemoryStats> {
         if !self.is_container {
             return None;

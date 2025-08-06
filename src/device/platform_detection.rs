@@ -221,3 +221,78 @@ pub fn has_rebellions() -> bool {
 pub fn get_os_type() -> &'static str {
     std::env::consts::OS
 }
+
+#[allow(dead_code)]
+pub fn is_running_in_container() -> bool {
+    // Only check on Linux, as containers are Linux-specific
+    if std::env::consts::OS != "linux" {
+        return false;
+    }
+
+    // Check for Docker
+    if std::path::Path::new("/.dockerenv").exists() {
+        return true;
+    }
+
+    // Check for Kubernetes
+    if std::env::var("KUBERNETES_SERVICE_HOST").is_ok() {
+        return true;
+    }
+
+    // Check /proc/self/cgroup for container runtimes
+    if let Ok(cgroup_content) = std::fs::read_to_string("/proc/self/cgroup") {
+        let container_patterns = [
+            "docker",
+            "containerd",
+            "crio",
+            "podman",
+            "garden",
+            "lxc",
+            "systemd-nspawn",
+        ];
+
+        for pattern in &container_patterns {
+            if cgroup_content.contains(pattern) {
+                return true;
+            }
+        }
+    }
+
+    // Check /proc/1/sched for container hints
+    if let Ok(sched_content) = std::fs::read_to_string("/proc/1/sched") {
+        if sched_content.lines().next().is_some_and(|line| {
+            line.contains("bash") || line.contains("sh") || line.contains("init")
+        }) {
+            // If PID 1 is a shell or init process that's not systemd/upstart, likely in container
+            if !sched_content.contains("systemd") && !sched_content.contains("upstart") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+#[allow(dead_code)]
+pub fn get_container_pid_namespace() -> Option<u32> {
+    // Get the PID namespace ID for the current process
+    if let Ok(ns_link) = std::fs::read_link("/proc/self/ns/pid") {
+        // Convert PathBuf to String
+        if let Some(ns_str) = ns_link.to_str() {
+            // Extract namespace ID from the link (format: "pid:[4026531836]")
+            if let Some(start) = ns_str.find('[') {
+                if let Some(end) = ns_str.find(']') {
+                    let ns_id_str = &ns_str[start + 1..end];
+                    // Parse as u64 first, then convert to u32 if within range
+                    if let Ok(ns_id_u64) = ns_id_str.parse::<u64>() {
+                        // Namespace IDs can be larger than u32::MAX
+                        // For comparison purposes, we'll use the lower 32 bits
+                        let ns_id = ns_id_u64 as u32;
+                        return Some(ns_id);
+                    }
+                }
+            }
+        }
+    }
+    None
+}

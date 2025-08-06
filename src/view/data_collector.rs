@@ -75,10 +75,23 @@ impl DataCollector {
                 .flat_map(|reader| reader.get_memory_info())
                 .collect();
 
-            let all_processes: Vec<ProcessInfo> = gpu_readers
+            // Collect processes from GPU readers if available
+            let mut all_processes: Vec<ProcessInfo> = gpu_readers
                 .iter()
                 .flat_map(|reader| reader.get_process_info())
                 .collect();
+
+            // If no GPU readers available, collect all system processes
+            if gpu_readers.is_empty() {
+                use crate::device::process_list::get_all_processes;
+                use std::collections::HashSet;
+                use sysinfo::System;
+
+                let mut system = System::new_all();
+                system.refresh_all();
+                let empty_gpu_pids = HashSet::new();
+                all_processes = get_all_processes(&system, &empty_gpu_pids);
+            }
 
             // Collect local storage information
             let all_storage_info = self.collect_local_storage_info().await;
@@ -460,16 +473,17 @@ impl DataCollector {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
+
+        // If no GPU info available, use the local hostname
+        if host_ids.is_empty() {
+            host_ids.push(get_hostname());
+        }
+
         host_ids.sort();
 
         // Always create "All" tab for consistent UI behavior
         let mut tabs = vec!["All".to_string()];
         tabs.extend(host_ids);
-
-        // Ensure we have at least one tab
-        if tabs.is_empty() {
-            tabs.push("Local".to_string());
-        }
 
         state.tabs = tabs;
     }

@@ -8,6 +8,7 @@ pub fn get_all_processes(system: &System, gpu_pids: &HashSet<u32>) -> Vec<Proces
 
     for (pid, process) in system.processes() {
         let pid_u32 = pid.as_u32();
+
         let uses_gpu = gpu_pids.contains(&pid_u32);
 
         // Get process priority and nice values
