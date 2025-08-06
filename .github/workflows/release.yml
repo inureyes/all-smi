@@ -180,15 +180,28 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         BIN_DIR=target/${{ matrix.target }}/release
-        tar -C "$BIN_DIR" -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
+        # Create temporary directory for packaging
+        mkdir -p package
+        # Copy binary
+        cp "$BIN_DIR/${{ matrix.artifact_name }}" package/
+        # Copy man page
+        cp docs/man/all-smi.1 package/
+        # Create tarball
+        tar -C package -czf ${{ matrix.asset_name }}.tar.gz .
     
     - name: Package macOS binary (zip)
       if: runner.os == 'macOS'
       run: |
         BIN="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
         ASSET="${{ matrix.asset_name }}.zip"
-        # Preserve extended attributes and create proper structure
-        ditto -c -k --sequesterRsrc --keepParent "$BIN" "$ASSET"
+        # Create temporary directory for packaging
+        mkdir -p package
+        # Copy binary
+        cp "$BIN" package/
+        # Copy man page
+        cp docs/man/all-smi.1 package/
+        # Create zip preserving extended attributes
+        cd package && ditto -c -k --sequesterRsrc . "../$ASSET"
     
     # ───────────────────────────────────────────────────────────────
     # Step 8: macOS notarization (currently disabled)
