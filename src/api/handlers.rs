@@ -7,7 +7,7 @@ use crate::app_state::AppState;
 use super::metrics::{
     cpu::CpuMetricExporter, disk::DiskMetricExporter, gpu::GpuMetricExporter,
     memory::MemoryMetricExporter, npu::NpuMetricExporter, process::ProcessMetricExporter,
-    MetricExporter,
+    runtime::RuntimeMetricExporter, MetricExporter,
 };
 
 pub type SharedState = Arc<RwLock<AppState>>;
@@ -49,6 +49,10 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
     let instance = state.gpu_info.first().map(|info| info.instance.clone());
     let disk_exporter = DiskMetricExporter::new(instance);
     all_metrics.push_str(&disk_exporter.export_metrics());
+
+    // Export runtime environment metrics
+    let runtime_exporter = RuntimeMetricExporter::new(&state.runtime_environment);
+    all_metrics.push_str(&runtime_exporter.export_metrics());
 
     all_metrics
 }

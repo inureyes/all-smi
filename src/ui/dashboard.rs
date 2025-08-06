@@ -476,7 +476,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                         &state.temperature_history,
                         params.gpu_history_width + 1, // +1 to fit the temperature value
                         100.0,
-                        format!("{:3.1}°C", params.avg_temp),
+                        format!("{:3.0}°C", params.avg_temp),
                     );
                 }
                 _ => {}
@@ -539,7 +539,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                     &state.cpu_temperature_history,
                     params.cpu_history_width + 1, // +1 to fit the temperature value
                     100.0,
-                    format!("{:3.1}°C", params.avg_cpu_temp),
+                    format!("{:3.0}°C", params.avg_cpu_temp),
                 );
             }
             _ => {}

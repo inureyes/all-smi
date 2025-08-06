@@ -259,18 +259,46 @@ impl UiLoop {
         let header_text = format!("all-smi - {current_time}");
         let version_text = format!("v{version}");
 
-        // Calculate spacing to right-align version
+        // Get runtime environment info
+        let runtime_shield = if let Some((name, color)) = state.runtime_environment.display_info() {
+            // Create a shield-style badge with padding
+            let shield_content = format!(" {name} ");
+            let shield_len = shield_content.len();
+            Some((shield_content, color, shield_len))
+        } else {
+            None
+        };
+
+        // Calculate spacing to right-align version, accounting for runtime shield
         let total_width = cols as usize;
-        let content_length = header_text.len() + version_text.len();
+        let runtime_shield_len = runtime_shield
+            .as_ref()
+            .map(|(_, _, len)| len + 1)
+            .unwrap_or(0); // +1 for space before shield
+        let content_length = header_text.len() + runtime_shield_len + version_text.len();
         let spacing = if total_width > content_length {
             " ".repeat(total_width - content_length)
         } else {
             " ".to_string()
         };
 
+        // Print header with runtime environment shield
+        print_colored_text(&mut buffer, &header_text, Color::White, None, None);
+
+        if let Some((shield_content, shield_color, _)) = runtime_shield {
+            print_colored_text(&mut buffer, " ", Color::White, None, None);
+            print_colored_text(
+                &mut buffer,
+                &shield_content,
+                Color::Black,
+                Some(shield_color),
+                None,
+            );
+        }
+
         print_colored_text(
             &mut buffer,
-            &format!("{header_text}{spacing}{version_text}\r\n"),
+            &format!("{spacing}{version_text}\r\n"),
             Color::White,
             None,
             None,

@@ -236,6 +236,19 @@ Note: Furiosa NPUs use the RNGD architecture with 8 cores per NPU. Each core con
 
 Note: Storage metrics exclude Docker bind mounts and are filtered to show only relevant filesystems.
 
+### Runtime Environment Metrics
+
+| Metric                              | Description                                      | Unit  | Labels                                           |
+|-------------------------------------|--------------------------------------------------|-------|--------------------------------------------------|
+| `all_smi_runtime_environment`       | Current runtime environment (container or VM)    | gauge | `hostname`, `environment`                        |
+| `all_smi_container_runtime_info`    | Container runtime environment information        | gauge | `hostname`, `runtime`, `container_id`            |
+| `all_smi_kubernetes_pod_info`       | Kubernetes pod information (K8s only)            | gauge | `hostname`, `pod_name`, `namespace`              |
+| `all_smi_virtualization_info`       | Virtualization environment information           | gauge | `hostname`, `vm_type`, `hypervisor`             |
+
+Runtime environment metrics are detected at startup and provide information about the execution context:
+- Container environments: Docker, Kubernetes, Podman, containerd, LXC, CRI-O, Backend.AI
+- Virtualization platforms: VMware, VirtualBox, KVM, QEMU, Hyper-V, Xen, AWS EC2, Google Cloud, Azure, DigitalOcean, Parallels
+
 ### Process Metrics (When --processes Flag is Used)
 
 | Metric                             | Description                     | Unit    | Labels                                                 |
@@ -355,6 +368,21 @@ topk(5, all_smi_gpu_process_memory_bytes)
 
 # Processes using more than 1GB GPU memory
 all_smi_gpu_process_memory_bytes > 1073741824
+```
+
+### Runtime Environment Monitoring
+```promql
+# All containers running in Kubernetes
+all_smi_container_runtime_info{runtime="Kubernetes"}
+
+# All instances running in AWS EC2
+all_smi_virtualization_info{vm_type="AWS EC2"}
+
+# Containers running in Backend.AI
+all_smi_runtime_environment{environment="Backend.AI"}
+
+# Group metrics by runtime environment
+sum by (environment) (all_smi_gpu_utilization) * on(hostname) group_left(environment) all_smi_runtime_environment
 ```
 
 ## Integration Examples

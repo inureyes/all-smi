@@ -1,6 +1,7 @@
 use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 use crate::ui::notification::NotificationManager;
+use crate::utils::RuntimeEnvironment;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
@@ -98,6 +99,8 @@ pub struct AppState {
     pub hostname_to_host_id: HashMap<String, String>,
     // Mode tracking - true for local monitoring, false for remote monitoring
     pub is_local_mode: bool,
+    // Runtime environment (container/VM) information
+    pub runtime_environment: RuntimeEnvironment,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -176,6 +179,7 @@ impl AppState {
             known_hosts: Vec::new(),
             hostname_to_host_id: HashMap::new(),
             is_local_mode: true, // Default to local mode
+            runtime_environment: RuntimeEnvironment::detect(),
         }
     }
 }
