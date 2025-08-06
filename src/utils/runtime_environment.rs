@@ -236,31 +236,8 @@ fn read_k8s_namespace() -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
-/// Get a human-readable description of the container environment
-pub fn describe_container_environment(info: &ContainerInfo) -> String {
-    match info.runtime {
-        ContainerRuntime::None => "Not running in a container".to_string(),
-        ContainerRuntime::Kubernetes => {
-            let mut desc = "Kubernetes".to_string();
-            if let Some(ns) = &info.namespace {
-                desc.push_str(&format!(" (namespace: {ns})"));
-            }
-            if let Some(pod) = &info.pod_name {
-                desc.push_str(&format!(" [pod: {pod}]"));
-            }
-            desc
-        }
-        _ => {
-            let mut desc = info.runtime.as_str().to_string();
-            if let Some(id) = &info.container_id {
-                desc.push_str(&format!(" ({id})"));
-            }
-            desc
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum VirtualizationType {
     VMware,
     VirtualBox,
@@ -614,24 +591,6 @@ fn check_aws_metadata() -> bool {
         output.status.success() && !output.stdout.is_empty()
     } else {
         false
-    }
-}
-
-/// Get a human-readable description of the virtualization environment
-pub fn describe_virtualization(info: &VirtualizationInfo) -> String {
-    if !info.is_virtual {
-        "Bare metal (not virtualized)".to_string()
-    } else {
-        match &info.vm_type {
-            VirtualizationType::None => {
-                if let Some(hypervisor) = &info.hypervisor {
-                    format!("Virtual machine ({hypervisor})")
-                } else {
-                    "Virtual machine (unknown type)".to_string()
-                }
-            }
-            _ => info.vm_type.as_str().to_string(),
-        }
     }
 }
 
