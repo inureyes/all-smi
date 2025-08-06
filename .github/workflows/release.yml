@@ -201,7 +201,7 @@ jobs:
         # Copy man page
         cp docs/man/all-smi.1 package/
         # Create zip preserving extended attributes
-        cd package && ditto -c -k --sequesterRsrc . "../$ASSET"
+        ditto -c -k --sequesterRsrc package "$ASSET"
     
     # ───────────────────────────────────────────────────────────────
     # Step 8: macOS notarization (currently disabled)
