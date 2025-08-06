@@ -343,12 +343,8 @@ pub fn draw_utilization_history<W: Write>(stdout: &mut W, state: &AppState, cols
     // Determine if we have GPU data
     let has_gpu = !state.gpu_info.is_empty();
 
-    // If we have GPU, split stats_width between GPU and CPU; otherwise all for CPU
-    let (gpu_width, cpu_width) = if has_gpu {
-        (stats_width / 2, stats_width / 2)
-    } else {
-        (0, stats_width)
-    };
+    // Always split stats_width between GPU and CPU for consistent layout
+    let (gpu_width, cpu_width) = (stats_width / 2, stats_width / 2);
 
     let gpu_history_width = if gpu_width > 10 {
         gpu_width.saturating_sub(10)
@@ -460,7 +456,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                         &state.utilization_history,
                         params.gpu_history_width,
                         100.0,
-                        format!("{:.1}%", params.avg_util),
+                        format!("{:3.1}%", params.avg_util),
                     );
                 }
                 1 => {
@@ -470,7 +466,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                         &state.memory_history,
                         params.gpu_history_width,
                         100.0,
-                        format!("{:.1}%", params.avg_mem),
+                        format!("{:3.1}%", params.avg_mem),
                     );
                 }
                 2 => {
@@ -478,9 +474,9 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                     print_history_bar_with_value(
                         stdout,
                         &state.temperature_history,
-                        params.gpu_history_width,
+                        params.gpu_history_width + 1, // +1 to fit the temperature value
                         100.0,
-                        format!("{:.0}°C", params.avg_temp),
+                        format!("{:3.1}°C", params.avg_temp),
                     );
                 }
                 _ => {}
@@ -491,21 +487,21 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                 0 => {
                     print_colored_text(stdout, "GPU Util.", Color::Yellow, None, None);
                     // Fill the history bar area with spaces, then show N/A
-                    let padding = params.gpu_history_width.saturating_sub(3); // Reserve space for "N/A"
+                    let padding = params.gpu_history_width.saturating_sub(5); // Reserve space for "  N/A" (5 chars like "xx.x%")
                     print_colored_text(stdout, &" ".repeat(padding), Color::DarkGrey, None, None);
-                    print_colored_text(stdout, " N/A", Color::DarkGrey, None, None);
+                    print_colored_text(stdout, "  N/A", Color::DarkGrey, None, None);
                 }
                 1 => {
                     print_colored_text(stdout, "GPU Mem. ", Color::Yellow, None, None);
-                    let padding = params.gpu_history_width.saturating_sub(3);
+                    let padding = params.gpu_history_width.saturating_sub(5);
                     print_colored_text(stdout, &" ".repeat(padding), Color::DarkGrey, None, None);
-                    print_colored_text(stdout, " N/A", Color::DarkGrey, None, None);
+                    print_colored_text(stdout, "  N/A", Color::DarkGrey, None, None);
                 }
                 2 => {
                     print_colored_text(stdout, "GPU Temp.", Color::Yellow, None, None);
-                    let padding = params.gpu_history_width.saturating_sub(3);
+                    let padding = params.gpu_history_width.saturating_sub(5);
                     print_colored_text(stdout, &" ".repeat(padding), Color::DarkGrey, None, None);
-                    print_colored_text(stdout, " N/A", Color::DarkGrey, None, None);
+                    print_colored_text(stdout, "  N/A", Color::DarkGrey, None, None);
                 }
                 _ => {}
             }
@@ -523,7 +519,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                     &state.cpu_utilization_history,
                     params.cpu_history_width,
                     100.0,
-                    format!("{:.1}%", params.avg_cpu_util),
+                    format!("{:3.1}%", params.avg_cpu_util),
                 );
             }
             1 => {
@@ -533,7 +529,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                     &state.system_memory_history,
                     params.cpu_history_width,
                     100.0,
-                    format!("{:.1}%", params.avg_sys_mem),
+                    format!("{:3.1}%", params.avg_sys_mem),
                 );
             }
             2 => {
@@ -541,9 +537,9 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                 print_history_bar_with_value(
                     stdout,
                     &state.cpu_temperature_history,
-                    params.cpu_history_width,
+                    params.cpu_history_width + 1, // +1 to fit the temperature value
                     100.0,
-                    format!("{:.0}°C", params.avg_cpu_temp),
+                    format!("{:3.1}°C", params.avg_cpu_temp),
                 );
             }
             _ => {}
