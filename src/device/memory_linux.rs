@@ -1,14 +1,19 @@
 use chrono::Local;
 use std::fs;
 
+use crate::device::container_info::ContainerInfo;
 use crate::device::{MemoryInfo, MemoryReader};
 use crate::utils::get_hostname;
 
-pub struct LinuxMemoryReader;
+pub struct LinuxMemoryReader {
+    container_info: ContainerInfo,
+}
 
 impl LinuxMemoryReader {
     pub fn new() -> Self {
-        LinuxMemoryReader
+        LinuxMemoryReader {
+            container_info: ContainerInfo::detect(),
+        }
     }
 }
 
@@ -16,6 +21,37 @@ impl MemoryReader for LinuxMemoryReader {
     fn get_memory_info(&self) -> Vec<MemoryInfo> {
         let mut memory_info = Vec::new();
 
+        // Check if we're in a container and have memory limits
+        if self.container_info.is_container {
+            if let Some((total, used, utilization)) = self.container_info.get_memory_stats() {
+                // Use container memory limits
+                let hostname = get_hostname();
+                let now = Local::now();
+
+                // For containers, we primarily care about the limit and usage
+                // Other values like buffers/cached are from /proc/meminfo but less relevant
+                memory_info.push(MemoryInfo {
+                    host_id: hostname.clone(),
+                    hostname: hostname.clone(),
+                    instance: hostname,
+                    total_bytes: total,
+                    used_bytes: used,
+                    available_bytes: total.saturating_sub(used),
+                    free_bytes: total.saturating_sub(used),
+                    buffers_bytes: 0,    // Not easily available in container context
+                    cached_bytes: 0,     // Not easily available in container context
+                    swap_total_bytes: 0, // Container swap is complex
+                    swap_used_bytes: 0,
+                    swap_free_bytes: 0,
+                    utilization,
+                    time: now.format("%Y-%m-%d %H:%M:%S").to_string(),
+                });
+
+                return memory_info;
+            }
+        }
+
+        // Fall back to reading /proc/meminfo for non-container or when container info is not available
         if let Ok(meminfo_content) = fs::read_to_string("/proc/meminfo") {
             let mut total_bytes = 0;
             let mut available_bytes = 0;
@@ -81,3 +117,7 @@ impl MemoryReader for LinuxMemoryReader {
         memory_info
     }
 }
+
+#[cfg(test)]
+#[path = "memory_linux/tests.rs"]
+mod tests;

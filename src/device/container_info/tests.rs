@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use super::super::container_cpu::*;
+    use super::super::container_info::*;
 
     #[test]
     fn test_parse_cpuset_range() {
@@ -95,6 +95,10 @@ cpu3 250 0 500 1750 0 0 0 0 0 0"#;
             cpu_shares: None,
             cpuset_cpus: None,
             effective_cpu_count: 4.0,
+            memory_limit_bytes: None,
+            memory_soft_limit_bytes: None,
+            memory_swap_limit_bytes: None,
+            memory_usage_bytes: None,
         };
 
         let (utilization, active_cores) =
@@ -110,6 +114,10 @@ cpu3 250 0 500 1750 0 0 0 0 0 0"#;
             cpu_shares: None,
             cpuset_cpus: Some(vec![0, 1]),
             effective_cpu_count: 2.0,
+            memory_limit_bytes: None,
+            memory_soft_limit_bytes: None,
+            memory_swap_limit_bytes: None,
+            memory_usage_bytes: None,
         };
 
         let (utilization, active_cores) =
@@ -125,6 +133,10 @@ cpu3 250 0 500 1750 0 0 0 0 0 0"#;
             cpu_shares: None,
             cpuset_cpus: None,
             effective_cpu_count: 0.5,
+            memory_limit_bytes: None,
+            memory_soft_limit_bytes: None,
+            memory_swap_limit_bytes: None,
+            memory_usage_bytes: None,
         };
 
         let (utilization, active_cores) =
@@ -156,8 +168,57 @@ cpu3 250 0 500 1750 0 0 0 0 0 0"#;
             if let Some(cpuset) = &info.cpuset_cpus {
                 println!("CPUSet: {:?}", cpuset);
             }
+            if let Some(mem_limit) = info.memory_limit_bytes {
+                println!("Memory limit: {} MB", mem_limit / 1024 / 1024);
+            }
+            if let Some(mem_usage) = info.memory_usage_bytes {
+                println!("Memory usage: {} MB", mem_usage / 1024 / 1024);
+            }
         } else {
             println!("Not running in a container");
         }
+    }
+
+    #[test]
+    fn test_memory_stats() {
+        let container_info = ContainerInfo {
+            is_container: true,
+            cpu_quota: None,
+            cpu_period: None,
+            cpu_shares: None,
+            cpuset_cpus: None,
+            effective_cpu_count: 2.0,
+            memory_limit_bytes: Some(2 * 1024 * 1024 * 1024), // 2GB
+            memory_soft_limit_bytes: None,
+            memory_swap_limit_bytes: None,
+            memory_usage_bytes: Some(1 * 1024 * 1024 * 1024), // 1GB
+        };
+
+        let stats = container_info.get_memory_stats();
+        assert!(stats.is_some());
+
+        let (total, used, utilization) = stats.unwrap();
+        assert_eq!(total, 2 * 1024 * 1024 * 1024);
+        assert_eq!(used, 1 * 1024 * 1024 * 1024);
+        assert_eq!(utilization, 50.0);
+    }
+
+    #[test]
+    fn test_memory_stats_no_container() {
+        let container_info = ContainerInfo {
+            is_container: false,
+            cpu_quota: None,
+            cpu_period: None,
+            cpu_shares: None,
+            cpuset_cpus: None,
+            effective_cpu_count: 4.0,
+            memory_limit_bytes: Some(2 * 1024 * 1024 * 1024),
+            memory_soft_limit_bytes: None,
+            memory_swap_limit_bytes: None,
+            memory_usage_bytes: Some(1 * 1024 * 1024 * 1024),
+        };
+
+        let stats = container_info.get_memory_stats();
+        assert!(stats.is_none()); // Should return None when not in container
     }
 }

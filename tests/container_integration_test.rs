@@ -1,7 +1,7 @@
 #[cfg(all(test, target_os = "linux"))]
 mod container_integration_tests {
     use all_smi::device::cpu_linux::LinuxCpuReader;
-    use all_smi::device::{container_cpu::ContainerInfo, CpuReader};
+    use all_smi::device::{container_info::ContainerInfo, CpuReader};
     use std::env;
     use std::fs;
     use std::path::PathBuf;
@@ -102,7 +102,7 @@ cpu5 250 0 500 1750 0 0 0 0 0 0"#;
         };
 
         let (utilization, active_cores) =
-            all_smi::device::container_cpu::parse_cpu_stat_with_container_limits(
+            all_smi::device::container_info::parse_cpu_stat_with_container_limits(
                 stat_content,
                 &container_info,
             );
@@ -146,5 +146,42 @@ cpu5 250 0 500 1750 0 0 0 0 0 0"#;
             &Some(vec![0, 1]), // 2 CPUs via cpuset
         );
         assert_eq!(effective, 1.5); // Quota is more restrictive
+    }
+
+    #[test]
+    fn test_memory_reader_with_container_limits() {
+        use all_smi::device::memory_linux::LinuxMemoryReader;
+        use all_smi::device::MemoryReader;
+
+        // Create memory reader
+        let reader = LinuxMemoryReader::new();
+
+        // Get memory info - this will use real system data
+        let memory_infos = reader.get_memory_info();
+
+        if !memory_infos.is_empty() {
+            let memory_info = &memory_infos[0];
+
+            // Verify basic fields are populated
+            assert!(memory_info.total_bytes > 0);
+            assert!(memory_info.utilization >= 0.0 && memory_info.utilization <= 100.0);
+
+            println!("Total Memory: {} MB", memory_info.total_bytes / 1024 / 1024);
+            println!("Used Memory: {} MB", memory_info.used_bytes / 1024 / 1024);
+            println!("Memory Utilization: {:.2}%", memory_info.utilization);
+
+            // If we're in a container, verify container-aware behavior
+            if reader.container_info.is_container {
+                println!(
+                    "Running in container with memory limit: {} MB",
+                    reader.container_info.memory_limit_bytes.unwrap_or(0) / 1024 / 1024
+                );
+
+                // In a container, reported memory should match container limit
+                if let Some(limit) = reader.container_info.memory_limit_bytes {
+                    assert_eq!(memory_info.total_bytes, limit);
+                }
+            }
+        }
     }
 }

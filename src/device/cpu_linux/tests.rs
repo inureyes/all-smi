@@ -156,7 +156,7 @@ processor	: 3"#;
         let mut reader = LinuxCpuReader::new();
 
         // Simulate container environment with 2 CPU limit
-        reader.container_info = crate::device::container_cpu::ContainerInfo {
+        reader.container_info = crate::device::container_info::ContainerInfo {
             is_container: true,
             cpu_quota: Some(200000),
             cpu_period: Some(100000),

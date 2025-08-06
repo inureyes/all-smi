@@ -16,9 +16,9 @@ pub mod cpu_linux;
 #[cfg(target_os = "macos")]
 pub mod cpu_macos;
 
-// Container CPU support
+// Container resource support
 #[cfg(target_os = "linux")]
-pub mod container_cpu;
+pub mod container_info;
 
 // Memory reader modules
 #[cfg(target_os = "linux")]

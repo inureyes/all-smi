@@ -1,4 +1,4 @@
-use crate::device::container_cpu::{parse_cpu_stat_with_container_limits, ContainerInfo};
+use crate::device::container_info::{parse_cpu_stat_with_container_limits, ContainerInfo};
 use crate::device::{
     CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo,
 };

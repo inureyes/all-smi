@@ -1,4 +1,4 @@
-.PHONY: help local remote mock release test lint clean docker-dev
+.PHONY: help local remote mock release test lint clean docker-dev docker-test-container-api docker-test-container-view
 
 help:
 	@echo "all-smi"
@@ -35,7 +35,34 @@ mock:
 	cargo run --features mock --bin all-smi-mock-server -- --port-range 10001-10050
 
 docker-dev:
-	docker run -it --rm --name all-smi-container --memory="2g" --cpus="2" -v "$(PWD)":/all-smi ubuntu:24.04 bash
+	docker run -it --rm --name all-smi-container --memory="4g" --cpus="2.5" \
+		-v "$(PWD)":/all-smi \
+		-w /all-smi \
+		rust:1.88 \
+		/bin/bash -c "apt-get update && apt-get install -y pkg-config protobuf-compiler && \
+		bash"
+
+docker-test-container-api:
+	docker run -it --rm --memory="2g" --cpus="1.5" \
+		-p 9090:9090 \
+		-v "$(PWD)":/all-smi \
+		-w /all-smi \
+		rust:1.88 \
+		/bin/bash -c "apt-get update && apt-get install -y pkg-config libssl-dev protobuf-compiler && \
+		cargo build --release && \
+		./target/release/all-smi api --port 9090"
+
+docker-test-container-view:
+	docker run -it --rm --memory="2g" --cpus="1.5" \
+		-v "$(PWD)":/all-smi \
+		-w /all-smi \
+		rust:1.88 \
+		/bin/bash -c "apt-get update && apt-get install -y pkg-config libssl-dev protobuf-compiler && \
+		cargo build --release && \
+		./target/release/all-smi view"
+
+docker-build-container:
+	docker build -t all-smi:latest .
 
 release:
 	cargo build --release
