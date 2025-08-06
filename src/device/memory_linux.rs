@@ -6,13 +6,19 @@ use crate::device::{MemoryInfo, MemoryReader};
 use crate::utils::get_hostname;
 
 pub struct LinuxMemoryReader {
-    container_info: ContainerInfo,
+    // Cache container info but only refresh memory usage
+    container_info: Option<ContainerInfo>,
 }
 
 impl LinuxMemoryReader {
     pub fn new() -> Self {
+        let container_info = ContainerInfo::detect();
         LinuxMemoryReader {
-            container_info: ContainerInfo::detect(),
+            container_info: if container_info.is_container {
+                Some(container_info)
+            } else {
+                None
+            },
         }
     }
 }
@@ -22,8 +28,8 @@ impl MemoryReader for LinuxMemoryReader {
         let mut memory_info = Vec::new();
 
         // Check if we're in a container and have memory limits
-        if self.container_info.is_container {
-            if let Some((total, used, utilization)) = self.container_info.get_memory_stats() {
+        if let Some(ref container_info) = self.container_info {
+            if let Some((total, used, utilization)) = container_info.get_memory_stats() {
                 // Use container memory limits
                 let hostname = get_hostname();
                 let now = Local::now();

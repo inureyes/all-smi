@@ -510,9 +510,10 @@ impl ContainerInfo {
         }
 
         let total = self.memory_limit_bytes?;
-        let used = self
-            .get_current_memory_usage()
-            .unwrap_or(self.memory_usage_bytes.unwrap_or(0));
+
+        // Always get fresh memory usage, don't rely on cached value
+        let used = self.get_current_memory_usage().unwrap_or(0);
+
         let utilization = if total > 0 {
             (used as f64 / total as f64) * 100.0
         } else {
@@ -522,24 +523,23 @@ impl ContainerInfo {
         Some((total, used, utilization))
     }
 
-    fn get_current_memory_usage(&self) -> Option<u64> {
+    pub fn get_current_memory_usage(&self) -> Option<u64> {
         #[cfg(target_os = "linux")]
-        if let Some(ref cg) = self.cgroup {
-            if let Some(mem_controller) = cg.controller_of::<MemController>() {
-                let mem_stat = mem_controller.memory_stat();
-                return Some(mem_stat.usage_in_bytes);
+        {
+            // Direct filesystem read is most efficient
+            // Try cgroups v2 first
+            if let Ok(content) = fs::read_to_string("/sys/fs/cgroup/memory.current") {
+                if let Ok(usage) = content.trim().parse::<u64>() {
+                    return Some(usage);
+                }
             }
-        }
 
-        // Try to get current memory usage from filesystem
-        // cgroups v2
-        if let Ok(content) = fs::read_to_string("/sys/fs/cgroup/memory.current") {
-            return content.trim().parse::<u64>().ok();
-        }
-
-        // cgroups v1
-        if let Ok(content) = fs::read_to_string("/sys/fs/cgroup/memory/memory.usage_in_bytes") {
-            return content.trim().parse::<u64>().ok();
+            // Try cgroups v1
+            if let Ok(content) = fs::read_to_string("/sys/fs/cgroup/memory/memory.usage_in_bytes") {
+                if let Ok(usage) = content.trim().parse::<u64>() {
+                    return Some(usage);
+                }
+            }
         }
 
         None
