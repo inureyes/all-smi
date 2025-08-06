@@ -290,50 +290,109 @@ fn print_dashboard_row<W: Write>(
 }
 
 pub fn draw_utilization_history<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
-    let box_width = (cols as usize).min(80);
+    let box_width = (cols as usize).min(120); // Increased width to accommodate more columns
 
-    if state.utilization_history.is_empty() {
+    if state.utilization_history.is_empty() && state.cpu_utilization_history.is_empty() {
         return;
     }
 
-    // Calculate averages for display
-    let avg_util =
-        state.utilization_history.iter().sum::<f64>() / state.utilization_history.len() as f64;
-    let avg_mem = state.memory_history.iter().sum::<f64>() / state.memory_history.len() as f64;
-    let avg_temp =
-        state.temperature_history.iter().sum::<f64>() / state.temperature_history.len() as f64;
+    // Calculate GPU averages for display
+    let avg_util = if !state.utilization_history.is_empty() {
+        state.utilization_history.iter().sum::<f64>() / state.utilization_history.len() as f64
+    } else {
+        0.0
+    };
+    let avg_mem = if !state.memory_history.is_empty() {
+        state.memory_history.iter().sum::<f64>() / state.memory_history.len() as f64
+    } else {
+        0.0
+    };
+    let avg_temp = if !state.temperature_history.is_empty() {
+        state.temperature_history.iter().sum::<f64>() / state.temperature_history.len() as f64
+    } else {
+        0.0
+    };
+
+    // Calculate CPU averages for display
+    let avg_cpu_util = if !state.cpu_utilization_history.is_empty() {
+        state.cpu_utilization_history.iter().sum::<f64>()
+            / state.cpu_utilization_history.len() as f64
+    } else {
+        0.0
+    };
+    let avg_sys_mem = if !state.system_memory_history.is_empty() {
+        state.system_memory_history.iter().sum::<f64>() / state.system_memory_history.len() as f64
+    } else {
+        0.0
+    };
+    let avg_cpu_temp = if !state.cpu_temperature_history.is_empty() {
+        state.cpu_temperature_history.iter().sum::<f64>()
+            / state.cpu_temperature_history.len() as f64
+    } else {
+        0.0
+    };
 
     // Print header
     print_colored_text(stdout, "Live Statistics", Color::Cyan, None, None);
     queue!(stdout, Print("\r\n")).unwrap();
 
-    // Split layout: left half for node view, right half for history gauges
-    let left_width = box_width / 2;
-    let right_width = box_width - left_width;
-    let history_width = right_width.saturating_sub(15); // Leave space for labels
+    // Layout: left half for node view, right half split between GPU and CPU stats
+    let node_width = box_width / 2;
+    let stats_width = box_width - node_width;
+
+    // Determine if we have GPU data
+    let has_gpu = !state.gpu_info.is_empty();
+
+    // If we have GPU, split stats_width between GPU and CPU; otherwise all for CPU
+    let (gpu_width, cpu_width) = if has_gpu {
+        (stats_width / 2, stats_width / 2)
+    } else {
+        (0, stats_width)
+    };
+
+    let gpu_history_width = if gpu_width > 10 {
+        gpu_width.saturating_sub(10)
+    } else {
+        0
+    };
+    let cpu_history_width = cpu_width.saturating_sub(10);
 
     // Print node view and history gauges side by side
     print_node_view_and_history(
         stdout,
         state,
         NodeViewParams {
-            left_width,
-            _right_width: right_width,
-            history_width,
+            node_width,
+            gpu_width,
+            cpu_width,
+            gpu_history_width,
+            cpu_history_width,
             avg_util,
             avg_mem,
             avg_temp,
+            avg_cpu_util,
+            avg_sys_mem,
+            avg_cpu_temp,
+            has_gpu,
         },
     );
 }
 
 struct NodeViewParams {
-    left_width: usize,
-    _right_width: usize,
-    history_width: usize,
+    node_width: usize,
+    #[allow(dead_code)]
+    gpu_width: usize,
+    #[allow(dead_code)]
+    cpu_width: usize,
+    gpu_history_width: usize,
+    cpu_history_width: usize,
     avg_util: f64,
     avg_mem: f64,
     avg_temp: f64,
+    avg_cpu_util: f64,
+    avg_sys_mem: f64,
+    avg_cpu_temp: f64,
+    has_gpu: bool,
 }
 
 fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, params: NodeViewParams) {
@@ -356,7 +415,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
     }
 
     // Calculate node grid layout
-    let nodes_per_row = params.left_width.saturating_sub(2).max(1);
+    let nodes_per_row = params.node_width.saturating_sub(2).max(1);
     let num_rows = if nodes.is_empty() {
         1
     } else {
@@ -375,7 +434,7 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
                     node_utils: &node_utils,
                     connection_status: &state.connection_status,
                     current_tab: state.current_tab,
-                    left_width: params.left_width,
+                    left_width: params.node_width,
                     row,
                     nodes_per_row,
                 },
@@ -384,46 +443,107 @@ fn print_node_view_and_history<W: Write>(stdout: &mut W, state: &AppState, param
             // Print empty space for this row
             print_colored_text(
                 stdout,
-                &" ".repeat(params.left_width),
+                &" ".repeat(params.node_width),
                 Color::White,
                 None,
                 None,
             );
         }
 
-        // Print corresponding history line
+        // Print GPU statistics (or CPU stats as GPU if no GPU present)
+        if params.has_gpu {
+            match row {
+                0 => {
+                    print_colored_text(stdout, "GPU Util.", Color::Yellow, None, None);
+                    print_history_bar_with_value(
+                        stdout,
+                        &state.utilization_history,
+                        params.gpu_history_width,
+                        100.0,
+                        format!("{:.1}%", params.avg_util),
+                    );
+                }
+                1 => {
+                    print_colored_text(stdout, "GPU Mem. ", Color::Yellow, None, None);
+                    print_history_bar_with_value(
+                        stdout,
+                        &state.memory_history,
+                        params.gpu_history_width,
+                        100.0,
+                        format!("{:.1}%", params.avg_mem),
+                    );
+                }
+                2 => {
+                    print_colored_text(stdout, "GPU Temp.", Color::Yellow, None, None);
+                    print_history_bar_with_value(
+                        stdout,
+                        &state.temperature_history,
+                        params.gpu_history_width,
+                        100.0,
+                        format!("{:.0}°C", params.avg_temp),
+                    );
+                }
+                _ => {}
+            }
+        } else {
+            // No GPU, show labels with N/A values
+            match row {
+                0 => {
+                    print_colored_text(stdout, "GPU Util.", Color::Yellow, None, None);
+                    // Fill the history bar area with spaces, then show N/A
+                    let padding = params.gpu_history_width.saturating_sub(3); // Reserve space for "N/A"
+                    print_colored_text(stdout, &" ".repeat(padding), Color::DarkGrey, None, None);
+                    print_colored_text(stdout, " N/A", Color::DarkGrey, None, None);
+                }
+                1 => {
+                    print_colored_text(stdout, "GPU Mem. ", Color::Yellow, None, None);
+                    let padding = params.gpu_history_width.saturating_sub(3);
+                    print_colored_text(stdout, &" ".repeat(padding), Color::DarkGrey, None, None);
+                    print_colored_text(stdout, " N/A", Color::DarkGrey, None, None);
+                }
+                2 => {
+                    print_colored_text(stdout, "GPU Temp.", Color::Yellow, None, None);
+                    let padding = params.gpu_history_width.saturating_sub(3);
+                    print_colored_text(stdout, &" ".repeat(padding), Color::DarkGrey, None, None);
+                    print_colored_text(stdout, " N/A", Color::DarkGrey, None, None);
+                }
+                _ => {}
+            }
+        }
+
+        // Add spacing between GPU and CPU stats
+        print_colored_text(stdout, "  ", Color::White, None, None);
+
+        // Print CPU statistics
         match row {
             0 => {
-                print_colored_text(stdout, "GPU Util.", Color::Yellow, None, None);
-                // Show as time series in both local and remote modes
+                print_colored_text(stdout, "CPU Util.", Color::Cyan, None, None);
                 print_history_bar_with_value(
                     stdout,
-                    &state.utilization_history,
-                    params.history_width,
+                    &state.cpu_utilization_history,
+                    params.cpu_history_width,
                     100.0,
-                    format!("{:.1}%", params.avg_util),
+                    format!("{:.1}%", params.avg_cpu_util),
                 );
             }
             1 => {
-                print_colored_text(stdout, "GPU Mem. ", Color::Yellow, None, None);
-                // Show as time series in both local and remote modes
+                print_colored_text(stdout, "Host Mem.", Color::Cyan, None, None);
                 print_history_bar_with_value(
                     stdout,
-                    &state.memory_history,
-                    params.history_width,
+                    &state.system_memory_history,
+                    params.cpu_history_width,
                     100.0,
-                    format!("{:.1}%", params.avg_mem),
+                    format!("{:.1}%", params.avg_sys_mem),
                 );
             }
             2 => {
-                print_colored_text(stdout, "Temp     ", Color::Yellow, None, None);
-                // Show as time series in both local and remote modes
+                print_colored_text(stdout, "CPU Temp.", Color::Cyan, None, None);
                 print_history_bar_with_value(
                     stdout,
-                    &state.temperature_history,
-                    params.history_width,
+                    &state.cpu_temperature_history,
+                    params.cpu_history_width,
                     100.0,
-                    format!("{:.0}°C", params.avg_temp),
+                    format!("{:.0}°C", params.avg_cpu_temp),
                 );
             }
             _ => {}
