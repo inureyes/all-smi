@@ -30,7 +30,7 @@ impl Default for LinuxMemoryReader {
 impl LinuxMemoryReader {
     pub fn new() -> Self {
         LinuxMemoryReader {
-            container_info: &*CONTAINER_INFO,
+            container_info: &CONTAINER_INFO,
         }
     }
 }

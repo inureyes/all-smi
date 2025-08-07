@@ -31,7 +31,7 @@ type CpuStatParseResult =
     Result<(f64, Vec<CpuSocketInfo>, Vec<CoreUtilization>), Box<dyn std::error::Error>>;
 
 // Cache container detection result globally to avoid repeated filesystem operations
-static CONTAINER_INFO: Lazy<ContainerInfo> = Lazy::new(|| ContainerInfo::detect());
+static CONTAINER_INFO: Lazy<ContainerInfo> = Lazy::new(ContainerInfo::detect);
 
 pub struct LinuxCpuReader {
     // Use Option<Option<u32>> to distinguish:
@@ -107,7 +107,7 @@ impl LinuxCpuReader {
             if self.container_info.is_container {
                 // Use container-aware parsing
                 let (utilization, active_cores) =
-                    parse_cpu_stat_with_container_limits(&stat_content, &self.container_info);
+                    parse_cpu_stat_with_container_limits(&stat_content, self.container_info);
 
                 // Convert active cores to per-core utilization
                 let mut core_utils = Vec::new();
