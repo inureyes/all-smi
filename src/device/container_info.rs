@@ -219,7 +219,13 @@ impl ContainerInfo {
         // Try to get the cgroup of the current process
         let h = hierarchies::auto();
         let cgroup = Cgroup::load(h, "self");
-        Some(cgroup)
+
+        // Check if the cgroup actually exists before returning
+        if cgroup.exists() {
+            Some(cgroup)
+        } else {
+            None
+        }
     }
 
     #[cfg(target_os = "linux")]
