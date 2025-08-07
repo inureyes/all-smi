@@ -11,6 +11,7 @@ use crate::device::{
     CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo,
 };
 use crate::utils::system::get_hostname;
+use crate::utils::{hz_to_mhz, khz_to_mhz, millicelsius_to_celsius};
 
 type CpuInfoParseResult = Result<
     (
@@ -342,9 +343,8 @@ impl LinuxCpuReader {
         for path in &cpufreq_paths {
             if let Ok(content) = fs::read_to_string(path) {
                 if let Ok(freq_khz) = content.trim().parse::<u32>() {
-                    max_frequency = freq_khz / 1000; // Convert kHz to MHz
-                                                     // Log frequency detection for debugging
-                                                     // Found max frequency from scaling_max_freq
+                    max_frequency = khz_to_mhz(freq_khz);
+                    // Found max frequency from scaling_max_freq
                     break;
                 }
             }
@@ -362,8 +362,8 @@ impl LinuxCpuReader {
             for path in &scaling_paths {
                 if let Ok(content) = fs::read_to_string(path) {
                     if let Ok(freq_khz) = content.trim().parse::<u32>() {
-                        base_frequency = freq_khz / 1000; // Convert kHz to MHz
-                                                          // Found current frequency from scaling_cur_freq
+                        base_frequency = khz_to_mhz(freq_khz);
+                        // Found current frequency from scaling_cur_freq
                         break;
                     }
                 }
@@ -382,8 +382,8 @@ impl LinuxCpuReader {
             for path in &min_freq_paths {
                 if let Ok(content) = fs::read_to_string(path) {
                     if let Ok(freq_khz) = content.trim().parse::<u32>() {
-                        base_frequency = freq_khz / 1000; // Convert kHz to MHz
-                                                          // Using min frequency from scaling_min_freq
+                        base_frequency = khz_to_mhz(freq_khz);
+                        // Using min frequency from scaling_min_freq
                         break;
                     }
                 }
@@ -429,8 +429,8 @@ impl LinuxCpuReader {
             // Check for ARM-specific frequency files
             if let Ok(content) = fs::read_to_string("/sys/devices/system/cpu/cpu0/clock_rate") {
                 if let Ok(freq_hz) = content.trim().parse::<u64>() {
-                    base_frequency = (freq_hz / 1_000_000) as u32; // Convert Hz to MHz
-                                                                   // Found clock_rate from device-tree
+                    base_frequency = hz_to_mhz(freq_hz);
+                    // Found clock_rate from device-tree
                 }
             }
 
@@ -445,7 +445,7 @@ impl LinuxCpuReader {
                         let freq_hz =
                             u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as u64;
                         if freq_hz > 0 {
-                            base_frequency = (freq_hz / 1_000_000) as u32;
+                            base_frequency = hz_to_mhz(freq_hz);
                             // Found device-tree frequency
                         }
                     }
@@ -598,7 +598,7 @@ impl LinuxCpuReader {
         for path in &thermal_paths {
             if let Ok(content) = fs::read_to_string(path) {
                 if let Ok(temp_millicelsius) = content.trim().parse::<u32>() {
-                    return Some(temp_millicelsius / 1000); // Convert millicelsius to celsius
+                    return Some(millicelsius_to_celsius(temp_millicelsius));
                 }
             }
         }

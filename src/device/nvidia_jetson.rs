@@ -1,6 +1,6 @@
 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
-use crate::utils::get_hostname;
+use crate::utils::{get_hostname, hz_to_mhz, millicelsius_to_celsius};
 use chrono::Local;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -22,10 +22,15 @@ impl GpuReader for NvidiaJetsonGpuReader {
             .map_or(0.0, |s| s.trim().parse::<f64>().unwrap_or(0.0) / 10.0);
 
         let frequency = fs::read_to_string("/sys/devices/platform/tegra-soc/gpu.0/cur_freq")
-            .map_or(0, |s| s.trim().parse::<u32>().unwrap_or(0) / 1_000_000);
+            .map_or(0, |s| s.trim().parse::<u64>().map(hz_to_mhz).unwrap_or(0));
 
         let temperature = fs::read_to_string("/sys/devices/virtual/thermal/thermal_zone0/temp")
-            .map_or(0, |s| s.trim().parse::<u32>().unwrap_or(0) / 1000);
+            .map_or(0, |s| {
+                s.trim()
+                    .parse::<u32>()
+                    .map(millicelsius_to_celsius)
+                    .unwrap_or(0)
+            });
 
         let power_consumption =
             fs::read_to_string("/sys/bus/i2c/drivers/ina3221x/0-0040/iio:device0/in_power0_input")
