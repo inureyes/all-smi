@@ -42,6 +42,7 @@ pub struct ContainerInfo {
     pub memory_soft_limit_bytes: Option<u64>,
     #[allow(dead_code)]
     pub memory_swap_limit_bytes: Option<u64>,
+    #[allow(dead_code)]
     pub memory_usage_bytes: Option<u64>,
     // Cgroup handle
     #[cfg(target_os = "linux")]

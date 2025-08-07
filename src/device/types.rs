@@ -99,7 +99,7 @@ pub enum CoreType {
     Standard,    // Regular cores (no P/E distinction)
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum CpuPlatformType {
     Intel,
     Amd,

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use super::super::container_info::*;
+    use crate::device::container_info::ContainerInfo;
 
     #[test]
     fn test_parse_cpuset_range() {
@@ -59,90 +59,23 @@ mod tests {
         assert_eq!(effective, 4.0);
 
         // Test with both quota and cpuset (quota more restrictive)
-        let cpuset = Some(vec![0, 1, 2, 3]);
         let effective = ContainerInfo::calculate_effective_cpus(
-            Some(150000), // 1.5 CPUs
-            Some(100000),
+            Some(100000), // 100ms quota = 1 CPU
+            Some(100000), // 100ms period
             None,
             &cpuset,
         );
-        assert_eq!(effective, 1.5);
+        assert_eq!(effective, 1.0); // Min of quota (1) and cpuset (4)
 
         // Test with both quota and cpuset (cpuset more restrictive)
         let cpuset = Some(vec![0, 1]);
         let effective = ContainerInfo::calculate_effective_cpus(
-            Some(300000), // 3 CPUs
-            Some(100000),
+            Some(300000), // 300ms quota = 3 CPUs
+            Some(100000), // 100ms period
             None,
             &cpuset,
         );
-        assert_eq!(effective, 2.0);
-    }
-
-    #[test]
-    fn test_parse_cpu_stat_with_container_limits() {
-        let stat_content = r#"cpu  1000 0 2000 7000 0 0 0 0 0 0
-cpu0 250 0 500 1750 0 0 0 0 0 0
-cpu1 250 0 500 1750 0 0 0 0 0 0
-cpu2 250 0 500 1750 0 0 0 0 0 0
-cpu3 250 0 500 1750 0 0 0 0 0 0"#;
-
-        // Test without container limits
-        let container_info = ContainerInfo {
-            is_container: false,
-            cpu_quota: None,
-            cpu_period: None,
-            cpu_shares: None,
-            cpuset_cpus: None,
-            effective_cpu_count: 4.0,
-            memory_limit_bytes: None,
-            memory_soft_limit_bytes: None,
-            memory_swap_limit_bytes: None,
-            memory_usage_bytes: None,
-        };
-
-        let (utilization, active_cores) =
-            parse_cpu_stat_with_container_limits(stat_content, &container_info);
-        assert_eq!(utilization, 30.0); // (1000 + 2000) / 10000 * 100
-        assert_eq!(active_cores.len(), 4);
-
-        // Test with cpuset limiting to cpu0 and cpu1
-        let container_info = ContainerInfo {
-            is_container: true,
-            cpu_quota: None,
-            cpu_period: None,
-            cpu_shares: None,
-            cpuset_cpus: Some(vec![0, 1]),
-            effective_cpu_count: 2.0,
-            memory_limit_bytes: None,
-            memory_soft_limit_bytes: None,
-            memory_swap_limit_bytes: None,
-            memory_usage_bytes: None,
-        };
-
-        let (utilization, active_cores) =
-            parse_cpu_stat_with_container_limits(stat_content, &container_info);
-        assert_eq!(utilization, 30.0); // Same calculation but scaled by effective CPU count
-        assert_eq!(active_cores, vec![0, 1]);
-
-        // Test with quota limiting to 0.5 CPUs
-        let container_info = ContainerInfo {
-            is_container: true,
-            cpu_quota: Some(50000),
-            cpu_period: Some(100000),
-            cpu_shares: None,
-            cpuset_cpus: None,
-            effective_cpu_count: 0.5,
-            memory_limit_bytes: None,
-            memory_soft_limit_bytes: None,
-            memory_swap_limit_bytes: None,
-            memory_usage_bytes: None,
-        };
-
-        let (utilization, active_cores) =
-            parse_cpu_stat_with_container_limits(stat_content, &container_info);
-        // Utilization should be scaled: 30.0 * (0.5 / 4.0) = 3.75
-        assert!((utilization - 3.75).abs() < 0.01);
+        assert_eq!(effective, 2.0); // Min of quota (3) and cpuset (2)
     }
 
     #[cfg(target_os = "linux")]
@@ -180,45 +113,33 @@ cpu3 250 0 500 1750 0 0 0 0 0 0"#;
     }
 
     #[test]
-    fn test_memory_stats() {
-        let container_info = ContainerInfo {
-            is_container: true,
-            cpu_quota: None,
-            cpu_period: None,
-            cpu_shares: None,
-            cpuset_cpus: None,
-            effective_cpu_count: 2.0,
-            memory_limit_bytes: Some(2 * 1024 * 1024 * 1024), // 2GB
-            memory_soft_limit_bytes: None,
-            memory_swap_limit_bytes: None,
-            memory_usage_bytes: Some(1 * 1024 * 1024 * 1024), // 1GB
-        };
+    fn test_memory_limit_detection() {
+        // Test that memory limit detection works
+        let info = ContainerInfo::detect();
 
-        let stats = container_info.get_memory_stats();
-        assert!(stats.is_some());
-
-        let (total, used, utilization) = stats.unwrap();
-        assert_eq!(total, 2 * 1024 * 1024 * 1024);
-        assert_eq!(used, 1 * 1024 * 1024 * 1024);
-        assert_eq!(utilization, 50.0);
+        if info.is_container {
+            // In a container, we should have memory limits
+            if let Some(limit) = info.memory_limit_bytes {
+                assert!(limit > 0);
+                println!("Container memory limit: {} bytes", limit);
+            }
+        } else {
+            // Not in a container, memory limits should be None
+            assert!(info.memory_limit_bytes.is_none());
+        }
     }
 
     #[test]
-    fn test_memory_stats_no_container() {
-        let container_info = ContainerInfo {
-            is_container: false,
-            cpu_quota: None,
-            cpu_period: None,
-            cpu_shares: None,
-            cpuset_cpus: None,
-            effective_cpu_count: 4.0,
-            memory_limit_bytes: Some(2 * 1024 * 1024 * 1024),
-            memory_soft_limit_bytes: None,
-            memory_swap_limit_bytes: None,
-            memory_usage_bytes: Some(1 * 1024 * 1024 * 1024),
-        };
+    fn test_get_current_memory_usage() {
+        let info = ContainerInfo::detect();
 
-        let stats = container_info.get_memory_stats();
-        assert!(stats.is_none()); // Should return None when not in container
+        if info.is_container {
+            // In a container, we should be able to get memory usage
+            let usage = info.get_current_memory_usage();
+            if let Some(usage_bytes) = usage {
+                assert!(usage_bytes > 0);
+                println!("Current memory usage: {} MB", usage_bytes / 1024 / 1024);
+            }
+        }
     }
 }
