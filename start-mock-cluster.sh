@@ -2,7 +2,7 @@
 # Script to start multiple mock server processes for large port ranges
 
 # Color support - check if colors should be disabled
-if [[ -n "${NO_COLOR}" ]] || [[ ! -t 1 ]]; then
+if { [[ -n "${NO_COLOR}" ]] && [[ ! "${NO_COLOR,,}" =~ ^(0|false)$ ]]; } || [[ ! -t 1 ]]; then
     # Colors disabled
     RED=""
     GREEN=""
