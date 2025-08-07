@@ -6,10 +6,12 @@ echo ""
 
 # Get the project root directory (parent of tests)
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CARGO_CACHE_DIR="$PROJECT_ROOT/tests/.cargo-cache"
+mkdir -p "$CARGO_CACHE_DIR"
 
 # Clean up any existing container
-docker stop all-smi-memory-test 2>/dev/null || true
-docker rm all-smi-memory-test 2>/dev/null || true
+docker stop all-smi-test-memory-allocation 2>/dev/null || true
+docker rm all-smi-test-memory-allocation 2>/dev/null || true
 
 # Create memory test program
 cat > /tmp/memory-eater.c << 'EOF'
@@ -40,55 +42,39 @@ int main() {
 }
 EOF
 
-# Compile memory test program
-gcc -o /tmp/memory-eater /tmp/memory-eater.c
-
-# Create Dockerfile for test
-cat > /tmp/Dockerfile.memtest << 'EOF'
-FROM ubuntu:22.04
-
-RUN apt-get update && apt-get install -y \
-    curl \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-COPY all-smi /app/
-COPY memory-eater /app/
-
-EXPOSE 9999
-
-# Create entrypoint script
-RUN echo '#!/bin/bash' > /app/entrypoint.sh && \
-    echo '/app/all-smi api --port 9999 &' >> /app/entrypoint.sh && \
-    echo 'API_PID=$!' >> /app/entrypoint.sh && \
-    echo 'sleep 5' >> /app/entrypoint.sh && \
-    echo '/app/memory-eater &' >> /app/entrypoint.sh && \
-    echo 'EATER_PID=$!' >> /app/entrypoint.sh && \
-    echo 'wait $EATER_PID' >> /app/entrypoint.sh && \
-    echo 'tail -f /dev/null' >> /app/entrypoint.sh && \
-    chmod +x /app/entrypoint.sh
-
-CMD ["/bin/bash", "/app/entrypoint.sh"]
-EOF
-
-# Copy binary to temp directory for Docker build
-cp "$PROJECT_ROOT/target/release/all-smi" /tmp/all-smi 2>/dev/null || \
-cp "$PROJECT_ROOT/target/debug/all-smi" /tmp/all-smi || \
-{ echo "Error: all-smi binary not found. Please build first."; exit 1; }
-
-# Build Docker image
-echo "Building Docker image..."
-docker build -f /tmp/Dockerfile.memtest -t all-smi-memtest /tmp
-
-# Run container with memory limit
-echo ""
-echo "Running container with 512MB memory limit..."
-docker run -d --rm \
-    --name all-smi-memory-test \
+# Run container with memory limit and build all-smi inside
+echo "Starting container with 512MB memory limit..."
+docker run -d --name all-smi-test-memory-allocation \
     --memory="512m" \
+    -v "$PROJECT_ROOT":/all-smi \
+    -v "$CARGO_CACHE_DIR":/usr/local/cargo/registry \
+    -v /tmp/memory-eater.c:/tmp/memory-eater.c \
+    -w /all-smi \
     -p 9999:9999 \
-    all-smi-memtest
+    rust:1.88 \
+    /bin/bash -c "
+        echo 'Installing dependencies...'
+        apt-get update -qq && apt-get install -y -qq pkg-config protobuf-compiler gcc curl >/dev/null 2>&1
+        
+        echo 'Compiling memory test program...'
+        gcc -o /tmp/memory-eater /tmp/memory-eater.c
+        
+        echo 'Building all-smi...'
+        cargo build --release
+        
+        echo 'Starting all-smi API...'
+        ./target/release/all-smi api --port 9999 &
+        API_PID=\$!
+        
+        sleep 5
+        
+        echo 'Starting memory allocation test...'
+        /tmp/memory-eater &
+        EATER_PID=\$!
+        
+        wait \$EATER_PID
+        tail -f /dev/null
+    "
 
 echo ""
 echo "Waiting for container to start..."
@@ -112,10 +98,10 @@ curl -s http://localhost:9999/metrics | grep "all_smi_container_runtime_info"
 
 echo ""
 echo "Stopping container..."
-docker stop all-smi-memory-test
+docker stop all-smi-test-memory-allocation
 
 # Cleanup
-rm -f /tmp/memory-eater /tmp/memory-eater.c /tmp/Dockerfile.memtest /tmp/all-smi
+rm -f /tmp/memory-eater.c
 
 echo ""
 echo "Test complete!"

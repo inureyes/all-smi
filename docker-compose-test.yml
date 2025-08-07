@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  all-smi-limited:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9999:9090"
+    environment:
+      - RUST_LOG=info
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 512M
+    command: ["api", "--port", "9090"]
+
+  all-smi-unlimited:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9998:9090"
+    environment:
+      - RUST_LOG=info
+    command: ["api", "--port", "9090"]

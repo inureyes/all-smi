@@ -1,0 +1,59 @@
+# HELP all_smi_cpu_utilization CPU utilization percentage
+# TYPE all_smi_cpu_utilization gauge
+all_smi_cpu_utilization{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 0.3720316673003178
+# HELP all_smi_cpu_socket_count Number of CPU sockets
+# TYPE all_smi_cpu_socket_count gauge
+all_smi_cpu_socket_count{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 1
+# HELP all_smi_cpu_core_count Total number of CPU cores
+# TYPE all_smi_cpu_core_count gauge
+all_smi_cpu_core_count{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 3
+# HELP all_smi_cpu_thread_count Total number of CPU threads
+# TYPE all_smi_cpu_thread_count gauge
+all_smi_cpu_thread_count{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 3
+# HELP all_smi_cpu_frequency_mhz CPU frequency in MHz
+# TYPE all_smi_cpu_frequency_mhz gauge
+all_smi_cpu_frequency_mhz{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 0
+# HELP all_smi_cpu_socket_utilization Per-socket CPU utilization percentage
+# TYPE all_smi_cpu_socket_utilization gauge
+all_smi_cpu_socket_utilization{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", cpu_index="0", socket_id="0"} 0.3720316673003178
+# HELP all_smi_cpu_socket_frequency_mhz Per-socket CPU frequency in MHz
+# TYPE all_smi_cpu_socket_frequency_mhz gauge
+all_smi_cpu_socket_frequency_mhz{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", cpu_index="0", socket_id="0"} 0
+# HELP all_smi_cpu_core_utilization Per-core CPU utilization percentage
+# TYPE all_smi_cpu_core_utilization gauge
+all_smi_cpu_core_utilization{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", core_id="0", core_type="C"} 0.916535433070866
+all_smi_cpu_core_utilization{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", core_id="1", core_type="C"} 0.5288702528879058
+all_smi_cpu_core_utilization{cpu_model="", instance="a8416cc9eadf", hostname="a8416cc9eadf", core_id="2", core_type="C"} 0.6755426884750267
+# HELP all_smi_memory_total_bytes Total system memory in bytes
+# TYPE all_smi_memory_total_bytes gauge
+all_smi_memory_total_bytes{instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 4294967296
+# HELP all_smi_memory_used_bytes Used system memory in bytes
+# TYPE all_smi_memory_used_bytes gauge
+all_smi_memory_used_bytes{instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 0
+# HELP all_smi_memory_available_bytes Available system memory in bytes
+# TYPE all_smi_memory_available_bytes gauge
+all_smi_memory_available_bytes{instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 4294967296
+# HELP all_smi_memory_free_bytes Free system memory in bytes
+# TYPE all_smi_memory_free_bytes gauge
+all_smi_memory_free_bytes{instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 4294967296
+# HELP all_smi_memory_utilization Memory utilization percentage
+# TYPE all_smi_memory_utilization gauge
+all_smi_memory_utilization{instance="a8416cc9eadf", hostname="a8416cc9eadf", index="0"} 0
+# HELP all_smi_disk_total_bytes Total disk space in bytes
+# TYPE all_smi_disk_total_bytes gauge
+all_smi_disk_total_bytes{instance="a8416cc9eadf", mount_point="/", index="0"} 3597260410880
+# HELP all_smi_disk_available_bytes Available disk space in bytes
+# TYPE all_smi_disk_available_bytes gauge
+all_smi_disk_available_bytes{instance="a8416cc9eadf", mount_point="/", index="0"} 3566846046208
+# HELP all_smi_disk_total_bytes Total disk space in bytes
+# TYPE all_smi_disk_total_bytes gauge
+all_smi_disk_total_bytes{instance="a8416cc9eadf", mount_point="/all-smi", index="1"} 254633621585920
+# HELP all_smi_disk_available_bytes Available disk space in bytes
+# TYPE all_smi_disk_available_bytes gauge
+all_smi_disk_available_bytes{instance="a8416cc9eadf", mount_point="/all-smi", index="1"} 28885287698432
+# HELP all_smi_container_runtime_info Container runtime environment information
+# TYPE all_smi_container_runtime_info gauge
+all_smi_container_runtime_info{hostname="a8416cc9eadf",runtime="Docker",container_id="unknown"} 1
+# HELP all_smi_runtime_environment Current runtime environment (container or VM)
+# TYPE all_smi_runtime_environment gauge
+all_smi_runtime_environment{hostname="a8416cc9eadf",environment="Docker"} 1

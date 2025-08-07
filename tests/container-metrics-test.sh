@@ -6,9 +6,11 @@ echo ""
 
 # Get the project root directory (parent of tests)
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CARGO_CACHE_DIR="$PROJECT_ROOT/tests/.cargo-cache"
+mkdir -p "$CARGO_CACHE_DIR"
 
-# Build the release binary
-echo "Building all-smi..."
+# Build the release binary for baseline test
+echo "Building all-smi for baseline test..."
 cd "$PROJECT_ROOT" && cargo build --release
 
 echo ""
@@ -34,38 +36,30 @@ echo "--------------------------------------------------------------"
 echo "Note: This requires Docker to be installed and running"
 echo ""
 
-# Create a simple Dockerfile if it doesn't exist
-DOCKERFILE_PATH="$PROJECT_ROOT/Dockerfile.test"
-if [ ! -f "$DOCKERFILE_PATH" ]; then
-cat > "$DOCKERFILE_PATH" << 'EOF'
-FROM ubuntu:22.04
+# Clean up any existing container
+docker stop all-smi-test-metrics-comparison 2>/dev/null || true
+docker rm all-smi-test-metrics-comparison 2>/dev/null || true
 
-RUN apt-get update && apt-get install -y \
-    curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-COPY target/release/all-smi /app/
-
-EXPOSE 9999
-
-CMD ["/app/all-smi", "api", "--port", "9999"]
-EOF
-fi
-
-# Build Docker image
-echo "Building Docker image..."
-docker build -f "$DOCKERFILE_PATH" -t all-smi-test "$PROJECT_ROOT"
-
-# Run container with resource limits
+# Run container with resource limits and build inside
 echo "Running container with CPU limit=1.5 and Memory limit=512MB..."
-docker run -d --rm \
-    --name all-smi-test \
+docker run -d --name all-smi-test-metrics-comparison \
     --cpus="1.5" \
     --memory="512m" \
+    -v "$PROJECT_ROOT":/all-smi \
+    -v "$CARGO_CACHE_DIR":/usr/local/cargo/registry \
+    -w /all-smi \
     -p 9999:9999 \
-    all-smi-test
+    rust:1.88 \
+    /bin/bash -c "
+        echo 'Installing dependencies...'
+        apt-get update -qq && apt-get install -y -qq pkg-config protobuf-compiler curl >/dev/null 2>&1
+        
+        echo 'Building all-smi...'
+        cargo build --release
+        
+        echo 'Starting API server...'
+        exec ./target/release/all-smi api --port 9999
+    "
 
 sleep 5
 
@@ -78,7 +72,7 @@ curl -s http://localhost:9999/metrics | grep "all_smi_container_runtime_info"
 
 echo ""
 echo "Stopping container..."
-docker stop all-smi-test
+docker stop all-smi-test-metrics-comparison
 
 echo ""
 echo "Test complete!"

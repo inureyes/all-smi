@@ -6,32 +6,40 @@ echo ""
 
 # Get the project root directory (parent of tests)
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CARGO_CACHE_DIR="$PROJECT_ROOT/tests/.cargo-cache"
+mkdir -p "$CARGO_CACHE_DIR"
 
 # Clean up any existing container
-docker stop all-smi-cpu-test 2>/dev/null || true
-docker rm all-smi-cpu-test 2>/dev/null || true
+docker stop all-smi-test-cpu-limits 2>/dev/null || true
+docker rm all-smi-test-cpu-limits 2>/dev/null || true
 
 echo "Starting container with CPU limits (1.5 CPUs)..."
-docker run -d --rm \
-    --name all-smi-cpu-test \
+docker run -d --name all-smi-test-cpu-limits \
     --cpus="1.5" \
     --memory="512m" \
-    -v "$PROJECT_ROOT/target/release/all-smi":/app/all-smi:ro \
+    -v "$PROJECT_ROOT":/all-smi \
+    -v "$CARGO_CACHE_DIR":/usr/local/cargo/registry \
+    -w /all-smi \
     -p 9999:9999 \
-    ubuntu:22.04 \
+    rust:1.88 \
     /bin/bash -c "
-        apt-get update && apt-get install -y stress-ng curl && 
-        echo 'Starting all-smi API...' && 
-        /app/all-smi api --port 9999 &
+        echo 'Installing dependencies...'
+        apt-get update -qq && apt-get install -y -qq pkg-config protobuf-compiler stress-ng curl >/dev/null 2>&1
+        
+        echo 'Building all-smi...'
+        cargo build --release
+        
+        echo 'Starting all-smi API...'
+        ./target/release/all-smi api --port 9999 &
         API_PID=\$!
         
         sleep 5
         
-        echo 'CPU info from container:' && 
-        cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo 'cgroups v2 not found' && 
+        echo 'CPU info from container:'
+        cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo 'cgroups v2 not found'
         cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null || echo 'cgroups v1 not found'
         
-        echo 'Starting CPU stress...' && 
+        echo 'Starting CPU stress...'
         stress-ng --cpu 4 --timeout 60s &
         
         tail -f /dev/null
@@ -55,11 +63,11 @@ curl -s http://localhost:9999/metrics | grep -E "all_smi_cpu_(core_count|utiliza
 
 echo ""
 echo "Container logs (last 20 lines):"
-docker logs all-smi-cpu-test 2>&1 | tail -20
+docker logs all-smi-test-cpu-limits 2>&1 | tail -20
 
 echo ""
 echo "Stopping container..."
-docker stop all-smi-cpu-test
+docker stop all-smi-test-cpu-limits
 
 echo ""
 echo "Test complete!"

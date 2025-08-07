@@ -5,6 +5,7 @@ use crate::device::{
 use crate::utils::system::get_hostname;
 use chrono::Local;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
 
@@ -159,6 +160,8 @@ impl LinuxCpuReader {
     }
 
     fn parse_cpuinfo(&self, content: &str) -> CpuInfoParseResult {
+        // Get container info to check CPU allocation
+        let container_info = ContainerInfo::detect();
         let mut cpu_model = String::new();
         let mut architecture = String::new();
         let mut platform_type = CpuPlatformType::Other("Unknown".to_string());
@@ -166,6 +169,10 @@ impl LinuxCpuReader {
         let mut base_frequency = 0u32;
         let mut max_frequency = 0u32;
         let mut cache_size = 0u32;
+        let mut bogomips = 0f64;
+        let mut cpu_mhz_values = Vec::new();
+        let mut cpu_mhz_by_processor: HashMap<u32, f64> = HashMap::new();
+        let mut current_processor_id = None;
 
         let mut physical_ids = std::collections::HashSet::new();
         let mut processor_count = 0u32;
@@ -187,6 +194,11 @@ impl LinuxCpuReader {
                     }
                 }
             } else if line.starts_with("processor") {
+                if let Some(value) = line.split(':').nth(1) {
+                    if let Ok(id) = value.trim().parse::<u32>() {
+                        current_processor_id = Some(id);
+                    }
+                }
                 processor_count += 1;
             } else if line.starts_with("physical id") {
                 if let Some(value) = line.split(':').nth(1) {
@@ -194,10 +206,16 @@ impl LinuxCpuReader {
                         physical_ids.insert(id);
                     }
                 }
-            } else if line.starts_with("cpu MHz") && base_frequency == 0 {
+            } else if line.starts_with("cpu MHz") {
                 if let Some(value) = line.split(':').nth(1) {
                     if let Ok(freq) = value.trim().parse::<f64>() {
-                        base_frequency = freq as u32;
+                        if freq > 0.0 {
+                            cpu_mhz_values.push(freq);
+                            // Map frequency to processor ID if available
+                            if let Some(proc_id) = current_processor_id {
+                                cpu_mhz_by_processor.insert(proc_id, freq);
+                            }
+                        }
                     }
                 }
             } else if line.starts_with("cache size") && cache_size == 0 {
@@ -216,6 +234,12 @@ impl LinuxCpuReader {
             } else if line.starts_with("CPU part") {
                 if let Some(value) = line.split(':').nth(1) {
                     cpu_part = value.trim().to_string();
+                }
+            } else if line.starts_with("bogomips") && bogomips == 0.0 {
+                if let Some(value) = line.split(':').nth(1) {
+                    if let Ok(bogo) = value.trim().parse::<f64>() {
+                        bogomips = bogo;
+                    }
                 }
             }
         }
@@ -271,33 +295,126 @@ impl LinuxCpuReader {
             }
         }
 
-        // Try to get max frequency from cpufreq
-        if let Ok(content) =
-            fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")
-        {
-            if let Ok(freq_khz) = content.trim().parse::<u32>() {
-                max_frequency = freq_khz / 1000; // Convert kHz to MHz
+        // Calculate average frequency from cpu MHz values
+        // If in container, only use CPUs assigned to the container
+        if let Some(ref cpuset) = container_info.cpuset_cpus {
+            // Container mode: only average frequencies from assigned CPUs
+            let mut container_cpu_freqs = Vec::new();
+            for &cpu_id in cpuset {
+                if let Some(&freq) = cpu_mhz_by_processor.get(&cpu_id) {
+                    container_cpu_freqs.push(freq);
+                }
+            }
+            if !container_cpu_freqs.is_empty() {
+                let avg_freq =
+                    container_cpu_freqs.iter().sum::<f64>() / container_cpu_freqs.len() as f64;
+                base_frequency = avg_freq as u32;
+                log::info!(
+                    "Container CPU frequency: Using {} CPUs from cpuset {:?}, avg freq: {} MHz",
+                    container_cpu_freqs.len(),
+                    cpuset,
+                    base_frequency
+                );
+            }
+        } else if !cpu_mhz_values.is_empty() {
+            // Host mode: use all CPU frequencies
+            let avg_freq = cpu_mhz_values.iter().sum::<f64>() / cpu_mhz_values.len() as f64;
+            base_frequency = avg_freq as u32;
+        }
+
+        // Try to get frequency from cpufreq
+        // If in container, try to read from one of the assigned CPUs
+        let cpu_to_check = if let Some(ref cpuset) = container_info.cpuset_cpus {
+            cpuset.first().copied().unwrap_or(0u32)
+        } else {
+            0u32
+        };
+
+        // Try multiple cpufreq paths (some ARM systems use different paths)
+        let cpufreq_paths = [
+            format!(
+                "/sys/devices/system/cpu/cpu{}/cpufreq/cpuinfo_max_freq",
+                cpu_to_check
+            ),
+            format!(
+                "/sys/devices/system/cpu/cpu{}/cpufreq/scaling_max_freq",
+                cpu_to_check
+            ),
+            "/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq".to_string(),
+            "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq".to_string(),
+        ];
+
+        for path in &cpufreq_paths {
+            if let Ok(content) = fs::read_to_string(path) {
+                if let Ok(freq_khz) = content.trim().parse::<u32>() {
+                    max_frequency = freq_khz / 1000; // Convert kHz to MHz
+                                                     // Log frequency detection for debugging
+                    log::debug!(
+                        "ARM CPU frequency: Found max frequency {} MHz from {}",
+                        max_frequency,
+                        path
+                    );
+                    break;
+                }
             }
         }
 
         // Try to get current frequency for base frequency if we don't have it
         if base_frequency == 0 {
-            if let Ok(content) =
-                fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
-            {
-                if let Ok(freq_khz) = content.trim().parse::<u32>() {
-                    base_frequency = freq_khz / 1000; // Convert kHz to MHz
+            let scaling_paths = [
+                format!(
+                    "/sys/devices/system/cpu/cpu{}/cpufreq/scaling_cur_freq",
+                    cpu_to_check
+                ),
+                format!(
+                    "/sys/devices/system/cpu/cpu{}/cpufreq/cpuinfo_cur_freq",
+                    cpu_to_check
+                ),
+                "/sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq".to_string(),
+                "/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_cur_freq".to_string(),
+            ];
+
+            for path in &scaling_paths {
+                if let Ok(content) = fs::read_to_string(path) {
+                    if let Ok(freq_khz) = content.trim().parse::<u32>() {
+                        base_frequency = freq_khz / 1000; // Convert kHz to MHz
+                        log::debug!(
+                            "ARM CPU frequency: Found current frequency {} MHz from {}",
+                            base_frequency,
+                            path
+                        );
+                        break;
+                    }
                 }
             }
         }
 
         // If still no base frequency, try cpuinfo_min_freq
         if base_frequency == 0 {
-            if let Ok(content) =
-                fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq")
-            {
-                if let Ok(freq_khz) = content.trim().parse::<u32>() {
-                    base_frequency = freq_khz / 1000; // Convert kHz to MHz
+            let min_freq_paths = [
+                format!(
+                    "/sys/devices/system/cpu/cpu{}/cpufreq/cpuinfo_min_freq",
+                    cpu_to_check
+                ),
+                format!(
+                    "/sys/devices/system/cpu/cpu{}/cpufreq/scaling_min_freq",
+                    cpu_to_check
+                ),
+                "/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_min_freq".to_string(),
+                "/sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq".to_string(),
+            ];
+
+            for path in &min_freq_paths {
+                if let Ok(content) = fs::read_to_string(path) {
+                    if let Ok(freq_khz) = content.trim().parse::<u32>() {
+                        base_frequency = freq_khz / 1000; // Convert kHz to MHz
+                        log::debug!(
+                            "ARM CPU frequency: Using min frequency {} MHz from {}",
+                            base_frequency,
+                            path
+                        );
+                        break;
+                    }
                 }
             }
         }
@@ -306,11 +423,103 @@ impl LinuxCpuReader {
             max_frequency = base_frequency;
         }
 
-        // If we still don't have frequencies, try to use a reasonable default
+        // If we still don't have frequencies, try lscpu command as fallback
         if base_frequency == 0 && max_frequency == 0 {
-            // Default to 1000 MHz as a reasonable guess
-            base_frequency = 1000;
-            max_frequency = 1000;
+            if let Ok(output) = std::process::Command::new("lscpu").output() {
+                if let Ok(lscpu_output) = String::from_utf8(output.stdout) {
+                    for line in lscpu_output.lines() {
+                        if line.starts_with("CPU MHz:") {
+                            if let Some(value) = line.split(':').nth(1) {
+                                if let Ok(freq) = value.trim().parse::<f64>() {
+                                    base_frequency = freq as u32;
+                                    break;
+                                }
+                            }
+                        } else if line.starts_with("CPU max MHz:") {
+                            if let Some(value) = line.split(':').nth(1) {
+                                if let Ok(freq) = value.trim().parse::<f64>() {
+                                    max_frequency = freq as u32;
+                                }
+                            }
+                        } else if line.starts_with("CPU min MHz:") && base_frequency == 0 {
+                            if let Some(value) = line.split(':').nth(1) {
+                                if let Ok(freq) = value.trim().parse::<f64>() {
+                                    base_frequency = freq as u32;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try DMI/sysfs for ARM systems
+        if base_frequency == 0 && platform_type == CpuPlatformType::Arm {
+            // Check for ARM-specific frequency files
+            if let Ok(content) = fs::read_to_string("/sys/devices/system/cpu/cpu0/clock_rate") {
+                if let Ok(freq_hz) = content.trim().parse::<u64>() {
+                    base_frequency = (freq_hz / 1_000_000) as u32; // Convert Hz to MHz
+                    log::debug!("ARM CPU frequency: Found clock_rate {} MHz", base_frequency);
+                }
+            }
+
+            // Try to read from device tree
+            if base_frequency == 0 {
+                if let Ok(content) =
+                    fs::read_to_string("/proc/device-tree/cpus/cpu@0/clock-frequency")
+                {
+                    // Device tree values are often in big-endian format
+                    if content.len() >= 4 {
+                        let bytes = content.as_bytes();
+                        let freq_hz =
+                            u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as u64;
+                        if freq_hz > 0 {
+                            base_frequency = (freq_hz / 1_000_000) as u32;
+                            log::debug!(
+                                "ARM CPU frequency: Found device-tree frequency {} MHz",
+                                base_frequency
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // Use BogoMIPS as last resort to estimate frequency
+        if base_frequency == 0 && bogomips > 0.0 {
+            // BogoMIPS calculation varies by architecture
+            let estimated_freq = match platform_type {
+                CpuPlatformType::Arm => {
+                    // On ARM, BogoMIPS is often close to actual frequency
+                    bogomips as u32
+                }
+                _ => {
+                    // On x86, BogoMIPS is roughly 2x the frequency
+                    (bogomips / 2.0) as u32
+                }
+            };
+            if estimated_freq > 0 {
+                base_frequency = estimated_freq;
+                log::debug!(
+                    "ARM CPU frequency: Estimated {} MHz from BogoMIPS {}",
+                    base_frequency,
+                    bogomips
+                );
+            }
+        }
+
+        // Final fallback - use architecture-specific defaults
+        if base_frequency == 0 && max_frequency == 0 {
+            base_frequency = match platform_type {
+                CpuPlatformType::Arm => 2000, // Common ARM frequency
+                _ => 1000,                    // Generic default
+            };
+            max_frequency = base_frequency;
+            log::debug!(
+                "ARM CPU frequency: Using default {} MHz for {:?}",
+                base_frequency,
+                platform_type
+            );
         }
 
         Ok((

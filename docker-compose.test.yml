@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  # Test without CPU limits
+  all-smi-unlimited:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: all-smi-unlimited
+    command: /test_cpu_freq.sh
+    
+  # Test with CPU quota (equivalent to 2 CPUs)
+  all-smi-limited:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: all-smi-limited
+    command: /test_cpu_freq.sh
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          
+  # Test with cpuset (specific CPU cores)
+  all-smi-cpuset:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: all-smi-cpuset
+    command: /test_cpu_freq.sh
+    cpuset: "0,1"

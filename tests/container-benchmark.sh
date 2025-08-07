@@ -6,26 +6,31 @@ echo ""
 
 # Get the project root directory (parent of tests)
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-
-# Check if binary exists
-if [ ! -f "$PROJECT_ROOT/target/release/all-smi" ]; then
-    echo "Error: Release binary not found. Please run 'cargo build --release' first."
-    exit 1
-fi
+CARGO_CACHE_DIR="$PROJECT_ROOT/tests/.cargo-cache"
+mkdir -p "$CARGO_CACHE_DIR"
 
 # Clean up any existing container
-docker stop all-smi-benchmark 2>/dev/null || true
-docker rm all-smi-benchmark 2>/dev/null || true
+docker stop all-smi-test-benchmark-api 2>/dev/null || true
+docker rm all-smi-test-benchmark-api 2>/dev/null || true
 
-# Run container with memory limit
-docker run -d --rm \
-    --name all-smi-benchmark \
+# Run container with memory limit and build inside
+echo "Building and running all-smi in container..."
+docker run -d --name all-smi-test-benchmark-api \
     --memory="512m" \
     --cpus="2" \
-    -v "$PROJECT_ROOT/target/release/all-smi":/app/all-smi:ro \
+    -v "$PROJECT_ROOT":/all-smi \
+    -v "$CARGO_CACHE_DIR":/usr/local/cargo/registry \
+    -w /all-smi \
     -p 9999:9999 \
-    ubuntu:22.04 \
-    /app/all-smi api --port 9999
+    rust:1.88 \
+    /bin/bash -c "
+        echo 'Installing dependencies...'
+        apt-get update -qq && apt-get install -y -qq pkg-config protobuf-compiler >/dev/null 2>&1
+        echo 'Building all-smi...'
+        cargo build --release
+        echo 'Starting API server for benchmarking...'
+        exec ./target/release/all-smi api --port 9999
+    "
 
 echo "Waiting for API to start..."
 sleep 5
@@ -33,8 +38,8 @@ sleep 5
 # Check if API is responding
 if ! curl -s http://localhost:9999/metrics > /dev/null; then
     echo "Error: API is not responding"
-    docker logs all-smi-benchmark
-    docker stop all-smi-benchmark
+    docker logs all-smi-test-benchmark-api
+    docker stop all-smi-test-benchmark-api
     exit 1
 fi
 
@@ -63,7 +68,7 @@ echo "Average response time: $(echo "scale=3; $DURATION / 100 * 1000" | bc) ms"
 
 echo ""
 echo "Memory usage of all-smi process:"
-docker exec all-smi-benchmark ps aux | grep all-smi | grep -v grep
+docker exec all-smi-test-benchmark-api ps aux | grep all-smi | grep -v grep
 
 echo ""
 echo "Sample metrics output (first 20 lines):"
@@ -71,7 +76,7 @@ curl -s http://localhost:9999/metrics | head -20
 
 echo ""
 echo "Stopping container..."
-docker stop all-smi-benchmark
+docker stop all-smi-test-benchmark-api
 
 echo ""
 echo "Benchmark complete!"

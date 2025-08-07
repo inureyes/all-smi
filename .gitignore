@@ -22,6 +22,7 @@ Cargo.lock
 *.csv
 hosts.csv
 test-hosts.csv
+tests/.cargo-cache/
 
 # Documentation (if generated)
 /doc/
