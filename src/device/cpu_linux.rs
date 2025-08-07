@@ -309,12 +309,7 @@ impl LinuxCpuReader {
                 let avg_freq =
                     container_cpu_freqs.iter().sum::<f64>() / container_cpu_freqs.len() as f64;
                 base_frequency = avg_freq as u32;
-                log::info!(
-                    "Container CPU frequency: Using {} CPUs from cpuset {:?}, avg freq: {} MHz",
-                    container_cpu_freqs.len(),
-                    cpuset,
-                    base_frequency
-                );
+                // Container CPU frequency: Using container CPUs from cpuset
             }
         } else if !cpu_mhz_values.is_empty() {
             // Host mode: use all CPU frequencies
@@ -349,11 +344,7 @@ impl LinuxCpuReader {
                 if let Ok(freq_khz) = content.trim().parse::<u32>() {
                     max_frequency = freq_khz / 1000; // Convert kHz to MHz
                                                      // Log frequency detection for debugging
-                    log::debug!(
-                        "ARM CPU frequency: Found max frequency {} MHz from {}",
-                        max_frequency,
-                        path
-                    );
+                                                     // Found max frequency from scaling_max_freq
                     break;
                 }
             }
@@ -378,11 +369,7 @@ impl LinuxCpuReader {
                 if let Ok(content) = fs::read_to_string(path) {
                     if let Ok(freq_khz) = content.trim().parse::<u32>() {
                         base_frequency = freq_khz / 1000; // Convert kHz to MHz
-                        log::debug!(
-                            "ARM CPU frequency: Found current frequency {} MHz from {}",
-                            base_frequency,
-                            path
-                        );
+                                                          // Found current frequency from scaling_cur_freq
                         break;
                     }
                 }
@@ -408,11 +395,7 @@ impl LinuxCpuReader {
                 if let Ok(content) = fs::read_to_string(path) {
                     if let Ok(freq_khz) = content.trim().parse::<u32>() {
                         base_frequency = freq_khz / 1000; // Convert kHz to MHz
-                        log::debug!(
-                            "ARM CPU frequency: Using min frequency {} MHz from {}",
-                            base_frequency,
-                            path
-                        );
+                                                          // Using min frequency from scaling_min_freq
                         break;
                     }
                 }
@@ -459,7 +442,7 @@ impl LinuxCpuReader {
             if let Ok(content) = fs::read_to_string("/sys/devices/system/cpu/cpu0/clock_rate") {
                 if let Ok(freq_hz) = content.trim().parse::<u64>() {
                     base_frequency = (freq_hz / 1_000_000) as u32; // Convert Hz to MHz
-                    log::debug!("ARM CPU frequency: Found clock_rate {} MHz", base_frequency);
+                                                                   // Found clock_rate from device-tree
                 }
             }
 
@@ -475,10 +458,7 @@ impl LinuxCpuReader {
                             u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as u64;
                         if freq_hz > 0 {
                             base_frequency = (freq_hz / 1_000_000) as u32;
-                            log::debug!(
-                                "ARM CPU frequency: Found device-tree frequency {} MHz",
-                                base_frequency
-                            );
+                            // Found device-tree frequency
                         }
                     }
                 }
@@ -500,11 +480,7 @@ impl LinuxCpuReader {
             };
             if estimated_freq > 0 {
                 base_frequency = estimated_freq;
-                log::debug!(
-                    "ARM CPU frequency: Estimated {} MHz from BogoMIPS {}",
-                    base_frequency,
-                    bogomips
-                );
+                // Estimated frequency from BogoMIPS
             }
         }
 
@@ -515,11 +491,7 @@ impl LinuxCpuReader {
                 _ => 1000,                    // Generic default
             };
             max_frequency = base_frequency;
-            log::debug!(
-                "ARM CPU frequency: Using default {} MHz for {:?}",
-                base_frequency,
-                platform_type
-            );
+            // Using default frequency for platform
         }
 
         Ok((

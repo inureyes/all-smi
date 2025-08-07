@@ -83,6 +83,6 @@ pub async fn run_api_mode(args: &ApiArgs) {
     let listener = TcpListener::bind(&format!("0.0.0.0:{}", args.port))
         .await
         .unwrap();
-    tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    tracing::info!("API server listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
 }
