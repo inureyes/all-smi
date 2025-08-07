@@ -261,9 +261,9 @@ impl LinuxCpuReader {
                         _ => "Unknown",
                     };
 
-                    cpu_model = format!("{} ARM Processor", implementer_name);
+                    cpu_model = format!("{implementer_name} ARM Processor");
                     if !cpu_part.is_empty() {
-                        cpu_model.push_str(&format!(" (Part: {})", cpu_part));
+                        cpu_model.push_str(&format!(" (Part: {cpu_part})"));
                     }
                 } else {
                     cpu_model = "ARM Processor".to_string();
