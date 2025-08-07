@@ -190,7 +190,7 @@ impl ContainerInfo {
 
         // Try cgroups v2 first
         if let Ok(content) = fs::read_to_string("/sys/fs/cgroup/cpu.max") {
-            let parts: Vec<&str> = content.trim().split_whitespace().collect();
+            let parts: Vec<&str> = content.split_whitespace().collect();
             if parts.len() == 2 {
                 if parts[0] != "max" {
                     cpu_quota = parts[0].parse::<i64>().ok();
@@ -238,7 +238,7 @@ impl ContainerInfo {
                     if start == end {
                         ranges.push(start.to_string());
                     } else {
-                        ranges.push(format!("{}-{}", start, end));
+                        ranges.push(format!("{start}-{end}"));
                     }
                 }
                 let cpus_str = ranges.join(",");
@@ -264,7 +264,7 @@ impl ContainerInfo {
         };
 
         if let Ok(content) = fs::read_to_string(cpuset_path) {
-            Self::parse_cpuset_range(&content.trim())
+            Self::parse_cpuset_range(content.trim())
         } else {
             None
         }

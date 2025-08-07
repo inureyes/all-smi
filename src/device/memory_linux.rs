@@ -10,6 +10,12 @@ pub struct LinuxMemoryReader {
     container_info: Option<ContainerInfo>,
 }
 
+impl Default for LinuxMemoryReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LinuxMemoryReader {
     pub fn new() -> Self {
         let container_info = ContainerInfo::detect();

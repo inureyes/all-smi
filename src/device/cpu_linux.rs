@@ -35,6 +35,12 @@ pub struct LinuxCpuReader {
     container_info: ContainerInfo,
 }
 
+impl Default for LinuxCpuReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LinuxCpuReader {
     pub fn new() -> Self {
         Self {
@@ -458,7 +464,7 @@ impl LinuxCpuReader {
     }
 
     fn get_core_utilization_from_stat(&self, stat_content: &str, core_id: u32) -> f64 {
-        let cpu_line_prefix = format!("cpu{}", core_id);
+        let cpu_line_prefix = format!("cpu{core_id}");
 
         for line in stat_content.lines() {
             if line.starts_with(&cpu_line_prefix)
