@@ -327,14 +327,8 @@ impl LinuxCpuReader {
 
         // Try multiple cpufreq paths (some ARM systems use different paths)
         let cpufreq_paths = [
-            format!(
-                "/sys/devices/system/cpu/cpu{}/cpufreq/cpuinfo_max_freq",
-                cpu_to_check
-            ),
-            format!(
-                "/sys/devices/system/cpu/cpu{}/cpufreq/scaling_max_freq",
-                cpu_to_check
-            ),
+            format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/cpuinfo_max_freq"),
+            format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/scaling_max_freq"),
             "/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq".to_string(),
             "/sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq".to_string(),
         ];
@@ -353,14 +347,8 @@ impl LinuxCpuReader {
         // Try to get current frequency for base frequency if we don't have it
         if base_frequency == 0 {
             let scaling_paths = [
-                format!(
-                    "/sys/devices/system/cpu/cpu{}/cpufreq/scaling_cur_freq",
-                    cpu_to_check
-                ),
-                format!(
-                    "/sys/devices/system/cpu/cpu{}/cpufreq/cpuinfo_cur_freq",
-                    cpu_to_check
-                ),
+                format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/scaling_cur_freq"),
+                format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/cpuinfo_cur_freq"),
                 "/sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq".to_string(),
                 "/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_cur_freq".to_string(),
             ];
@@ -379,14 +367,8 @@ impl LinuxCpuReader {
         // If still no base frequency, try cpuinfo_min_freq
         if base_frequency == 0 {
             let min_freq_paths = [
-                format!(
-                    "/sys/devices/system/cpu/cpu{}/cpufreq/cpuinfo_min_freq",
-                    cpu_to_check
-                ),
-                format!(
-                    "/sys/devices/system/cpu/cpu{}/cpufreq/scaling_min_freq",
-                    cpu_to_check
-                ),
+                format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/cpuinfo_min_freq"),
+                format!("/sys/devices/system/cpu/cpu{cpu_to_check}/cpufreq/scaling_min_freq"),
                 "/sys/devices/system/cpu/cpufreq/policy0/cpuinfo_min_freq".to_string(),
                 "/sys/devices/system/cpu/cpufreq/policy0/scaling_min_freq".to_string(),
             ];

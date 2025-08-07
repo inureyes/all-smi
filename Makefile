@@ -11,8 +11,8 @@ help:
 	@echo "  api                          Run for API mode"
 	@echo "  mock                         Run mock server for testing"
 	@echo "  docker-dev                   Run container dev env with bash"
-	@echo "  docker-dev-container-api     Test container API mode"
-	@echo "  docker-dev-container-view    Test container view mode"
+	@echo "  docker-test-container-api    Test container API mode"
+	@echo "  docker-test-container-view   Test container view mode"
 	@echo ""
 	@echo "Quality & Testing:"
 	@echo "  test                         Run tests"
@@ -37,17 +37,21 @@ mock:
 	cargo run --features mock --bin all-smi-mock-server -- --port-range 10001-10050
 
 docker-dev:
+	@mkdir -p tests/.cargo-cache
 	docker run -it --rm --name all-smi-dev-container --memory="4g" --cpus="2.5" \
 		-v "$(PWD)":/all-smi \
+		-v "$(PWD)/tests/.cargo-cache":/usr/local/cargo/registry \
 		-w /all-smi \
 		rust:1.88 \
 		/bin/bash -c "apt-get update && apt-get install -y pkg-config protobuf-compiler && \
 		bash"
 
 docker-test-container-api:
+	@mkdir -p tests/.cargo-cache
 	docker run -it --rm --memory="2g" --cpus="1.5" \
 		-p 9090:9090 \
 		-v "$(PWD)":/all-smi \
+		-v "$(PWD)/tests/.cargo-cache":/usr/local/cargo/registry \
 		-w /all-smi \
 		rust:1.88 \
 		/bin/bash -c "apt-get update && apt-get install -y pkg-config protobuf-compiler && \
@@ -55,8 +59,10 @@ docker-test-container-api:
 		./target/release/all-smi api --port 9090"
 
 docker-test-container-view:
+	@mkdir -p tests/.cargo-cache
 	docker run -it --rm --memory="2g" --cpus="1.5" \
 		-v "$(PWD)":/all-smi \
+		-v "$(PWD)/tests/.cargo-cache":/usr/local/cargo/registry \
 		-w /all-smi \
 		rust:1.88 \
 		/bin/bash -c "apt-get update && apt-get install -y pkg-config protobuf-compiler && \
@@ -64,6 +70,7 @@ docker-test-container-view:
 		./target/release/all-smi view"
 
 docker-build-container:
+	@mkdir -p tests/.cargo-cache
 	docker build -t all-smi:latest .
 
 release:
