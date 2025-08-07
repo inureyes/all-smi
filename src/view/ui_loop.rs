@@ -22,7 +22,7 @@ use crossterm::{
     cursor,
     event::{self, Event},
     queue,
-    style::Color,
+    style::{Color, Print},
     terminal::size,
 };
 use tokio::sync::Mutex;
@@ -670,7 +670,21 @@ impl UiLoop {
                     AppConfig::DEFAULT_TERMINAL_HEIGHT,
                 ),
             };
-            let half_rows = rows / 2;
+
+            // Calculate how many lines have been used so far
+            // Count newlines in the buffer to determine current row position
+            let lines_used = buffer.get_buffer().matches('\n').count();
+
+            // Add a blank line before process list
+            queue!(buffer, Print("\r\n")).unwrap();
+
+            // Reserve 1 line for function keys at the bottom
+            let function_key_rows = 1;
+
+            // Calculate available rows for process list
+            // Use all remaining space from current position to the function keys
+            // Account for the blank line we just added
+            let available_rows = rows.saturating_sub(lines_used as u16 + 1 + function_key_rows);
 
             // Get current user for process coloring
             let current_user = whoami::username();
@@ -680,7 +694,7 @@ impl UiLoop {
                 &state.process_info,
                 state.selected_process_index,
                 state.start_index,
-                half_rows,
+                available_rows,
                 cols,
                 state.process_horizontal_scroll_offset,
                 &current_user,

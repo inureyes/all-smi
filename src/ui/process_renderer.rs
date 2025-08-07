@@ -25,14 +25,15 @@ pub fn print_process_info<W: Write>(
     processes: &[ProcessInfo],
     selected_index: usize,
     start_index: usize,
-    half_rows: u16,
+    available_rows: u16,
     cols: u16,
     horizontal_scroll_offset: usize,
     current_user: &str,
     sort_criteria: &crate::app_state::SortCriteria,
     sort_direction: &crate::app_state::SortDirection,
 ) {
-    queue!(stdout, Print("\r\nProcesses:\r\n")).unwrap();
+    // Don't add extra newlines at the start - the caller should handle positioning
+    queue!(stdout, Print("Processes:\r\n")).unwrap();
 
     let width = cols as usize;
 
@@ -130,9 +131,13 @@ pub fn print_process_info<W: Write>(
     print_colored_text(stdout, &separator, Color::DarkGrey, None, None);
     queue!(stdout, Print("\r\n")).unwrap();
 
+    // Calculate how many rows are reserved for footer information
+    let footer_rows = 2usize; // "Showing..." line + "Active..." stats line
+
     // Calculate how many processes we can display
-    let available_rows = half_rows.saturating_sub(3) as usize; // Reserve 3 rows for header and separator
-    let end_index = (start_index + available_rows).min(processes.len());
+    // Reserve rows: 4 for "Processes:" + header + separator + 2 for footer (always shown at bottom)
+    let available_rows_for_processes = (available_rows as usize).saturating_sub(4 + footer_rows);
+    let end_index = (start_index + available_rows_for_processes).min(processes.len());
 
     // Print process information
     for i in start_index..end_index {
@@ -258,8 +263,21 @@ pub fn print_process_info<W: Write>(
         }
     }
 
+    // Calculate lines used so far
+    let mut lines_used = 4; // "Processes:" (1) + header (1) + separator (1) + blank line after header (1)
+    lines_used += end_index.saturating_sub(start_index); // actual process lines
+
+    // Fill empty space between processes and footer
+    let total_lines_before_footer = (available_rows as usize).saturating_sub(footer_rows);
+    while lines_used < total_lines_before_footer {
+        let clear_line = " ".repeat(width);
+        queue!(stdout, Print(&clear_line)).unwrap();
+        queue!(stdout, Print("\r\n")).unwrap();
+        lines_used += 1;
+    }
+
     // Show navigation info if there are more processes
-    if processes.len() > available_rows {
+    if processes.len() > available_rows_for_processes {
         let nav_info = format!(
             "Showing {}-{} of {} processes (Use ↑↓ to navigate, PgUp/PgDn for pages)",
             start_index + 1,
@@ -270,6 +288,14 @@ pub fn print_process_info<W: Write>(
         let padded_nav_info = format!("{nav_info:<width$}");
         print_colored_text(stdout, &padded_nav_info, Color::DarkGrey, None, None);
         queue!(stdout, Print("\r\n")).unwrap();
+        lines_used += 1;
+    } else if !processes.is_empty() {
+        // If all processes fit, still show a summary line
+        let nav_info = format!("Showing all {} processes", processes.len());
+        let padded_nav_info = format!("{nav_info:<width$}");
+        print_colored_text(stdout, &padded_nav_info, Color::DarkGrey, None, None);
+        queue!(stdout, Print("\r\n")).unwrap();
+        lines_used += 1;
     }
 
     // Show process statistics
@@ -287,21 +313,11 @@ pub fn print_process_info<W: Write>(
         let padded_stats = format!("{stats:<width$}");
         print_colored_text(stdout, &padded_stats, Color::Cyan, None, None);
         queue!(stdout, Print("\r\n")).unwrap();
+        lines_used += 1;
     }
 
-    // Clear any remaining lines from the process section to prevent artifacts
-    // This handles the case where processes are removed and old lines remain
-    let mut lines_used = 3; // header (2) + separator (1)
-    lines_used += end_index.saturating_sub(start_index); // actual process lines
-    if processes.len() > available_rows {
-        lines_used += 1; // navigation info line
-    }
-    if !processes.is_empty() {
-        lines_used += 1; // stats line
-    }
-
-    // Clear any remaining lines up to the full half_rows allocation
-    while lines_used < half_rows as usize {
+    // Fill remaining space up to available_rows
+    while lines_used < available_rows as usize {
         let clear_line = " ".repeat(width);
         queue!(stdout, Print(&clear_line)).unwrap();
         queue!(stdout, Print("\r\n")).unwrap();
