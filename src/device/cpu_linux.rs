@@ -168,7 +168,7 @@ impl LinuxCpuReader {
 
     fn parse_cpuinfo(&self, content: &str) -> CpuInfoParseResult {
         // Get container info to check CPU allocation
-        let container_info = ContainerInfo::detect();
+        let container_info = self.container_info;
         let mut cpu_model = String::new();
         let mut architecture = String::new();
         let mut platform_type = CpuPlatformType::Other("Unknown".to_string());
