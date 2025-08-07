@@ -169,6 +169,8 @@ impl LinuxCpuReader {
 
         let mut physical_ids = std::collections::HashSet::new();
         let mut processor_count = 0u32;
+        let mut cpu_implementer = String::new();
+        let mut cpu_part = String::new();
 
         for line in content.lines() {
             if line.starts_with("model name") {
@@ -207,6 +209,14 @@ impl LinuxCpuReader {
                         }
                     }
                 }
+            } else if line.starts_with("CPU implementer") {
+                if let Some(value) = line.split(':').nth(1) {
+                    cpu_implementer = value.trim().to_string();
+                }
+            } else if line.starts_with("CPU part") {
+                if let Some(value) = line.split(':').nth(1) {
+                    cpu_part = value.trim().to_string();
+                }
             }
         }
 
@@ -223,6 +233,42 @@ impl LinuxCpuReader {
         // Try to get architecture from uname
         if let Ok(output) = std::process::Command::new("uname").arg("-m").output() {
             architecture = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+            // If architecture is ARM and we don't have a CPU model, construct one
+            if (architecture == "aarch64"
+                || architecture == "arm64"
+                || architecture.starts_with("arm"))
+                && cpu_model.is_empty()
+            {
+                platform_type = CpuPlatformType::Arm;
+
+                // Try to construct a model name from implementer and part
+                if !cpu_implementer.is_empty() || !cpu_part.is_empty() {
+                    let implementer_name = match cpu_implementer.as_str() {
+                        "0x41" => "ARM",
+                        "0x42" => "Broadcom",
+                        "0x43" => "Cavium",
+                        "0x44" => "DEC",
+                        "0x4e" => "NVIDIA",
+                        "0x50" => "APM",
+                        "0x51" => "Qualcomm",
+                        "0x53" => "Samsung",
+                        "0x54" => "HiSilicon",
+                        "0x56" => "Marvell",
+                        "0x61" => "Apple",
+                        "0x66" => "Faraday",
+                        "0x69" => "Intel",
+                        _ => "Unknown",
+                    };
+
+                    cpu_model = format!("{} ARM Processor", implementer_name);
+                    if !cpu_part.is_empty() {
+                        cpu_model.push_str(&format!(" (Part: {})", cpu_part));
+                    }
+                } else {
+                    cpu_model = "ARM Processor".to_string();
+                }
+            }
         }
 
         // Try to get max frequency from cpufreq
@@ -234,8 +280,37 @@ impl LinuxCpuReader {
             }
         }
 
+        // Try to get current frequency for base frequency if we don't have it
+        if base_frequency == 0 {
+            if let Ok(content) =
+                fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq")
+            {
+                if let Ok(freq_khz) = content.trim().parse::<u32>() {
+                    base_frequency = freq_khz / 1000; // Convert kHz to MHz
+                }
+            }
+        }
+
+        // If still no base frequency, try cpuinfo_min_freq
+        if base_frequency == 0 {
+            if let Ok(content) =
+                fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq")
+            {
+                if let Ok(freq_khz) = content.trim().parse::<u32>() {
+                    base_frequency = freq_khz / 1000; // Convert kHz to MHz
+                }
+            }
+        }
+
         if max_frequency == 0 {
             max_frequency = base_frequency;
+        }
+
+        // If we still don't have frequencies, try to use a reasonable default
+        if base_frequency == 0 && max_frequency == 0 {
+            // Default to 1000 MHz as a reasonable guess
+            base_frequency = 1000;
+            max_frequency = 1000;
         }
 
         Ok((

@@ -6,21 +6,23 @@ help:
 	@echo "Available targets:"
 	@echo ""
 	@echo "Setup & Building:"
-	@echo "  local                Run for local view mode"
-	@echo "  remote               Run for remote view mode"
-	@echo "  api                  Run for API mode"
-	@echo "  mock                 Run mock server for testing"
-	@echo "  docker-dev           Run container dev env with bash"
+	@echo "  local                        Run for local view mode"
+	@echo "  remote                       Run for remote view mode"
+	@echo "  api                          Run for API mode"
+	@echo "  mock                         Run mock server for testing"
+	@echo "  docker-dev                   Run container dev env with bash"
+	@echo "  docker-dev-container-api     Test container API mode"
+	@echo "  docker-dev-container-view    Test container view mode"
 	@echo ""
 	@echo "Quality & Testing:"
-	@echo "  test                 Run tests"
-	@echo "  validate             Validate links and content"
-	@echo "  lint                 Run linting on documentation"
-	@echo "  test                 Run all tests"
+	@echo "  test                         Run tests"
+	@echo "  validate                     Validate links and content"
+	@echo "  lint                         Run linting on documentation"
+	@echo "  test                         Run all tests"
 	@echo ""
 	@echo "Deployment:"
-	@echo "  release              Build release binaries"
-	@echo "  clean                Clean build artifacts"
+	@echo "  release                      Build release binaries"
+	@echo "  clean                        Clean build artifacts"
 
 local:
 	cargo run --bin all-smi -- view 
@@ -35,7 +37,7 @@ mock:
 	cargo run --features mock --bin all-smi-mock-server -- --port-range 10001-10050
 
 docker-dev:
-	docker run -it --rm --name all-smi-container --memory="4g" --cpus="2.5" \
+	docker run -it --rm --name all-smi-dev-container --memory="4g" --cpus="2.5" \
 		-v "$(PWD)":/all-smi \
 		-w /all-smi \
 		rust:1.88 \
@@ -48,7 +50,7 @@ docker-test-container-api:
 		-v "$(PWD)":/all-smi \
 		-w /all-smi \
 		rust:1.88 \
-		/bin/bash -c "apt-get update && apt-get install -y pkg-config libssl-dev protobuf-compiler && \
+		/bin/bash -c "apt-get update && apt-get install -y pkg-config protobuf-compiler && \
 		cargo build --release && \
 		./target/release/all-smi api --port 9090"
 
@@ -57,7 +59,7 @@ docker-test-container-view:
 		-v "$(PWD)":/all-smi \
 		-w /all-smi \
 		rust:1.88 \
-		/bin/bash -c "apt-get update && apt-get install -y pkg-config libssl-dev protobuf-compiler && \
+		/bin/bash -c "apt-get update && apt-get install -y pkg-config protobuf-compiler && \
 		cargo build --release && \
 		./target/release/all-smi view"
 
