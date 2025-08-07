@@ -265,7 +265,7 @@ pub fn print_process_info<W: Write>(
     }
 
     // Calculate lines used so far
-    let mut lines_used = 4; // "Processes:" (1) + header (1) + separator (1) + blank line after header (1)
+    let mut lines_used = 3; // "Processes:" (1) + header (1) + separator (1)
     lines_used += end_index.saturating_sub(start_index); // actual process lines
 
     // Fill empty space between processes and footer
