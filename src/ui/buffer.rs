@@ -21,17 +21,23 @@ use std::io::{stdout, Write};
 
 pub struct BufferWriter {
     buffer: String,
+    line_count: usize,
 }
 
 impl BufferWriter {
     pub fn new() -> Self {
         Self {
             buffer: String::with_capacity(1024 * 1024), // Pre-allocate 1MB
+            line_count: 0,
         }
     }
 
     pub fn get_buffer(&self) -> &str {
         &self.buffer
+    }
+
+    pub fn line_count(&self) -> usize {
+        self.line_count
     }
 }
 
@@ -39,6 +45,10 @@ impl Write for BufferWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let s = std::str::from_utf8(buf)
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid UTF-8"))?;
+
+        // Count newlines in the new content
+        self.line_count += s.matches('\n').count();
+
         self.buffer.push_str(s);
         Ok(buf.len())
     }

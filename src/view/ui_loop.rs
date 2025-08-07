@@ -672,8 +672,8 @@ impl UiLoop {
             };
 
             // Calculate how many lines have been used so far
-            // Count newlines in the buffer to determine current row position
-            let lines_used = buffer.get_buffer().matches('\n').count();
+            // Use the efficient line counter from BufferWriter
+            let lines_used = buffer.line_count();
 
             // Add a blank line before process list
             queue!(buffer, Print("\r\n")).unwrap();
