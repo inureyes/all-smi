@@ -30,7 +30,7 @@ error() {
 }
 
 success() {
-    echo -e "${GREEN}${BOLD}✓${RESET} ${GREEN}$*${RESET}"
+    echo -e "${GREEN}${BOLD}[OK]${RESET} ${GREEN}$*${RESET}"
 }
 
 warning() {
