@@ -51,7 +51,7 @@ docker run --rm \
     -w /all-smi \
     rust:1.88 \
     /bin/bash -c "
-        apt-get update && apt-get install -y pkg-config libssl-dev protobuf-compiler curl && 
+        apt-get update && apt-get install -y pkg-config protobuf-compiler curl && 
         /tmp/run-build-test.sh
     "
 
