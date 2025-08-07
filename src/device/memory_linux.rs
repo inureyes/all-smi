@@ -1,13 +1,24 @@
 use chrono::Local;
+use once_cell::sync::Lazy;
 use std::fs;
 
 use crate::device::container_info::ContainerInfo;
 use crate::device::{MemoryInfo, MemoryReader};
 use crate::utils::get_hostname;
 
+// Cache container detection result globally to avoid repeated filesystem operations
+static CONTAINER_INFO: Lazy<Option<ContainerInfo>> = Lazy::new(|| {
+    let info = ContainerInfo::detect();
+    if info.is_container {
+        Some(info)
+    } else {
+        None
+    }
+});
+
 pub struct LinuxMemoryReader {
-    // Cache container info but only refresh memory usage
-    container_info: Option<ContainerInfo>,
+    // Reference to the global container info
+    container_info: &'static Option<ContainerInfo>,
 }
 
 impl Default for LinuxMemoryReader {
@@ -18,13 +29,8 @@ impl Default for LinuxMemoryReader {
 
 impl LinuxMemoryReader {
     pub fn new() -> Self {
-        let container_info = ContainerInfo::detect();
         LinuxMemoryReader {
-            container_info: if container_info.is_container {
-                Some(container_info)
-            } else {
-                None
-            },
+            container_info: &*CONTAINER_INFO,
         }
     }
 }

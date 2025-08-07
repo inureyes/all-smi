@@ -576,6 +576,13 @@ pub fn detect_virtualization() -> VirtualizationInfo {
 
 /// Check if AWS metadata service is accessible
 fn check_aws_metadata() -> bool {
+    // Make the AWS metadata check optional via environment variable
+    if let Ok(val) = env::var("AWS_METADATA_CHECK_ENABLED") {
+        if val == "0" || val.to_lowercase() == "false" {
+            return false;
+        }
+    }
+
     // Try to access AWS metadata service with very short timeout
     if let Ok(output) = Command::new("curl")
         .args([

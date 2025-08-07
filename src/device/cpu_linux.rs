@@ -1,13 +1,16 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fs;
+use std::process::Command;
+
+use chrono::Local;
+use once_cell::sync::Lazy;
+
 use crate::device::container_info::{parse_cpu_stat_with_container_limits, ContainerInfo};
 use crate::device::{
     CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo,
 };
 use crate::utils::system::get_hostname;
-use chrono::Local;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fs;
-use std::process::Command;
 
 type CpuInfoParseResult = Result<
     (
@@ -27,13 +30,16 @@ type CpuInfoParseResult = Result<
 type CpuStatParseResult =
     Result<(f64, Vec<CpuSocketInfo>, Vec<CoreUtilization>), Box<dyn std::error::Error>>;
 
+// Cache container detection result globally to avoid repeated filesystem operations
+static CONTAINER_INFO: Lazy<ContainerInfo> = Lazy::new(|| ContainerInfo::detect());
+
 pub struct LinuxCpuReader {
     // Use Option<Option<u32>> to distinguish:
     // - None: not cached yet
     // - Some(None): lscpu was called but failed
     // - Some(Some(value)): lscpu succeeded with value
     cached_lscpu_cache_size: RefCell<Option<Option<u32>>>,
-    container_info: ContainerInfo,
+    container_info: &'static ContainerInfo,
 }
 
 impl Default for LinuxCpuReader {
@@ -46,7 +52,7 @@ impl LinuxCpuReader {
     pub fn new() -> Self {
         Self {
             cached_lscpu_cache_size: RefCell::new(None),
-            container_info: ContainerInfo::detect(),
+            container_info: &*CONTAINER_INFO,
         }
     }
 

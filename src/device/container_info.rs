@@ -9,6 +9,7 @@ use cgroups_rs::fs::memory::MemController;
 #[cfg(target_os = "linux")]
 use cgroups_rs::fs::Cgroup;
 
+use once_cell::sync::Lazy;
 use std::fs;
 use std::path::Path;
 
@@ -49,8 +50,78 @@ pub struct ContainerInfo {
     cgroup: Option<Cgroup>,
 }
 
+// Cache container detection data (excluding Cgroup handle)
+#[derive(Clone)]
+struct CachedContainerData {
+    is_container: bool,
+    cpu_quota: Option<i64>,
+    cpu_period: Option<u64>,
+    cpu_shares: Option<u64>,
+    cpuset_cpus: Option<Vec<u32>>,
+    effective_cpu_count: f64,
+    memory_limit_bytes: Option<u64>,
+    memory_soft_limit_bytes: Option<u64>,
+    memory_swap_limit_bytes: Option<u64>,
+}
+
+static CACHED_CONTAINER_DATA: Lazy<CachedContainerData> = Lazy::new(|| {
+    let info = ContainerInfo::detect_impl();
+    CachedContainerData {
+        is_container: info.is_container,
+        cpu_quota: info.cpu_quota,
+        cpu_period: info.cpu_period,
+        cpu_shares: info.cpu_shares,
+        cpuset_cpus: info.cpuset_cpus,
+        effective_cpu_count: info.effective_cpu_count,
+        memory_limit_bytes: info.memory_limit_bytes,
+        memory_soft_limit_bytes: info.memory_soft_limit_bytes,
+        memory_swap_limit_bytes: info.memory_swap_limit_bytes,
+    }
+});
+
 impl ContainerInfo {
     pub fn detect() -> Self {
+        let cached = &*CACHED_CONTAINER_DATA;
+
+        // Reconstruct ContainerInfo from cached data
+        if !cached.is_container {
+            return ContainerInfo {
+                is_container: false,
+                cpu_quota: None,
+                cpu_period: None,
+                cpu_shares: None,
+                cpuset_cpus: None,
+                effective_cpu_count: cached.effective_cpu_count,
+                memory_limit_bytes: None,
+                memory_soft_limit_bytes: None,
+                memory_swap_limit_bytes: None,
+                memory_usage_bytes: None,
+                #[cfg(target_os = "linux")]
+                cgroup: None,
+            };
+        }
+
+        // For containers, reinitialize cgroup handle for fresh memory usage
+        #[cfg(target_os = "linux")]
+        let cgroup = Self::init_cgroup();
+
+        ContainerInfo {
+            is_container: cached.is_container,
+            cpu_quota: cached.cpu_quota,
+            cpu_period: cached.cpu_period,
+            cpu_shares: cached.cpu_shares,
+            cpuset_cpus: cached.cpuset_cpus.clone(),
+            effective_cpu_count: cached.effective_cpu_count,
+            memory_limit_bytes: cached.memory_limit_bytes,
+            memory_soft_limit_bytes: cached.memory_soft_limit_bytes,
+            memory_swap_limit_bytes: cached.memory_swap_limit_bytes,
+            memory_usage_bytes: None, // Will be fetched fresh
+            #[cfg(target_os = "linux")]
+            cgroup,
+        }
+    }
+
+    fn detect_impl() -> Self {
         let is_container = Self::is_in_container();
 
         if !is_container {
