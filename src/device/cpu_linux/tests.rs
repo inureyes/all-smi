@@ -98,8 +98,6 @@ cpu3 2500 0 5000 17500 0 0 0 0 0 0"#;
     }
 }
 
-// Removed test_get_core_utilization_from_stat as we now use sysinfo crate for CPU utilization
-
 #[test]
 fn test_container_aware_parsing() {
     // Create a reader that would detect container environment

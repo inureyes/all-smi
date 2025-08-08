@@ -22,6 +22,7 @@ use crate::ui::text::{print_colored_text, truncate_to_width};
 use crate::ui::widgets::{draw_bar, draw_bar_multi, BarSegment};
 
 /// Formats a hostname for display with scrolling animation if it exceeds 9 characters
+/// Always returns a string with exactly 9 characters (padded with spaces if needed)
 fn format_hostname_with_scroll(hostname: &str, scroll_offset: usize) -> String {
     if hostname.len() > 9 {
         let scroll_len = hostname.len() + 3;
@@ -33,7 +34,8 @@ fn format_hostname_with_scroll(hostname: &str, scroll_offset: usize) -> String {
             .take(9)
             .collect::<String>()
     } else {
-        hostname.to_string()
+        // Always return 9 characters, left-aligned with space padding
+        format!("{hostname:<9}")
     }
 }
 
