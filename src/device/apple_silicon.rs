@@ -21,7 +21,10 @@ use std::collections::{HashMap, HashSet};
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 
 // Cache GPU info to avoid expensive system_profiler calls on every initialization
 static CACHED_GPU_INFO: Lazy<Mutex<Option<(String, Option<String>, Option<u32>)>>> =
@@ -31,7 +34,7 @@ pub struct AppleSiliconGpuReader {
     name: Option<String>,
     driver_version: Option<String>,
     gpu_core_count: Option<u32>,
-    initialized: std::cell::Cell<bool>,
+    initialized: AtomicBool,
 }
 
 impl Default for AppleSiliconGpuReader {
@@ -47,12 +50,12 @@ impl AppleSiliconGpuReader {
             name: None,
             driver_version: None,
             gpu_core_count: None,
-            initialized: std::cell::Cell::new(false),
+            initialized: AtomicBool::new(false),
         }
     }
 
     fn ensure_initialized(&self) {
-        if self.initialized.get() {
+        if self.initialized.load(Ordering::Acquire) {
             return;
         }
 
@@ -68,7 +71,7 @@ impl AppleSiliconGpuReader {
                 (*self_mut).driver_version = driver_version.clone();
                 (*self_mut).gpu_core_count = *gpu_core_count;
             }
-            self.initialized.set(true);
+            self.initialized.store(true, Ordering::Release);
             return;
         }
 
@@ -86,7 +89,7 @@ impl AppleSiliconGpuReader {
             (*self_mut).driver_version = driver_version;
             (*self_mut).gpu_core_count = gpu_core_count;
         }
-        self.initialized.set(true);
+        self.initialized.store(true, Ordering::Release);
     }
 
     /// Get GPU processes from powermetrics

@@ -71,58 +71,252 @@ impl DataCollector {
     pub async fn run_local_mode(&self, args: ViewArgs) {
         let mut profiler = crate::utils::StartupProfiler::new();
         profiler.checkpoint("Starting local mode data collection");
-        let gpu_readers = get_gpu_readers();
+
+        // Add startup status
+        {
+            let mut state = self.app_state.lock().await;
+            state
+                .startup_status_lines
+                .push("✓ Initializing GPU readers...".to_string());
+        }
+
+        let gpu_readers = Arc::new(get_gpu_readers());
         profiler.checkpoint("GPU readers initialized");
-        let cpu_readers = get_cpu_readers();
+
+        // Add startup status
+        {
+            let mut state = self.app_state.lock().await;
+            state
+                .startup_status_lines
+                .push("✓ Initializing CPU readers...".to_string());
+        }
+
+        let cpu_readers = Arc::new(get_cpu_readers());
         profiler.checkpoint("CPU readers initialized");
-        let memory_readers = get_memory_readers();
+
+        // Add startup status
+        {
+            let mut state = self.app_state.lock().await;
+            state
+                .startup_status_lines
+                .push("✓ Initializing memory readers...".to_string());
+        }
+
+        let memory_readers = Arc::new(get_memory_readers());
         profiler.checkpoint("Memory readers initialized");
 
         let mut first_iteration = true;
 
         loop {
-            let all_gpu_info: Vec<GpuInfo> = gpu_readers
-                .iter()
-                .flat_map(|reader| reader.get_gpu_info())
-                .collect();
             if first_iteration {
-                profiler.checkpoint("GPU info collected");
-            }
+                // On first iteration, collect all data in parallel for complete initial view
+                use tokio::sync::mpsc;
+                use tokio::task;
 
-            let all_cpu_info: Vec<CpuInfo> = cpu_readers
-                .iter()
-                .flat_map(|reader| reader.get_cpu_info())
-                .collect();
-            if first_iteration {
-                profiler.checkpoint("CPU info collected");
-            }
+                // Add initial startup status
+                {
+                    let mut state = self.app_state.lock().await;
+                    state
+                        .startup_status_lines
+                        .push("○ Collecting GPU information...".to_string());
+                    state
+                        .startup_status_lines
+                        .push("○ Collecting CPU information...".to_string());
+                    state
+                        .startup_status_lines
+                        .push("○ Collecting memory information...".to_string());
+                    state
+                        .startup_status_lines
+                        .push("○ Collecting process information...".to_string());
+                    state
+                        .startup_status_lines
+                        .push("○ Collecting storage information...".to_string());
+                }
 
-            let all_memory_info: Vec<MemoryInfo> = memory_readers
-                .iter()
-                .flat_map(|reader| reader.get_memory_info())
-                .collect();
-            if first_iteration {
-                profiler.checkpoint("Memory info collected");
-            }
+                // Create channel for status updates
+                let (status_tx, mut status_rx) = mpsc::channel(10);
+                let app_state_clone = Arc::clone(&self.app_state);
 
-            // Collect GPU process info (lightweight - just GPU usage data from powermetrics)
-            let gpu_processes: Vec<ProcessInfo> = gpu_readers
-                .iter()
-                .flat_map(|reader| reader.get_process_info())
-                .collect();
+                // Spawn task to handle status updates
+                let status_handler = task::spawn(async move {
+                    while let Some((index, message)) = status_rx.recv().await {
+                        let mut state = app_state_clone.lock().await;
+                        if index < state.startup_status_lines.len() {
+                            state.startup_status_lines[3 + index] = message;
+                        }
+                    }
+                });
 
-            // Collect all system processes (expensive on first run)
-            let all_processes = if first_iteration {
-                // Skip heavy process collection on first iteration for faster startup
-                Vec::new()
+                // Run all collections in parallel with status updates
+                let (
+                    all_gpu_info,
+                    all_cpu_info,
+                    all_memory_info,
+                    gpu_processes,
+                    all_processes,
+                    all_storage_info,
+                ) = {
+                    let status_tx_gpu = status_tx.clone();
+                    let status_tx_cpu = status_tx.clone();
+                    let status_tx_mem = status_tx.clone();
+                    let status_tx_proc = status_tx.clone();
+                    let status_tx_storage = status_tx.clone();
+
+                    let gpu_readers_1 = Arc::clone(&gpu_readers);
+                    let gpu_readers_2 = Arc::clone(&gpu_readers);
+                    let cpu_readers = Arc::clone(&cpu_readers);
+                    let memory_readers = Arc::clone(&memory_readers);
+
+                    tokio::join!(
+                        // GPU info collection
+                        async move {
+                            let info: Vec<GpuInfo> = gpu_readers_1
+                                .iter()
+                                .flat_map(|reader| reader.get_gpu_info())
+                                .collect();
+                            let _ = status_tx_gpu
+                                .send((0, "✓ GPU information collected".to_string()))
+                                .await;
+                            info
+                        },
+                        // CPU info collection
+                        async move {
+                            let info: Vec<CpuInfo> = cpu_readers
+                                .iter()
+                                .flat_map(|reader| reader.get_cpu_info())
+                                .collect();
+                            let _ = status_tx_cpu
+                                .send((1, "✓ CPU information collected".to_string()))
+                                .await;
+                            info
+                        },
+                        // Memory info collection
+                        async move {
+                            let info: Vec<MemoryInfo> = memory_readers
+                                .iter()
+                                .flat_map(|reader| reader.get_memory_info())
+                                .collect();
+                            let _ = status_tx_mem
+                                .send((2, "✓ Memory information collected".to_string()))
+                                .await;
+                            info
+                        },
+                        // GPU process collection (lightweight)
+                        async move {
+                            let processes = gpu_readers_2
+                                .iter()
+                                .flat_map(|reader| reader.get_process_info())
+                                .collect::<Vec<ProcessInfo>>();
+                            processes
+                        },
+                        // Full process collection
+                        async move {
+                            use crate::device::process_list::get_all_processes;
+                            use std::collections::HashSet;
+                            use sysinfo::{
+                                ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind,
+                            };
+
+                            let mut system = System::new();
+                            system.refresh_processes_specifics(
+                                ProcessesToUpdate::All,
+                                true,
+                                ProcessRefreshKind::everything().with_user(UpdateKind::Always),
+                            );
+                            system.refresh_memory();
+
+                            let gpu_pids: HashSet<u32> = HashSet::new(); // Will be filled after
+                            let all_processes = get_all_processes(&system, &gpu_pids);
+                            let _ = status_tx_proc
+                                .send((3, "✓ Process information collected".to_string()))
+                                .await;
+                            all_processes
+                        },
+                        // Storage collection
+                        async move {
+                            // Inline storage collection
+                            let mut all_storage_info = Vec::new();
+                            let disks = sysinfo::Disks::new_with_refreshed_list();
+                            let hostname = crate::utils::get_hostname();
+
+                            let mut filtered_disks =
+                                crate::utils::filter_docker_aware_disks(&disks);
+                            filtered_disks.sort_by(|a, b| {
+                                a.mount_point()
+                                    .to_string_lossy()
+                                    .cmp(&b.mount_point().to_string_lossy())
+                            });
+
+                            for (index, disk) in filtered_disks.iter().enumerate() {
+                                let mount_point_str = disk.mount_point().to_string_lossy();
+                                all_storage_info.push(StorageInfo {
+                                    mount_point: mount_point_str.to_string(),
+                                    total_bytes: disk.total_space(),
+                                    available_bytes: disk.available_space(),
+                                    host_id: hostname.clone(),
+                                    hostname: hostname.clone(),
+                                    index: index as u32,
+                                });
+                            }
+
+                            let _ = status_tx_storage
+                                .send((4, "✓ Storage information collected".to_string()))
+                                .await;
+                            all_storage_info
+                        }
+                    )
+                };
+
+                // Close the channel and wait for status handler to finish
+                drop(status_tx);
+                let _ = status_handler.await;
+
+                profiler.checkpoint("All data collected in parallel");
+
+                // Merge GPU processes into main process list
+                use crate::device::process_list::merge_gpu_processes;
+                let mut all_processes_merged = all_processes;
+                merge_gpu_processes(&mut all_processes_merged, gpu_processes);
+
+                self.update_local_state(
+                    all_gpu_info,
+                    all_cpu_info,
+                    all_memory_info,
+                    all_processes_merged,
+                    all_storage_info,
+                )
+                .await;
+
+                profiler.checkpoint("First data collection complete");
+                profiler.finish();
+                first_iteration = false;
             } else {
+                // Subsequent iterations - sequential collection is fine
+                let all_gpu_info: Vec<GpuInfo> = gpu_readers
+                    .iter()
+                    .flat_map(|reader| reader.get_gpu_info())
+                    .collect();
+
+                let all_cpu_info: Vec<CpuInfo> = cpu_readers
+                    .iter()
+                    .flat_map(|reader| reader.get_cpu_info())
+                    .collect();
+
+                let all_memory_info: Vec<MemoryInfo> = memory_readers
+                    .iter()
+                    .flat_map(|reader| reader.get_memory_info())
+                    .collect();
+
+                let gpu_processes: Vec<ProcessInfo> = gpu_readers
+                    .iter()
+                    .flat_map(|reader| reader.get_process_info())
+                    .collect();
+
                 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
                 use std::collections::HashSet;
                 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
-                // Use System::new() instead of new_all() for faster initialization
                 let mut system = System::new();
-                // Refresh processes with user information
                 system.refresh_processes_specifics(
                     ProcessesToUpdate::All,
                     true,
@@ -130,44 +324,20 @@ impl DataCollector {
                 );
                 system.refresh_memory();
 
-                // Get PIDs of GPU processes
                 let gpu_pids: HashSet<u32> = gpu_processes.iter().map(|p| p.pid).collect();
-
-                // Get all system processes
                 let mut all_processes = get_all_processes(&system, &gpu_pids);
+                merge_gpu_processes(&mut all_processes, gpu_processes);
 
-                // Merge GPU information into the process list
-                merge_gpu_processes(&mut all_processes, gpu_processes.clone());
+                let all_storage_info = self.collect_local_storage_info().await;
 
-                all_processes
-            };
-
-            // Collect local storage information only after first iteration
-            let all_storage_info = if first_iteration {
-                // Skip storage completely on first iteration - don't even start it
-                if first_iteration {
-                    profiler.checkpoint("Storage info skipped for fast startup");
-                }
-                Vec::new()
-            } else {
-                // Collect storage info on subsequent iterations
-                self.collect_local_storage_info().await
-            };
-
-            self.update_local_state(
-                all_gpu_info,
-                all_cpu_info,
-                all_memory_info,
-                all_processes,
-                all_storage_info,
-            )
-            .await;
-
-            // Only log first iteration
-            if first_iteration {
-                profiler.checkpoint("First data collection complete");
-                profiler.finish();
-                first_iteration = false;
+                self.update_local_state(
+                    all_gpu_info,
+                    all_cpu_info,
+                    all_memory_info,
+                    all_processes,
+                    all_storage_info,
+                )
+                .await;
             }
 
             // Use adaptive interval for local mode

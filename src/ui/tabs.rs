@@ -194,6 +194,7 @@ mod tests {
             sort_criteria: crate::app_state::SortCriteria::Default,
             sort_direction: crate::app_state::SortDirection::Descending,
             loading: false,
+            startup_status_lines: Vec::new(),
             tabs: vec![
                 "All".to_string(),
                 "host1".to_string(),

@@ -20,7 +20,13 @@ use crate::app_state::AppState;
 use crate::ui::constants::{ANIMATION_SPEED, BLOCK_SIZE_DIVISOR, BLOCK_SIZE_MAX, SCREEN_MARGIN};
 use crate::ui::text::{display_width, print_colored_text, truncate_to_width};
 
-pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16, frame_counter: u64) {
+pub fn print_loading_indicator<W: Write>(
+    stdout: &mut W,
+    cols: u16,
+    rows: u16,
+    frame_counter: u64,
+    startup_status_lines: &[String],
+) {
     // Center the loading message
     let message = "Loading...";
     let x = (cols.saturating_sub(message.len() as u16)) / 2;
@@ -59,6 +65,35 @@ pub fn print_loading_indicator<W: Write>(stdout: &mut W, cols: u16, rows: u16, f
             print_colored_text(stdout, "━", Color::Cyan, None, None);
         } else {
             print_colored_text(stdout, "─", Color::DarkGrey, None, None);
+        }
+    }
+
+    // Display startup status lines below the progress bar
+    if !startup_status_lines.is_empty() {
+        let status_start_y = bar_y + 2; // 2 lines below the progress bar
+
+        // Calculate starting position to show last N lines that fit on screen
+        let max_lines = ((rows - status_start_y) - 1).min(10) as usize; // Show max 10 lines
+        let lines_to_show = startup_status_lines.len().min(max_lines);
+        let start_idx = startup_status_lines.len().saturating_sub(lines_to_show);
+
+        // Align with progress bar position plus 3 spaces
+        let status_x = bar_x + 3;
+
+        for (i, status_line) in startup_status_lines[start_idx..].iter().enumerate() {
+            let status_y = status_start_y + i as u16;
+            queue!(stdout, cursor::MoveTo(status_x, status_y)).unwrap();
+
+            // Use different colors based on status
+            let color = if status_line.contains("✓") {
+                Color::DarkGreen
+            } else if status_line.contains("○") {
+                Color::DarkGrey
+            } else {
+                Color::DarkGrey
+            };
+
+            print_colored_text(stdout, status_line, color, None, None);
         }
     }
 }

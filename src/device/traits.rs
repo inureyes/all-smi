@@ -14,15 +14,15 @@
 
 use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 
-pub trait GpuReader: Send {
+pub trait GpuReader: Send + Sync {
     fn get_gpu_info(&self) -> Vec<GpuInfo>;
     fn get_process_info(&self) -> Vec<ProcessInfo>;
 }
 
-pub trait CpuReader: Send {
+pub trait CpuReader: Send + Sync {
     fn get_cpu_info(&self) -> Vec<CpuInfo>;
 }
 
-pub trait MemoryReader: Send {
+pub trait MemoryReader: Send + Sync {
     fn get_memory_info(&self) -> Vec<MemoryInfo>;
 }

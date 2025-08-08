@@ -84,6 +84,7 @@ pub struct AppState {
     pub sort_criteria: SortCriteria,
     pub sort_direction: SortDirection,
     pub loading: bool,
+    pub startup_status_lines: Vec<String>,
     pub tabs: Vec<String>,
     pub current_tab: usize,
     pub gpu_scroll_offset: usize,
@@ -161,6 +162,7 @@ impl AppState {
             sort_criteria: SortCriteria::Default,
             sort_direction: SortDirection::Descending,
             loading: true,
+            startup_status_lines: Vec::new(),
             tabs: vec![
                 "All".to_string(),
                 "GPU".to_string(),
