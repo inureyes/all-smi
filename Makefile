@@ -25,7 +25,7 @@ help:
 	@echo "  clean                        Clean build artifacts"
 
 local:
-	cargo run --bin all-smi -- view 
+	cargo run --bin all-smi -- local
 
 api:
 	cargo run --bin all-smi -- api
@@ -67,7 +67,7 @@ docker-test-container-view:
 		rust:1.88 \
 		/bin/bash -c "apt-get update && apt-get install -y pkg-config protobuf-compiler && \
 		cargo build --release && \
-		./target/release/all-smi view"
+		./target/release/all-smi local"
 
 docker-build-container:
 	@mkdir -p tests/.cargo-cache

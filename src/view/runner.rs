@@ -17,18 +17,62 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::app_state::AppState;
-use crate::cli::ViewArgs;
+use crate::cli::{LocalArgs, ViewArgs};
 use crate::view::{
     data_collector::DataCollector, terminal_manager::TerminalManager, ui_loop::UiLoop,
 };
 
-pub async fn run_view_mode(args: &ViewArgs) {
-    // Initialize application state
+pub async fn run_local_mode(args: &LocalArgs) {
+    // Initialize application state for local mode
     let mut initial_state = AppState::new();
+    initial_state.is_local_mode = true;
+    let app_state = Arc::new(Mutex::new(initial_state));
 
-    // Set mode based on CLI arguments
-    initial_state.is_local_mode = args.hosts.is_none() && args.hostfile.is_none();
+    // Initialize terminal
+    let _terminal_manager = match TerminalManager::new() {
+        Ok(manager) => manager,
+        Err(e) => {
+            eprintln!("Failed to initialize terminal: {e}");
+            return;
+        }
+    };
 
+    // Start data collection in background
+    let data_collector = DataCollector::new(Arc::clone(&app_state));
+    let view_args = ViewArgs {
+        hosts: None,
+        hostfile: None,
+        interval: args.interval,
+    };
+    tokio::spawn(async move {
+        data_collector.run_local_mode(view_args).await;
+    });
+
+    // Run UI loop
+    let mut ui_loop = match UiLoop::new(app_state) {
+        Ok(ui_loop) => ui_loop,
+        Err(e) => {
+            eprintln!("Failed to initialize UI: {e}");
+            return;
+        }
+    };
+
+    let view_args = ViewArgs {
+        hosts: None,
+        hostfile: None,
+        interval: args.interval,
+    };
+    if let Err(e) = ui_loop.run(&view_args).await {
+        eprintln!("UI loop error: {e}");
+    }
+
+    // Terminal cleanup is handled by TerminalManager's Drop trait
+}
+
+pub async fn run_view_mode(args: &ViewArgs) {
+    // Initialize application state for remote mode
+    let mut initial_state = AppState::new();
+    initial_state.is_local_mode = false;
     let app_state = Arc::new(Mutex::new(initial_state));
 
     // Initialize terminal
@@ -47,15 +91,10 @@ pub async fn run_view_mode(args: &ViewArgs) {
         let hosts = args_clone.hosts.clone().unwrap_or_default();
         let hostfile = args_clone.hostfile.clone();
 
-        if hosts.is_empty() && hostfile.is_none() {
-            // Local mode
-            data_collector.run_local_mode(args_clone).await;
-        } else {
-            // Remote mode
-            data_collector
-                .run_remote_mode(args_clone, hosts, hostfile)
-                .await;
-        }
+        // Remote mode
+        data_collector
+            .run_remote_mode(args_clone, hosts, hostfile)
+            .await;
     });
 
     // Run UI loop

@@ -272,8 +272,9 @@ fn render_terminal_section(line_idx: usize, width: usize) -> String {
         ("", "", "separator"),
         ("", "", ""),
         ("Local Monitoring:", "", "header"),
+        ("  all-smi", "Monitor local GPUs (default mode)", "command"),
         (
-            "  sudo all-smi view",
+            "  sudo all-smi local",
             "Monitor local GPUs (requires sudo on macOS)",
             "command",
         ),

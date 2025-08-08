@@ -90,41 +90,44 @@ See [Building from Source](DEVELOPERS.md#building-from-source) in the developer 
 # Show help
 all-smi --help
 
-# Local monitoring (requires sudo on macOS)
-sudo all-smi view
+# Local monitoring (requires sudo on macOS) - default when no command specified
+all-smi
+sudo all-smi local
 
-# Remote monitoring
+# Remote monitoring (requires API endpoints)
 all-smi view --hosts http://node1:9090 http://node2:9090
 all-smi view --hostfile hosts.csv
 
-# API mode
+# API mode (expose metrics server)
 all-smi api --port 9090
 ```
 
-### View Mode (Interactive Monitoring)
+### Local Mode (Monitor Local Hardware)
 
-The `view` mode provides a terminal-based interface with real-time updates.
+The `local` mode monitors your local GPUs/NPUs with a terminal-based interface. This is the default when no command is specified.
 
-#### Local Mode
 ```bash
 # Monitor local GPUs (requires sudo on macOS)
-sudo all-smi view
+all-smi              # Default to local mode
+sudo all-smi local   # Explicit local mode
 
 # With custom refresh interval
-sudo all-smi view --interval 5
+sudo all-smi local --interval 5
 ```
 
-#### Remote Monitoring
+### Remote View Mode (Monitor Remote Nodes)
 
-Monitor multiple remote systems running in API mode:
+The `view` mode monitors multiple remote systems that are running in API mode. This mode requires specifying remote endpoints.
 
 ```bash
-# Direct host specification
+# Direct host specification (required)
 all-smi view --hosts http://gpu-node1:9090 http://gpu-node2:9090
 
-# Using host file
+# Using host file (required)
 all-smi view --hostfile hosts.csv --interval 2
 ```
+
+**Note:** The `view` command requires either `--hosts` or `--hostfile`. For local monitoring, use `all-smi local` instead.
 
 Host file format (CSV):
 ```
@@ -285,7 +288,7 @@ For development and testing, you can use the provided Makefile:
 # Run local monitoring
 make local
 
-# Run remote monitoring with hosts file
+# Run remote view mode with hosts file
 make remote
 
 # Start mock server for testing

@@ -26,7 +26,7 @@ mod view;
 
 use api::run_api_mode;
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, LocalArgs};
 use tokio::signal;
 use utils::{ensure_sudo_permissions, ensure_sudo_permissions_with_fallback};
 
@@ -89,40 +89,50 @@ async fn main() {
 
             run_api_mode(&args).await;
         }
-        Some(Commands::View(args)) => {
-            if args.hosts.is_none() && args.hostfile.is_none() {
-                ensure_sudo_permissions();
+        Some(Commands::Local(args)) => {
+            ensure_sudo_permissions();
 
-                // Initialize PowerMetricsManager after getting sudo
-                #[cfg(target_os = "macos")]
-                if is_apple_silicon() {
-                    // Use specified interval or default to 1 second for local view mode
-                    let interval = args.interval.unwrap_or(1);
-                    if let Err(e) = initialize_powermetrics_manager(interval) {
-                        eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
-                    }
+            // Initialize PowerMetricsManager after getting sudo
+            #[cfg(target_os = "macos")]
+            if is_apple_silicon() {
+                // Use specified interval or default to 1 second for local mode
+                let interval = args.interval.unwrap_or(1);
+                if let Err(e) = initialize_powermetrics_manager(interval) {
+                    eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
+                } else {
+                    POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
                 }
+            }
+
+            view::run_local_mode(&args).await;
+        }
+        Some(Commands::View(args)) => {
+            // Remote mode - no sudo required
+            // Validate that hosts or hostfile is provided
+            if args.hosts.is_none() && args.hostfile.is_none() {
+                eprintln!("Error: Remote view mode requires --hosts or --hostfile");
+                eprintln!("Usage: all-smi view --hosts <URL>... or all-smi view --hostfile <FILE>");
+                eprintln!("\nFor local monitoring, use: all-smi local");
+                std::process::exit(1);
             }
             view::run_view_mode(&args).await;
         }
         None => {
+            // Default to local mode when no command is specified
             let has_sudo = ensure_sudo_permissions_with_fallback();
             if has_sudo {
                 // Initialize PowerMetricsManager after getting sudo
                 #[cfg(target_os = "macos")]
                 if is_apple_silicon() {
-                    // Default to 1 second for local view mode
+                    // Default to 1 second for local mode
                     if let Err(e) = initialize_powermetrics_manager(1) {
                         eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
+                    } else {
+                        POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
                     }
                 }
 
-                view::run_view_mode(&cli::ViewArgs {
-                    hosts: None,
-                    hostfile: None,
-                    interval: None,
-                })
-                .await;
+                view::run_local_mode(&LocalArgs { interval: None }).await;
             }
             // If user declined sudo and chose remote monitoring,
             // they were given instructions and the function exits

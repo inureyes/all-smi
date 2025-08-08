@@ -25,7 +25,9 @@ pub struct Cli {
 pub enum Commands {
     /// Run in API mode, exposing metrics in Prometheus format.
     Api(ApiArgs),
-    /// Run in view mode, displaying a TUI. (default)
+    /// Run in local mode, monitoring local GPUs/NPUs. (default)
+    Local(LocalArgs),
+    /// Run in remote view mode, monitoring remote nodes via API endpoints.
     View(ViewArgs),
 }
 
@@ -40,6 +42,13 @@ pub struct ApiArgs {
     /// Include the process list in the API output.
     #[arg(long)]
     pub processes: bool,
+}
+
+#[derive(Parser, Clone)]
+pub struct LocalArgs {
+    /// The interval in seconds at which to update the GPU information.
+    #[arg(short, long)]
+    pub interval: Option<u64>,
 }
 
 #[derive(Parser, Clone)]
