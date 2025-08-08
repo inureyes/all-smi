@@ -92,16 +92,19 @@ async fn main() {
         Some(Commands::Local(args)) => {
             ensure_sudo_permissions();
 
-            // Initialize PowerMetricsManager after getting sudo
+            // Initialize PowerMetricsManager in background after getting sudo
             #[cfg(target_os = "macos")]
             if is_apple_silicon() {
                 // Use specified interval or default to 1 second for local mode
                 let interval = args.interval.unwrap_or(1);
-                if let Err(e) = initialize_powermetrics_manager(interval) {
-                    eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
-                } else {
-                    POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
-                }
+                // Spawn initialization in background to avoid blocking startup
+                std::thread::spawn(move || {
+                    if let Err(e) = initialize_powermetrics_manager(interval) {
+                        eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
+                    } else {
+                        POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
+                    }
+                });
             }
 
             view::run_local_mode(&args).await;
@@ -140,15 +143,17 @@ async fn main() {
             // Default to local mode when no command is specified
             let has_sudo = ensure_sudo_permissions_with_fallback();
             if has_sudo {
-                // Initialize PowerMetricsManager after getting sudo
+                // Initialize PowerMetricsManager in background after getting sudo
                 #[cfg(target_os = "macos")]
                 if is_apple_silicon() {
                     // Default to 1 second for local mode
-                    if let Err(e) = initialize_powermetrics_manager(1) {
-                        eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
-                    } else {
-                        POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
-                    }
+                    std::thread::spawn(|| {
+                        if let Err(e) = initialize_powermetrics_manager(1) {
+                            eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
+                        } else {
+                            POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
+                        }
+                    });
                 }
 
                 view::run_local_mode(&LocalArgs { interval: None }).await;

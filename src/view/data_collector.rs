@@ -105,15 +105,18 @@ impl DataCollector {
                 profiler.checkpoint("Memory info collected");
             }
 
-            // Collect processes from GPU readers if available
-            let mut all_processes: Vec<ProcessInfo> = gpu_readers
+            // Collect GPU process info (lightweight - just GPU usage data from powermetrics)
+            let gpu_processes: Vec<ProcessInfo> = gpu_readers
                 .iter()
                 .flat_map(|reader| reader.get_process_info())
                 .collect();
 
-            // If no GPU readers available, collect all system processes
-            if gpu_readers.is_empty() {
-                use crate::device::process_list::get_all_processes;
+            // Collect all system processes (expensive on first run)
+            let all_processes = if first_iteration {
+                // Skip heavy process collection on first iteration for faster startup
+                Vec::new()
+            } else {
+                use crate::device::process_list::{get_all_processes, merge_gpu_processes};
                 use std::collections::HashSet;
                 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
@@ -126,18 +129,30 @@ impl DataCollector {
                     ProcessRefreshKind::everything().with_user(UpdateKind::Always),
                 );
                 system.refresh_memory();
-                if first_iteration {
-                    profiler.checkpoint("System processes refreshed (lightweight)");
-                }
-                let empty_gpu_pids = HashSet::new();
-                all_processes = get_all_processes(&system, &empty_gpu_pids);
-            }
 
-            // Collect local storage information
-            let all_storage_info = self.collect_local_storage_info().await;
-            if first_iteration {
-                profiler.checkpoint("Storage info collected");
-            }
+                // Get PIDs of GPU processes
+                let gpu_pids: HashSet<u32> = gpu_processes.iter().map(|p| p.pid).collect();
+
+                // Get all system processes
+                let mut all_processes = get_all_processes(&system, &gpu_pids);
+
+                // Merge GPU information into the process list
+                merge_gpu_processes(&mut all_processes, gpu_processes.clone());
+
+                all_processes
+            };
+
+            // Collect local storage information only after first iteration
+            let all_storage_info = if first_iteration {
+                // Skip storage completely on first iteration - don't even start it
+                if first_iteration {
+                    profiler.checkpoint("Storage info skipped for fast startup");
+                }
+                Vec::new()
+            } else {
+                // Collect storage info on subsequent iterations
+                self.collect_local_storage_info().await
+            };
 
             self.update_local_state(
                 all_gpu_info,
@@ -225,6 +240,7 @@ impl DataCollector {
 
     async fn collect_local_storage_info(&self) -> Vec<StorageInfo> {
         let mut all_storage_info = Vec::new();
+        // Use new_with_refreshed_list() - this is the standard way to initialize disks
         let disks = Disks::new_with_refreshed_list();
         let hostname = get_hostname();
 

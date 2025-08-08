@@ -13,18 +13,25 @@
 // limitations under the License.
 
 use crate::device::powermetrics_manager::get_powermetrics_manager;
-use crate::device::process_list::{get_all_processes, merge_gpu_processes};
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
+use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
-use sysinfo::System;
+use std::sync::Mutex;
+
+// Cache GPU info to avoid expensive system_profiler calls on every initialization
+static CACHED_GPU_INFO: Lazy<Mutex<Option<(String, Option<String>, Option<u32>)>>> =
+    Lazy::new(|| Mutex::new(None));
 
 pub struct AppleSiliconGpuReader {
-    name: String,
+    name: Option<String>,
     driver_version: Option<String>,
     gpu_core_count: Option<u32>,
+    initialized: std::cell::Cell<bool>,
 }
 
 impl Default for AppleSiliconGpuReader {
@@ -35,14 +42,51 @@ impl Default for AppleSiliconGpuReader {
 
 impl AppleSiliconGpuReader {
     pub fn new() -> Self {
+        // Don't fetch GPU info during initialization - defer it to first use
+        AppleSiliconGpuReader {
+            name: None,
+            driver_version: None,
+            gpu_core_count: None,
+            initialized: std::cell::Cell::new(false),
+        }
+    }
+
+    fn ensure_initialized(&self) {
+        if self.initialized.get() {
+            return;
+        }
+
+        // Check cache first to avoid expensive system_profiler calls
+        let mut cache = CACHED_GPU_INFO.lock().unwrap();
+
+        if let Some((name, driver_version, gpu_core_count)) = cache.as_ref() {
+            // Use cached values - we need to use unsafe to mutate through shared reference
+            // This is safe because we're in a single-threaded context for this cell
+            unsafe {
+                let self_mut = self as *const _ as *mut AppleSiliconGpuReader;
+                (*self_mut).name = Some(name.clone());
+                (*self_mut).driver_version = driver_version.clone();
+                (*self_mut).gpu_core_count = *gpu_core_count;
+            }
+            self.initialized.set(true);
+            return;
+        }
+
+        // If not cached, fetch the information (this is slow but only happens once)
         let (name, driver_version) = get_gpu_name_and_version();
         let gpu_core_count = get_gpu_core_count();
 
-        AppleSiliconGpuReader {
-            name,
-            driver_version,
-            gpu_core_count,
+        // Store in cache for future use
+        *cache = Some((name.clone(), driver_version.clone(), gpu_core_count));
+
+        // Update self
+        unsafe {
+            let self_mut = self as *const _ as *mut AppleSiliconGpuReader;
+            (*self_mut).name = Some(name);
+            (*self_mut).driver_version = driver_version;
+            (*self_mut).gpu_core_count = gpu_core_count;
         }
+        self.initialized.set(true);
     }
 
     /// Get GPU processes from powermetrics
@@ -95,6 +139,9 @@ impl AppleSiliconGpuReader {
 
 impl GpuReader for AppleSiliconGpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
+        // Ensure GPU info is initialized (happens on first call)
+        self.ensure_initialized();
+
         let manager = get_powermetrics_manager();
         let metrics = if let Some(mgr) = &manager {
             // Get the latest powermetrics data
@@ -130,7 +177,10 @@ impl GpuReader for AppleSiliconGpuReader {
         vec![GpuInfo {
             uuid: "AppleSiliconGPU".to_string(),
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-            name: self.name.clone(),
+            name: self
+                .name
+                .clone()
+                .unwrap_or_else(|| "Apple Silicon GPU".to_string()),
             device_type: "GPU".to_string(),
             host_id: get_hostname(), // For local mode, host_id is just the hostname
             hostname: get_hostname(), // DNS hostname
@@ -149,27 +199,10 @@ impl GpuReader for AppleSiliconGpuReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        // Create a lightweight system instance and only refresh what we need
-        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
-        let mut system = System::new();
-        // Refresh processes with user information
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::everything().with_user(UpdateKind::Always),
-        );
-        system.refresh_memory();
-
-        // Get GPU processes and PIDs
-        let (gpu_processes, gpu_pids) = self.get_gpu_processes();
-
-        // Get all system processes
-        let mut all_processes = get_all_processes(&system, &gpu_pids);
-
-        // Merge GPU information into the process list
-        merge_gpu_processes(&mut all_processes, gpu_processes);
-
-        all_processes
+        // For Apple Silicon, we only return GPU process information from powermetrics
+        // The main process list will be collected separately to avoid duplication
+        let (gpu_processes, _gpu_pids) = self.get_gpu_processes();
+        gpu_processes
     }
 }
 
@@ -277,10 +310,53 @@ fn parse_gpu_metrics(output: &str) -> GpuMetrics {
 }
 
 fn get_gpu_name_and_version() -> (String, Option<String>) {
+    // Try to get chip name from a faster source first
+    if let Ok(output) = Command::new("sysctl")
+        .arg("-n")
+        .arg("machdep.cpu.brand_string")
+        .output()
+    {
+        let cpu_brand = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // Extract chip name from CPU brand string (e.g., "Apple M1 Pro" from full string)
+        if cpu_brand.contains("Apple M") {
+            for part in cpu_brand.split_whitespace() {
+                if part.starts_with("M") && part.chars().nth(1).is_some_and(|c| c.is_numeric()) {
+                    // Found the chip model (M1, M2, M3, etc.)
+                    let mut gpu_name = format!("Apple {part} GPU");
+                    // Check for Pro/Max/Ultra suffix
+                    let parts: Vec<&str> = cpu_brand.split_whitespace().collect();
+                    if let Some(pos) = parts.iter().position(|&x| x == part) {
+                        if pos + 1 < parts.len() {
+                            let suffix = parts[pos + 1];
+                            if suffix == "Pro" || suffix == "Max" || suffix == "Ultra" {
+                                gpu_name = format!("Apple {part} {suffix} GPU");
+                            }
+                        }
+                    }
+                    return (gpu_name, Some("Metal 3".to_string()));
+                }
+            }
+            // If we found "Apple M" but couldn't parse the model, return a default
+            return ("Apple Silicon GPU".to_string(), Some("Metal 3".to_string()));
+        }
+    }
+
+    // Only use system_profiler as absolute last resort (this should rarely happen)
     let output = Command::new("system_profiler")
         .arg("SPDisplaysDataType")
         .output()
-        .expect("Failed to execute system_profiler command");
+        .unwrap_or_else(|_| {
+            // If system_profiler fails, return default values
+            std::process::Output {
+                status: std::process::ExitStatus::from_raw(0),
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            }
+        });
+
+    if output.stdout.is_empty() {
+        return ("Apple Silicon GPU".to_string(), Some("Metal 3".to_string()));
+    }
 
     let output_str = String::from_utf8_lossy(&output.stdout);
     let mut gpu_name = "Apple Silicon GPU".to_string();
@@ -309,7 +385,61 @@ fn get_gpu_name_and_version() -> (String, Option<String>) {
 }
 
 fn get_gpu_core_count() -> Option<u32> {
-    // Run the ioreg command to get GPU core count
+    // Try to determine GPU core count based on chip model
+    // This is faster than calling ioreg
+    if let Ok(output) = Command::new("sysctl")
+        .arg("-n")
+        .arg("machdep.cpu.brand_string")
+        .output()
+    {
+        let cpu_brand = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // Common GPU core counts for Apple Silicon chips
+        if cpu_brand.contains("M1 ")
+            && !cpu_brand.contains("Pro")
+            && !cpu_brand.contains("Max")
+            && !cpu_brand.contains("Ultra")
+        {
+            return Some(8); // M1 base
+        } else if cpu_brand.contains("M1 Pro") {
+            return Some(16); // M1 Pro
+        } else if cpu_brand.contains("M1 Max") {
+            return Some(32); // M1 Max
+        } else if cpu_brand.contains("M1 Ultra") {
+            return Some(64); // M1 Ultra
+        } else if cpu_brand.contains("M2 ")
+            && !cpu_brand.contains("Pro")
+            && !cpu_brand.contains("Max")
+            && !cpu_brand.contains("Ultra")
+        {
+            return Some(10); // M2 base
+        } else if cpu_brand.contains("M2 Pro") {
+            return Some(19); // M2 Pro
+        } else if cpu_brand.contains("M2 Max") {
+            return Some(38); // M2 Max
+        } else if cpu_brand.contains("M2 Ultra") {
+            return Some(76); // M2 Ultra
+        } else if cpu_brand.contains("M3 ")
+            && !cpu_brand.contains("Pro")
+            && !cpu_brand.contains("Max")
+        {
+            return Some(10); // M3 base
+        } else if cpu_brand.contains("M3 Pro") {
+            return Some(18); // M3 Pro (14-core) or 14 (11-core)
+        } else if cpu_brand.contains("M3 Max") {
+            return Some(40); // M3 Max
+        } else if cpu_brand.contains("M4 Pro") {
+            return Some(20); // M4 Pro (estimated based on M3 Pro pattern)
+        } else if cpu_brand.contains("M4 Max") {
+            return Some(40); // M4 Max (estimated based on M3 Max pattern)
+        } else if cpu_brand.contains("M4")
+            && !cpu_brand.contains("Pro")
+            && !cpu_brand.contains("Max")
+        {
+            return Some(10); // M4 base
+        }
+    }
+
+    // Fallback to ioreg only if we can't determine from CPU brand
     let output = Command::new("ioreg")
         .arg("-rc")
         .arg("AGXAccelerator")

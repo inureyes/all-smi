@@ -298,10 +298,34 @@ impl MacOsCpuReader {
             }
         }
 
-        // Get actual core counts from system calls
-        let p_core_count = self.get_p_core_count()?;
-        let e_core_count = self.get_e_core_count()?;
-        let gpu_core_count = self.get_gpu_core_count()?;
+        // Get both P and E core counts in a single sysctl call for better performance
+        let output = Command::new("sysctl")
+            .args(["hw.perflevel0.physicalcpu", "hw.perflevel1.physicalcpu"])
+            .output()?;
+
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let mut p_core_count = 0u32;
+        let mut e_core_count = 0u32;
+
+        for line in output_str.lines() {
+            if line.starts_with("hw.perflevel0.physicalcpu:") {
+                if let Some(value) = line.split(':').nth(1) {
+                    p_core_count = value.trim().parse().unwrap_or(0);
+                }
+            } else if line.starts_with("hw.perflevel1.physicalcpu:") {
+                if let Some(value) = line.split(':').nth(1) {
+                    e_core_count = value.trim().parse().unwrap_or(0);
+                }
+            }
+        }
+
+        // Get GPU core count separately (still needed)
+        let gpu_core_count = self.get_gpu_core_count().unwrap_or(0);
+
+        // Validate we got valid counts
+        if p_core_count == 0 || e_core_count == 0 {
+            return Err("Failed to get core counts".into());
+        }
 
         // Cache the values
         *self.cached_cpu_model.borrow_mut() = Some(cpu_model.clone());
@@ -312,6 +336,8 @@ impl MacOsCpuReader {
         Ok((cpu_model, p_core_count, e_core_count, gpu_core_count))
     }
 
+    // These methods are no longer used since we fetch both values in a single sysctl call
+    #[allow(dead_code)]
     fn get_p_core_count(&self) -> Result<u32, Box<dyn std::error::Error>> {
         let output = Command::new("sysctl")
             .arg("hw.perflevel0.physicalcpu")
@@ -326,6 +352,7 @@ impl MacOsCpuReader {
         }
     }
 
+    #[allow(dead_code)]
     fn get_e_core_count(&self) -> Result<u32, Box<dyn std::error::Error>> {
         let output = Command::new("sysctl")
             .arg("hw.perflevel1.physicalcpu")

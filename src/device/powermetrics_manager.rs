@@ -160,8 +160,8 @@ impl PowerMetricsManager {
         let mut is_running = self.is_running.lock().unwrap();
         *is_running = true;
 
-        // Wait for initial data to be collected
-        thread::sleep(Duration::from_millis(2500));
+        // Don't wait for initial data - let it collect asynchronously
+        // This significantly improves startup time
 
         Ok(())
     }
