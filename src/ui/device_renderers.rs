@@ -694,9 +694,9 @@ pub fn print_cpu_info<W: Write>(
         let core_bar_width =
             (available_width - (cores_per_line - 1) * spacing_between_cores) / cores_per_line;
 
-        // Display P-cores
+        // Display E-cores first (matches natural order from powermetrics)
         let mut cores_displayed = 0;
-        for (i, core) in p_cores.iter().enumerate() {
+        for (i, core) in e_cores.iter().enumerate() {
             if cores_displayed % cores_per_line == 0 && cores_displayed > 0 {
                 queue!(stdout, Print("\r\n")).unwrap();
             }
@@ -705,7 +705,7 @@ pub fn print_cpu_info<W: Write>(
                 print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
             }
 
-            let label = format!("P{}", i + 1);
+            let label = format!("E{}", i + 1);
             draw_bar(
                 stdout,
                 &label,
@@ -721,8 +721,8 @@ pub fn print_cpu_info<W: Write>(
             }
         }
 
-        // Display E-cores
-        for (i, core) in e_cores.iter().enumerate() {
+        // Display P-cores after E-cores
+        for (i, core) in p_cores.iter().enumerate() {
             if cores_displayed % cores_per_line == 0 && cores_displayed > 0 {
                 queue!(stdout, Print("\r\n")).unwrap();
             }
@@ -731,7 +731,7 @@ pub fn print_cpu_info<W: Write>(
                 print_colored_text(stdout, "     ", Color::White, None, None); // 5 char left padding
             }
 
-            let label = format!("E{}", i + 1);
+            let label = format!("P{}", i + 1);
             draw_bar(
                 stdout,
                 &label,

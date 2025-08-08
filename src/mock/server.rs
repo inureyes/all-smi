@@ -244,16 +244,14 @@ pub async fn start_servers(args: Args) -> Result<()> {
 
     if args.failure_nodes > 0 {
         println!(
-            "Started {} servers with background updater (updates every {}s) and failure simulation ({} nodes)",
+            "Started {} servers with background updater (updates every {UPDATE_INTERVAL_SECS}s) and failure simulation ({} nodes)",
             servers.len(),
-            UPDATE_INTERVAL_SECS,
             args.failure_nodes
         );
     } else {
         println!(
-            "Started {} servers with background updater (updates every {}s)",
-            servers.len(),
-            UPDATE_INTERVAL_SECS
+            "Started {} servers with background updater (updates every {UPDATE_INTERVAL_SECS}s)",
+            servers.len()
         );
     }
 

@@ -133,19 +133,19 @@ fn get_process_priority_nice(pid: u32) -> (i32, i32) {
                 // Everything after the last ) contains the actual stat fields
                 let after_name = &stat[last_paren + 1..];
                 let fields: Vec<&str> = after_name.split_whitespace().collect();
-                
+
                 // After removing pid and (name), the remaining fields are:
                 // 0: state, 1: ppid, 2: pgrp, 3: session, 4: tty_nr, 5: tpgid,
                 // 6: flags, 7: minflt, 8: cminflt, 9: majflt, 10: cmajflt,
-                // 11: utime, 12: stime, 13: cutime, 14: cstime, 
+                // 11: utime, 12: stime, 13: cutime, 14: cstime,
                 // 15: priority, 16: nice, ...
                 if fields.len() > 16 {
                     let priority = fields
-                        .get(15)  // priority is at index 15 after the name
+                        .get(15) // priority is at index 15 after the name
                         .and_then(|s| s.parse::<i32>().ok())
                         .unwrap_or(20);
                     let nice = fields
-                        .get(16)  // nice is at index 16 after the name
+                        .get(16) // nice is at index 16 after the name
                         .and_then(|s| s.parse::<i32>().ok())
                         .unwrap_or(0);
                     return (priority, nice);

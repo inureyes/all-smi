@@ -54,13 +54,13 @@ pub fn build_response_template(
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = if let PlatformType::Furiosa = platform {
                 format!(
-                    "gpu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\"",
-                    gpu_name, i, gpu.uuid, i
+                    "gpu=\"{gpu_name}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\"",
+                    gpu.uuid
                 )
             } else {
                 format!(
-                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-                    gpu_name, instance_name, gpu.uuid, i
+                    "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+                    gpu.uuid
                 )
             };
 
@@ -86,13 +86,13 @@ pub fn build_response_template(
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = if let PlatformType::Furiosa = platform {
                 format!(
-                    "gpu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\"",
-                    gpu_name, i, gpu.uuid, i
+                    "gpu=\"{gpu_name}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\"",
+                    gpu.uuid
                 )
             } else {
                 format!(
-                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-                    gpu_name, instance_name, gpu.uuid, i
+                    "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+                    gpu.uuid
                 )
             };
             let placeholder = format!("{{{{ANE_{i}}}}}");
@@ -108,13 +108,13 @@ pub fn build_response_template(
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = if let PlatformType::Furiosa = platform {
                 format!(
-                    "gpu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\"",
-                    gpu_name, i, gpu.uuid, i
+                    "gpu=\"{gpu_name}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\"",
+                    gpu.uuid
                 )
             } else {
                 format!(
-                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-                    gpu_name, instance_name, gpu.uuid, i
+                    "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+                    gpu.uuid
                 )
             };
             let placeholder = format!("{{{{ANE_WATTS_{i}}}}}");
@@ -131,13 +131,11 @@ pub fn build_response_template(
             if let Some(ref level) = gpu.thermal_pressure_level {
                 let labels = if let PlatformType::Furiosa = platform {
                     format!(
-                        "gpu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\", level=\"{}\"",
-                        gpu_name, i, gpu.uuid, i, level
+                        "gpu=\"{gpu_name}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\", level=\"{level}\"", gpu.uuid
                     )
                 } else {
                     format!(
-                        "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", level=\"{}\"",
-                        gpu_name, instance_name, gpu.uuid, i, level
+                        "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", level=\"{level}\"", gpu.uuid
                     )
                 };
                 template.push_str(&format!("all_smi_thermal_pressure_info{{{labels}}} 1\n"));
@@ -359,8 +357,8 @@ fn add_nvidia_numeric_metrics(
     template.push_str("# TYPE all_smi_gpu_pcie_gen_current gauge\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         template.push_str(&format!(
             "all_smi_gpu_pcie_gen_current{{{labels}}} {pcie_gen}\n"
@@ -371,8 +369,8 @@ fn add_nvidia_numeric_metrics(
     template.push_str("# TYPE all_smi_gpu_pcie_width_current gauge\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         template.push_str(&format!("all_smi_gpu_pcie_width_current{{{labels}}} 16\n"));
     }
@@ -382,8 +380,8 @@ fn add_nvidia_numeric_metrics(
     template.push_str("# TYPE all_smi_gpu_clock_graphics_max_mhz gauge\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         template.push_str(&format!(
             "all_smi_gpu_clock_graphics_max_mhz{{{labels}}} {max_graphics_clock}\n"
@@ -394,8 +392,8 @@ fn add_nvidia_numeric_metrics(
     template.push_str("# TYPE all_smi_gpu_clock_memory_max_mhz gauge\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         template.push_str(&format!(
             "all_smi_gpu_clock_memory_max_mhz{{{labels}}} {max_memory_clock}\n"
@@ -408,8 +406,8 @@ fn add_nvidia_numeric_metrics(
     template.push_str("# TYPE all_smi_gpu_power_limit_current_watts gauge\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         template.push_str(&format!(
             "all_smi_gpu_power_limit_current_watts{{{labels}}} {power_limit}\n"
@@ -420,8 +418,8 @@ fn add_nvidia_numeric_metrics(
     template.push_str("# TYPE all_smi_gpu_power_limit_max_watts gauge\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         template.push_str(&format!(
             "all_smi_gpu_power_limit_max_watts{{{labels}}} {power_limit}\n"
@@ -434,8 +432,8 @@ fn add_nvidia_numeric_metrics(
     template.push_str("# TYPE all_smi_gpu_performance_state gauge\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "gpu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         let placeholder = format!("{{{{PSTATE_{i}}}}}");
         template.push_str(&format!(
@@ -455,8 +453,7 @@ fn add_furiosa_metrics(
     template.push_str("# TYPE all_smi_npu_firmware_info info\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"npu{}\", uuid=\"{}\", index=\"{}\", firmware=\"2025.2.0+d3c908a\"",
-            gpu_name, i, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\", firmware=\"2025.2.0+d3c908a\"", gpu.uuid
         );
         template.push_str(&format!("all_smi_npu_firmware_info{{{labels}}} 1\n"));
     }
@@ -467,8 +464,7 @@ fn add_furiosa_metrics(
     for (i, gpu) in gpus.iter().enumerate() {
         for core_idx in 0..8 {
             let labels = format!(
-                "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", core=\"{}\"",
-                gpu_name, instance_name, gpu.uuid, i, core_idx
+                "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", core=\"{core_idx}\"", gpu.uuid
             );
             // 1 = available, 0 = unavailable
             template.push_str(&format!("all_smi_furiosa_core_status{{{labels}}} 1\n"));
@@ -481,8 +477,7 @@ fn add_furiosa_metrics(
     for (i, _gpu) in gpus.iter().enumerate() {
         for core_idx in 0..8 {
             let labels = format!(
-                "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", pe_core=\"{}\"",
-                gpu_name, instance_name, gpus[i].uuid, i, core_idx
+                "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", pe_core=\"{core_idx}\"", gpus[i].uuid
             );
             let placeholder = format!("{{{{PE_UTIL_{i}_{core_idx}}}}}");
             template.push_str(&format!(
@@ -496,8 +491,7 @@ fn add_furiosa_metrics(
     template.push_str("# TYPE all_smi_furiosa_liveness info\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", liveness=\"alive\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", liveness=\"alive\"", gpu.uuid
         );
         template.push_str(&format!("all_smi_furiosa_liveness{{{labels}}} 1\n"));
     }
@@ -507,8 +501,7 @@ fn add_furiosa_metrics(
     template.push_str("# TYPE all_smi_furiosa_governor_info info\n");
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", governor=\"OnDemand\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", governor=\"OnDemand\"", gpu.uuid
         );
         template.push_str(&format!("all_smi_furiosa_governor_info{{{labels}}} 1\n"));
     }
@@ -521,8 +514,8 @@ fn add_cpu_metrics(
     platform: &PlatformType,
 ) {
     let cpu_labels = format!(
-        "cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", index=\"0\"",
-        cpu.model, instance_name, instance_name
+        "cpu_model=\"{}\", instance=\"{instance_name}\", hostname=\"{instance_name}\", index=\"0\"",
+        cpu.model
     );
 
     // Basic CPU metrics
@@ -579,8 +572,8 @@ fn add_cpu_metrics(
                 };
 
             let core_labels = format!(
-                "cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", core_id=\"{}\", core_type=\"{}\"",
-                cpu.model, instance_name, instance_name, core_id, core_type
+                "cpu_model=\"{}\", instance=\"{instance_name}\", hostname=\"{instance_name}\", core_id=\"{core_id}\", core_type=\"{core_type}\"",
+                cpu.model
             );
 
             template.push_str(&format!(
@@ -612,8 +605,8 @@ fn add_cpu_metrics(
     if cpu.socket_count > 1 {
         for (socket_id, _) in cpu.socket_utilizations.iter().enumerate() {
             let socket_labels = format!(
-                "cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\", cpu_index=\"0\", socket_id=\"{}\"",
-                cpu.model, instance_name, instance_name, socket_id
+                "cpu_model=\"{}\", instance=\"{instance_name}\", hostname=\"{instance_name}\", cpu_index=\"0\", socket_id=\"{socket_id}\"",
+                cpu.model
             );
 
             template.push_str(
@@ -1013,8 +1006,7 @@ fn add_tenstorrent_metrics(
 
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", firmware=\"2.9.1\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", firmware=\"2.9.1\"", gpu.uuid
         );
         template.push_str(&format!("all_smi_npu_firmware_info{{{labels}}} 1\n"));
     }
@@ -1036,8 +1028,7 @@ fn add_tenstorrent_metrics(
 
         let board_id = format!("00000000{:08x}", i + 1);
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", board_type=\"{}\", board_id=\"{}\", architecture=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i, board_type, board_id, architecture
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", board_type=\"{board_type}\", board_id=\"{board_id}\", architecture=\"{architecture}\"", gpu.uuid
         );
         template.push_str(&format!("all_smi_tenstorrent_board_info{{{labels}}} 1\n"));
     }
@@ -1048,8 +1039,7 @@ fn add_tenstorrent_metrics(
 
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", version=\"2.9.1\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", version=\"2.9.1\"", gpu.uuid
         );
         template.push_str(&format!(
             "all_smi_tenstorrent_arc_firmware_info{{{labels}}} 1\n"
@@ -1081,8 +1071,8 @@ fn add_tenstorrent_metrics(
 
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
-                "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-                gpu_name, instance_name, gpu.uuid, i
+                "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+                gpu.uuid
             );
             let placeholder = placeholder_pattern.replace("{}", &i.to_string());
             template.push_str(&format!("{metric_name}{{{labels}}} {placeholder}\n"));
@@ -1114,8 +1104,8 @@ fn add_tenstorrent_metrics(
 
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
-                "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-                gpu_name, instance_name, gpu.uuid, i
+                "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+                gpu.uuid
             );
             let placeholder = placeholder_pattern.replace("{}", &i.to_string());
             template.push_str(&format!("{metric_name}{{{labels}}} {placeholder}\n"));
@@ -1128,8 +1118,8 @@ fn add_tenstorrent_metrics(
 
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         let placeholder = format!("{{{{VOLTAGE_{i}}}}}");
         template.push_str(&format!(
@@ -1142,8 +1132,8 @@ fn add_tenstorrent_metrics(
 
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         let placeholder = format!("{{{{CURRENT_{i}}}}}");
         template.push_str(&format!(
@@ -1157,8 +1147,8 @@ fn add_tenstorrent_metrics(
 
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\"",
+            gpu.uuid
         );
         let placeholder = format!("{{{{HEARTBEAT_{i}}}}}");
         template.push_str(&format!(
@@ -1179,8 +1169,7 @@ fn add_rebellions_metrics(
 
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", firmware=\"1.3.73\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", firmware=\"1.3.73\"", gpu.uuid
         );
         template.push_str(&format!("all_smi_rebellions_firmware_info{{{labels}}} 1\n"));
     }
@@ -1200,8 +1189,7 @@ fn add_rebellions_metrics(
 
         let sid = format!("00000000225091{:02}", 38 + i);
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", model=\"{}\", sid=\"{}\", location=\"5\"",
-            gpu_name, instance_name, gpu.uuid, i, model_type, sid
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", model=\"{model_type}\", sid=\"{sid}\", location=\"5\"", gpu.uuid
         );
         template.push_str(&format!("all_smi_rebellions_device_info{{{labels}}} 1\n"));
     }
@@ -1220,8 +1208,7 @@ fn add_rebellions_metrics(
     for (i, gpu) in gpus.iter().enumerate() {
         let pstate = "P14"; // Default performance state
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", pstate=\"{}\"",
-            gpu_name, instance_name, gpu.uuid, i, pstate
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", pstate=\"{pstate}\"", gpu.uuid
         );
         template.push_str(&format!("all_smi_rebellions_pstate_info{{{labels}}} 1\n"));
     }
@@ -1232,8 +1219,7 @@ fn add_rebellions_metrics(
 
     for (i, gpu) in gpus.iter().enumerate() {
         let labels = format!(
-            "npu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{}\", status=\"normal\"",
-            gpu_name, instance_name, gpu.uuid, i
+            "npu=\"{gpu_name}\", instance=\"{instance_name}\", uuid=\"{}\", index=\"{i}\", status=\"normal\"", gpu.uuid
         );
         // 1 = normal, 0 = error
         template.push_str(&format!("all_smi_rebellions_status{{{labels}}} 1\n"));
