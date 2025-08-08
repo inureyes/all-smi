@@ -16,10 +16,164 @@ use std::io::Write;
 
 use crossterm::{queue, style::Color, style::Print};
 
+use crate::device::CoreUtilization;
 use crate::device::{CpuInfo, GpuInfo, MemoryInfo};
 use crate::storage::info::StorageInfo;
 use crate::ui::text::{print_colored_text, truncate_to_width};
 use crate::ui::widgets::{draw_bar, draw_bar_multi, BarSegment};
+
+/// Get utilization block character and color based on CPU usage
+fn get_utilization_block(utilization: f64) -> (&'static str, Color) {
+    match utilization {
+        u if u >= 90.0 => ("█", Color::Red), // Full block, red for high usage
+        u if u >= 80.0 => ("▇", Color::Magenta), // 7/8 block
+        u if u >= 70.0 => ("▆", Color::Yellow), // 6/8 block
+        u if u >= 60.0 => ("▅", Color::Yellow), // 5/8 block
+        u if u >= 50.0 => ("▄", Color::Green), // 4/8 block
+        u if u >= 40.0 => ("▃", Color::Green), // 3/8 block
+        u if u >= 30.0 => ("▂", Color::Cyan), // 2/8 block
+        u if u >= 20.0 => ("▁", Color::Cyan), // 1/8 block
+        u if u >= 10.0 => ("▁", Color::Blue), // Low usage
+        _ => ("▁", Color::DarkGrey),         // Minimal or no usage (still show lowest bar)
+    }
+}
+
+/// Render fancy CPU visualization with utilization
+fn render_cpu_visualization<W: Write>(
+    stdout: &mut W,
+    per_core_utilization: &[CoreUtilization],
+    cpuset: Option<&str>,
+    width: usize,
+    is_container: bool,
+) {
+    if per_core_utilization.is_empty() {
+        return;
+    }
+
+    let total_cpus = per_core_utilization.len();
+
+    // Define consistent box width for all lines
+    let box_width = width.saturating_sub(10).min(60);
+
+    // Create a visual representation
+    print_colored_text(stdout, "     ", Color::White, None, None);
+
+    // Draw top border
+    let title = if is_container {
+        "Container CPUs"
+    } else {
+        "CPU Cores"
+    };
+    // Calculate the exact length: "╭─" + " " + title + " " + dashes + "╮"
+    // We want total length to be box_width + 2 (for the corners)
+    let title_with_spaces_len = 1 + title.len() + 1; // " " + title + " "
+
+    print_colored_text(stdout, "╭─", Color::Cyan, None, None);
+    print_colored_text(stdout, " ", Color::White, None, None);
+    print_colored_text(stdout, title, Color::Cyan, None, None);
+    print_colored_text(stdout, " ", Color::White, None, None);
+
+    // Fill the rest with dashes, accounting for the closing corner
+    let remaining_dashes = box_width.saturating_sub(title_with_spaces_len + 1); // +1 for "─" after "╭"
+    for _ in 0..remaining_dashes {
+        print_colored_text(stdout, "─", Color::Cyan, None, None);
+    }
+    print_colored_text(stdout, "╮", Color::Cyan, None, None);
+    queue!(stdout, Print("\r\n")).unwrap();
+
+    // Draw CPU visualization line
+    print_colored_text(stdout, "     ", Color::White, None, None);
+    print_colored_text(stdout, "│ ", Color::Cyan, None, None);
+
+    // Calculate actual content for proper padding
+    // For containers with cpuset, we show all monitored cores since they're already filtered
+    // The per_core_utilization only contains the cores visible to the container
+    let cores_to_show: Vec<&CoreUtilization> = per_core_utilization.iter().collect();
+
+    let display_count = cores_to_show.len();
+
+    let content_str = {
+        let mut content = String::new();
+        let mut idx = 0;
+        for core in &cores_to_show {
+            // Get utilization block - just the character for length calculation
+            let (block, _) = get_utilization_block(core.utilization);
+            content.push_str(block);
+
+            // Add grouping spaces every 4 CPUs for readability
+            idx += 1;
+            if (idx % 4 == 0) && (idx < display_count) {
+                content.push(' ');
+            }
+        }
+
+        // Add summary
+        if is_container && cpuset.is_some() {
+            let summary = format!("  ({display_count} allocated)");
+            content.push_str(&summary);
+        } else {
+            // For bare metal or container without cpuset info, show average utilization
+            let avg_util = per_core_utilization
+                .iter()
+                .map(|c| c.utilization)
+                .sum::<f64>()
+                / total_cpus as f64;
+            let summary = format!("  ({total_cpus} cores, {avg_util:.1}% avg)");
+            content.push_str(&summary);
+        }
+        content
+    };
+
+    // Print the actual content with colors
+    let mut idx = 0;
+    for core in &cores_to_show {
+        // Show utilization block with color
+        let (block, color) = get_utilization_block(core.utilization);
+        print_colored_text(stdout, block, color, None, None);
+
+        // Add grouping spaces every 4 CPUs for readability
+        idx += 1;
+        if (idx % 4 == 0) && (idx < display_count) {
+            print_colored_text(stdout, " ", Color::White, None, None);
+        }
+    }
+
+    // Add summary
+    if is_container && cpuset.is_some() {
+        let summary = format!("  ({display_count} allocated)");
+        print_colored_text(stdout, &summary, Color::Yellow, None, None);
+    } else {
+        let avg_util = per_core_utilization
+            .iter()
+            .map(|c| c.utilization)
+            .sum::<f64>()
+            / total_cpus as f64;
+        let summary = format!("  ({total_cpus} cores, {avg_util:.1}% avg)");
+        print_colored_text(stdout, &summary, Color::Yellow, None, None);
+    }
+
+    // Add padding to align with box width
+    // Account for the "│ " at the start (2 chars) and " │" at the end (2 chars)
+    let content_display_len = content_str.chars().count();
+    let inner_width = box_width.saturating_sub(2); // Subtract 2 for "│ " and " │"
+    let padding_needed = inner_width.saturating_sub(content_display_len);
+
+    for _ in 0..padding_needed {
+        print_colored_text(stdout, " ", Color::White, None, None);
+    }
+
+    print_colored_text(stdout, " │", Color::Cyan, None, None);
+    queue!(stdout, Print("\r\n")).unwrap();
+
+    // Draw bottom border
+    print_colored_text(stdout, "     ", Color::White, None, None);
+    print_colored_text(stdout, "╰", Color::Cyan, None, None);
+    for _ in 0..box_width {
+        print_colored_text(stdout, "─", Color::Cyan, None, None);
+    }
+    print_colored_text(stdout, "╯", Color::Cyan, None, None);
+    queue!(stdout, Print("\r\n")).unwrap();
+}
 
 /// Formats a hostname for display with scrolling animation if it exceeds 9 characters
 /// Always returns a string with exactly 9 characters (padded with spaces if needed)
@@ -474,24 +628,39 @@ pub fn print_cpu_info<W: Write>(
 
     // Display per-core utilization if available and enabled
     if show_per_core && !info.per_core_utilization.is_empty() {
-        // Add a note about which physical cores are being monitored in containers
+        // Show CPU visualization for both container and bare metal
         #[cfg(target_os = "linux")]
-        if std::path::Path::new("/.dockerenv").exists()
-            || std::path::Path::new("/proc/self/cgroup").exists()
         {
-            // Check if we have cpuset information
-            if let Ok(cpuset) = std::fs::read_to_string("/sys/fs/cgroup/cpuset.cpus")
-                .or_else(|_| std::fs::read_to_string("/sys/fs/cgroup/cpuset.cpus.effective"))
-                .or_else(|_| std::fs::read_to_string("/sys/fs/cgroup/cpuset/cpuset.cpus"))
-            {
-                let cpuset = cpuset.trim();
-                if !cpuset.is_empty() && !cpuset.is_empty() {
-                    print_colored_text(stdout, "     ", Color::White, None, None);
-                    print_colored_text(stdout, "Container CPUs: ", Color::DarkGrey, None, None);
-                    print_colored_text(stdout, cpuset, Color::DarkGrey, None, None);
-                    queue!(stdout, Print("\r\n")).unwrap();
-                }
-            }
+            let is_container = std::path::Path::new("/.dockerenv").exists()
+                || std::path::Path::new("/proc/self/cgroup").exists();
+
+            // Check if we have cpuset information for containers
+            let cpuset = if is_container {
+                // Try cgroup v2 first, then cgroup v1
+                std::fs::read_to_string("/sys/fs/cgroup/cpuset.cpus.effective")
+                    .or_else(|_| std::fs::read_to_string("/sys/fs/cgroup/cpuset.cpus"))
+                    .or_else(|_| std::fs::read_to_string("/sys/fs/cgroup/cpuset/cpuset.cpus"))
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            } else {
+                None
+            };
+
+            // Render CPU visualization with utilization
+            render_cpu_visualization(
+                stdout,
+                &info.per_core_utilization,
+                cpuset.as_deref(),
+                width,
+                is_container,
+            );
+        }
+
+        // For non-Linux systems (macOS, etc), show CPU visualization as bare metal
+        #[cfg(not(target_os = "linux"))]
+        {
+            render_cpu_visualization(stdout, &info.per_core_utilization, None, width, false);
         }
 
         let total_cores = info.per_core_utilization.len();
