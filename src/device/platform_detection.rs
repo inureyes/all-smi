@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::utils::run_command_fast_fail;
 use std::process::Command;
 
 pub fn has_nvidia() -> bool {
@@ -32,7 +33,7 @@ pub fn has_nvidia() -> bool {
         }
 
         // Fallback to nvidia-smi check
-        if let Ok(output) = Command::new("nvidia-smi").args(["-L"]).output() {
+        if let Ok(output) = run_command_fast_fail("nvidia-smi", &["-L"]) {
             if output.status.success() {
                 let output_str = String::from_utf8_lossy(&output.stdout);
                 // nvidia-smi -L outputs lines like "GPU 0: NVIDIA GeForce..."
@@ -45,7 +46,7 @@ pub fn has_nvidia() -> bool {
     }
 
     // On Linux, first try lspci to check for NVIDIA VGA/3D controllers
-    if let Ok(output) = Command::new("lspci").output() {
+    if let Ok(output) = run_command_fast_fail("lspci", &[]) {
         if output.status.success() {
             let output_str = String::from_utf8_lossy(&output.stdout);
             // Look for NVIDIA VGA or 3D controllers

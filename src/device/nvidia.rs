@@ -14,13 +14,12 @@
 
 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
-use crate::utils::get_hostname;
+use crate::utils::{get_hostname, run_command_fast_fail};
 use chrono::Local;
 use nvml_wrapper::enums::device::UsedGpuMemory;
 use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::{cuda_driver_version_major, cuda_driver_version_minor, Nvml};
 use std::collections::{HashMap, HashSet};
-use std::process::Command;
 use std::sync::Mutex;
 use sysinfo::System;
 
@@ -49,9 +48,11 @@ impl GpuReader for NvidiaGpuReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        // Create a new system instance and refresh it
-        let mut system = System::new_all();
-        system.refresh_all();
+        // Create a lightweight system instance and only refresh what we need
+        use sysinfo::ProcessesToUpdate;
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        system.refresh_memory();
 
         // Get GPU processes and PIDs
         let (gpu_processes, gpu_pids) = self.get_gpu_processes();
@@ -171,12 +172,13 @@ impl NvidiaGpuReader {
         let mut gpu_processes = Vec::new();
         let mut gpu_pids = HashSet::new();
 
-        let output = Command::new("nvidia-smi")
-            .args([
+        let output = run_command_fast_fail(
+            "nvidia-smi",
+            &[
                 "--query-compute-apps=pid,used_memory",
                 "--format=csv,noheader,nounits",
-            ])
-            .output();
+            ],
+        );
 
         if let Ok(output) = output {
             if output.status.success() {
@@ -403,7 +405,7 @@ impl NvidiaGpuReader {
 
         // First, get CUDA version using nvidia-smi without query (appears in header)
         let mut cuda_version = String::new();
-        if let Ok(output) = Command::new("nvidia-smi").output() {
+        if let Ok(output) = run_command_fast_fail("nvidia-smi", &[]) {
             if output.status.success() {
                 let output_str = String::from_utf8_lossy(&output.stdout);
                 // Look for CUDA version in the header
@@ -422,12 +424,13 @@ impl NvidiaGpuReader {
             }
         }
 
-        let output = Command::new("nvidia-smi")
-            .args([
+        let output = run_command_fast_fail(
+            "nvidia-smi",
+            &[
                 "--query-gpu=index,uuid,name,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.current.graphics,power.draw,driver_version",
                 "--format=csv,noheader,nounits"
-            ])
-            .output();
+            ],
+        );
 
         if let Ok(output) = output {
             if output.status.success() {

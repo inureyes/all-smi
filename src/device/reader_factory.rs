@@ -29,6 +29,13 @@ use crate::device::{cpu_linux, memory_linux};
 
 pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
     let mut readers: Vec<Box<dyn GpuReader>> = Vec::new();
+
+    // Check if GPU detection should be skipped (useful for containers)
+    if std::env::var("SKIP_GPU_DETECTION").is_ok() || std::env::var("NO_GPU").is_ok() {
+        eprintln!("GPU detection skipped (SKIP_GPU_DETECTION or NO_GPU environment variable set)");
+        return readers;
+    }
+
     let os_type = get_os_type();
 
     match os_type {

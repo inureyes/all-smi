@@ -15,8 +15,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
-use std::process::Command;
-use sysinfo::{CpuRefreshKind, RefreshKind, System};
+use sysinfo::System;
 
 use chrono::Local;
 use once_cell::sync::Lazy;
@@ -55,6 +54,8 @@ pub struct LinuxCpuReader {
     // - Some(None): lscpu was called but failed
     // - Some(Some(value)): lscpu succeeded with value
     cached_lscpu_cache_size: RefCell<Option<Option<u32>>>,
+    // Cache entire lscpu output to avoid multiple calls
+    cached_lscpu_output: RefCell<Option<String>>,
     container_info: &'static ContainerInfo,
     // System handle for CPU monitoring
     system: RefCell<System>,
@@ -70,30 +71,46 @@ impl Default for LinuxCpuReader {
 
 impl LinuxCpuReader {
     pub fn new() -> Self {
-        // Create system with only CPU refresh enabled
-        let refresh_kind = RefreshKind::nothing().with_cpu(CpuRefreshKind::everything());
-        let system = System::new_with_specifics(refresh_kind);
-        // Skip initial refresh to avoid startup delay
+        // Create system with minimal initialization - delay CPU refresh until needed
+        let system = System::new();
 
         Self {
             cached_lscpu_cache_size: RefCell::new(None),
+            cached_lscpu_output: RefCell::new(None),
             container_info: &*CONTAINER_INFO,
             system: RefCell::new(system),
             first_refresh_done: RefCell::new(false),
         }
     }
 
+    fn get_lscpu_output(&self) -> Option<String> {
+        // Check cache first
+        if let Some(ref cached) = *self.cached_lscpu_output.borrow() {
+            return Some(cached.clone());
+        }
+
+        // Run lscpu once and cache the result
+        if let Ok(output) = std::process::Command::new("lscpu").output() {
+            if let Ok(lscpu_output) = String::from_utf8(output.stdout) {
+                *self.cached_lscpu_output.borrow_mut() = Some(lscpu_output.clone());
+                return Some(lscpu_output);
+            }
+        }
+
+        None
+    }
+
     fn get_cpu_info_from_proc(&self) -> Result<CpuInfo, Box<dyn std::error::Error>> {
         // On first call, do two refreshes to establish baseline
         // This is needed for sysinfo to calculate deltas
         if !*self.first_refresh_done.borrow() {
-            self.system.borrow_mut().refresh_cpu_all();
-            // Small delay for initial measurement (only on first call)
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            self.system.borrow_mut().refresh_cpu_usage();
+            // Minimal delay for initial measurement (only on first call)
+            std::thread::sleep(std::time::Duration::from_millis(10));
             *self.first_refresh_done.borrow_mut() = true;
         }
         // Regular refresh for current data
-        self.system.borrow_mut().refresh_cpu_all();
+        self.system.borrow_mut().refresh_cpu_usage();
         let hostname = get_hostname();
         let instance = hostname.clone();
         let time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -453,27 +470,25 @@ impl LinuxCpuReader {
 
         // If we still don't have frequencies, try lscpu command as fallback
         if base_frequency == 0 && max_frequency == 0 {
-            if let Ok(output) = std::process::Command::new("lscpu").output() {
-                if let Ok(lscpu_output) = String::from_utf8(output.stdout) {
-                    for line in lscpu_output.lines() {
-                        if line.starts_with("CPU MHz:") {
-                            if let Some(value) = line.split(':').nth(1) {
-                                if let Ok(freq) = value.trim().parse::<f64>() {
-                                    base_frequency = freq as u32;
-                                    break;
-                                }
+            if let Some(lscpu_output) = self.get_lscpu_output() {
+                for line in lscpu_output.lines() {
+                    if line.starts_with("CPU MHz:") {
+                        if let Some(value) = line.split(':').nth(1) {
+                            if let Ok(freq) = value.trim().parse::<f64>() {
+                                base_frequency = freq as u32;
+                                break;
                             }
-                        } else if line.starts_with("CPU max MHz:") {
-                            if let Some(value) = line.split(':').nth(1) {
-                                if let Ok(freq) = value.trim().parse::<f64>() {
-                                    max_frequency = freq as u32;
-                                }
+                        }
+                    } else if line.starts_with("CPU max MHz:") {
+                        if let Some(value) = line.split(':').nth(1) {
+                            if let Ok(freq) = value.trim().parse::<f64>() {
+                                max_frequency = freq as u32;
                             }
-                        } else if line.starts_with("CPU min MHz:") && base_frequency == 0 {
-                            if let Some(value) = line.split(':').nth(1) {
-                                if let Ok(freq) = value.trim().parse::<f64>() {
-                                    base_frequency = freq as u32;
-                                }
+                        }
+                    } else if line.starts_with("CPU min MHz:") && base_frequency == 0 {
+                        if let Some(value) = line.split(':').nth(1) {
+                            if let Ok(freq) = value.trim().parse::<f64>() {
+                                base_frequency = freq as u32;
                             }
                         }
                     }
@@ -620,10 +635,8 @@ impl LinuxCpuReader {
             return *cached_result;
         }
 
-        // Try to get cache size from lscpu
-        let result = if let Ok(output) = Command::new("lscpu").output() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-
+        // Try to get cache size from cached lscpu output
+        let result = if let Some(output_str) = self.get_lscpu_output() {
             // Look for cache lines (L3 preferred, then L2 as fallback)
             // Note: On some systems like Jetson, the lines might be indented
             let mut found_l3_cache = None;

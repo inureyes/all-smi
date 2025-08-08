@@ -23,10 +23,14 @@ use crate::view::{
 };
 
 pub async fn run_local_mode(args: &LocalArgs) {
+    let mut startup_profiler = crate::utils::StartupProfiler::new();
+    startup_profiler.checkpoint("Starting run_local_mode");
+
     // Initialize application state for local mode
     let mut initial_state = AppState::new();
     initial_state.is_local_mode = true;
     let app_state = Arc::new(Mutex::new(initial_state));
+    startup_profiler.checkpoint("AppState initialized");
 
     // Initialize terminal
     let _terminal_manager = match TerminalManager::new() {
@@ -36,6 +40,7 @@ pub async fn run_local_mode(args: &LocalArgs) {
             return;
         }
     };
+    startup_profiler.checkpoint("Terminal initialized");
 
     // Start data collection in background
     let data_collector = DataCollector::new(Arc::clone(&app_state));
@@ -47,6 +52,7 @@ pub async fn run_local_mode(args: &LocalArgs) {
     tokio::spawn(async move {
         data_collector.run_local_mode(view_args).await;
     });
+    startup_profiler.checkpoint("Data collector spawned");
 
     // Run UI loop
     let mut ui_loop = match UiLoop::new(app_state) {
@@ -56,6 +62,8 @@ pub async fn run_local_mode(args: &LocalArgs) {
             return;
         }
     };
+    startup_profiler.checkpoint("UI loop initialized");
+    startup_profiler.finish();
 
     // Create ViewArgs again for UI loop
     let view_args = ViewArgs {

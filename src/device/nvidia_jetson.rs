@@ -132,9 +132,11 @@ impl GpuReader for NvidiaJetsonGpuReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        // Create a new system instance and refresh it
-        let mut system = System::new_all();
-        system.refresh_all();
+        // Create a lightweight system instance and only refresh what we need
+        use sysinfo::ProcessesToUpdate;
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        system.refresh_memory();
 
         // Get GPU processes and PIDs
         let (gpu_processes, gpu_pids) = self.get_gpu_processes();
@@ -214,7 +216,8 @@ impl NvidiaJetsonGpuReader {
                 "cuda",
             ];
 
-            let system = System::new_all();
+            let mut system = System::new();
+            system.refresh_memory();
             for (pid, process) in system.processes() {
                 let process_name = process.name().to_string_lossy().to_lowercase();
                 for gpu_name in &gpu_process_names {

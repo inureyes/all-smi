@@ -69,25 +69,41 @@ impl DataCollector {
     }
 
     pub async fn run_local_mode(&self, args: ViewArgs) {
+        let mut profiler = crate::utils::StartupProfiler::new();
+        profiler.checkpoint("Starting local mode data collection");
         let gpu_readers = get_gpu_readers();
+        profiler.checkpoint("GPU readers initialized");
         let cpu_readers = get_cpu_readers();
+        profiler.checkpoint("CPU readers initialized");
         let memory_readers = get_memory_readers();
+        profiler.checkpoint("Memory readers initialized");
+
+        let mut first_iteration = true;
 
         loop {
             let all_gpu_info: Vec<GpuInfo> = gpu_readers
                 .iter()
                 .flat_map(|reader| reader.get_gpu_info())
                 .collect();
+            if first_iteration {
+                profiler.checkpoint("GPU info collected");
+            }
 
             let all_cpu_info: Vec<CpuInfo> = cpu_readers
                 .iter()
                 .flat_map(|reader| reader.get_cpu_info())
                 .collect();
+            if first_iteration {
+                profiler.checkpoint("CPU info collected");
+            }
 
             let all_memory_info: Vec<MemoryInfo> = memory_readers
                 .iter()
                 .flat_map(|reader| reader.get_memory_info())
                 .collect();
+            if first_iteration {
+                profiler.checkpoint("Memory info collected");
+            }
 
             // Collect processes from GPU readers if available
             let mut all_processes: Vec<ProcessInfo> = gpu_readers
@@ -99,16 +115,25 @@ impl DataCollector {
             if gpu_readers.is_empty() {
                 use crate::device::process_list::get_all_processes;
                 use std::collections::HashSet;
-                use sysinfo::System;
+                use sysinfo::{ProcessesToUpdate, System};
 
-                let mut system = System::new_all();
-                system.refresh_all();
+                // Use System::new() instead of new_all() for faster initialization
+                let mut system = System::new();
+                // Only refresh what we need: processes and memory
+                system.refresh_processes(ProcessesToUpdate::All, true);
+                system.refresh_memory();
+                if first_iteration {
+                    profiler.checkpoint("System processes refreshed (lightweight)");
+                }
                 let empty_gpu_pids = HashSet::new();
                 all_processes = get_all_processes(&system, &empty_gpu_pids);
             }
 
             // Collect local storage information
             let all_storage_info = self.collect_local_storage_info().await;
+            if first_iteration {
+                profiler.checkpoint("Storage info collected");
+            }
 
             self.update_local_state(
                 all_gpu_info,
@@ -118,6 +143,13 @@ impl DataCollector {
                 all_storage_info,
             )
             .await;
+
+            // Only log first iteration
+            if first_iteration {
+                profiler.checkpoint("First data collection complete");
+                profiler.finish();
+                first_iteration = false;
+            }
 
             // Use adaptive interval for local mode
             let interval = args
