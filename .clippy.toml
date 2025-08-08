@@ -1,0 +1,16 @@
+# Clippy configuration for all-smi project
+
+# Set MSRV (Minimum Supported Rust Version) if needed
+# msrv = "1.70.0"
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 30
+
+# Maximum number of lines for a single function
+too-many-lines-threshold = 100
+
+# Maximum number of arguments for a function
+too-many-arguments-threshold = 7
+
+# Allow mixed uninlined format args during transition
+allow-mixed-uninlined-format-args = false
