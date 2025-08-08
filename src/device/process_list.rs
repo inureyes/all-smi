@@ -124,20 +124,32 @@ fn get_process_priority_nice(pid: u32) -> (i32, i32) {
     #[cfg(target_os = "linux")]
     {
         // On Linux, read from /proc/[pid]/stat
+        // Format: pid (comm) state ppid ... priority nice ...
+        // Priority is field 18 (17 0-indexed), Nice is field 19 (18 0-indexed)
         if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-            let fields: Vec<&str> = stat.split_whitespace().collect();
-            if fields.len() > 19 {
-                // Priority is field 17 (0-indexed)
-                let priority = fields
-                    .get(17)
-                    .and_then(|s| s.parse::<i32>().ok())
-                    .unwrap_or(20);
-                // Nice value is field 18 (0-indexed)
-                let nice = fields
-                    .get(18)
-                    .and_then(|s| s.parse::<i32>().ok())
-                    .unwrap_or(0);
-                return (priority, nice);
+            // The process name is in parentheses and may contain spaces/parens
+            // Find the last ) to properly split the fields
+            if let Some(last_paren) = stat.rfind(')') {
+                // Everything after the last ) contains the actual stat fields
+                let after_name = &stat[last_paren + 1..];
+                let fields: Vec<&str> = after_name.split_whitespace().collect();
+                
+                // After removing pid and (name), the remaining fields are:
+                // 0: state, 1: ppid, 2: pgrp, 3: session, 4: tty_nr, 5: tpgid,
+                // 6: flags, 7: minflt, 8: cminflt, 9: majflt, 10: cmajflt,
+                // 11: utime, 12: stime, 13: cutime, 14: cstime, 
+                // 15: priority, 16: nice, ...
+                if fields.len() > 16 {
+                    let priority = fields
+                        .get(15)  // priority is at index 15 after the name
+                        .and_then(|s| s.parse::<i32>().ok())
+                        .unwrap_or(20);
+                    let nice = fields
+                        .get(16)  // nice is at index 16 after the name
+                        .and_then(|s| s.parse::<i32>().ok())
+                        .unwrap_or(0);
+                    return (priority, nice);
+                }
             }
         }
     }
