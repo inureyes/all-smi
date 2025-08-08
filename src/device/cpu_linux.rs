@@ -568,6 +568,14 @@ impl LinuxCpuReader {
     }
 
     fn parse_cpu_stat(&self, _content: &str, socket_count: u32) -> CpuStatParseResult {
+        // Ensure CPUs are refreshed before accessing them
+        if !*self.first_refresh_done.read().unwrap() {
+            self.system.write().unwrap().refresh_cpu_usage();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            *self.first_refresh_done.write().unwrap() = true;
+        }
+        self.system.write().unwrap().refresh_cpu_usage();
+
         let overall_utilization = self.system.read().unwrap().global_cpu_usage() as f64;
         let mut per_socket_info = Vec::new();
         let mut per_core_utilization = Vec::new();
