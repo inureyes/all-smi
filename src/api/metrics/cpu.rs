@@ -41,7 +41,7 @@ impl<'a> CpuMetricExporter<'a> {
             ("architecture", info.architecture.as_str()),
             ("platform_type", &format!("{:?}", info.platform_type)),
         ];
-        
+
         builder
             .help("all_smi_cpu_info", "CPU device information")
             .type_("all_smi_cpu_info", "info")
