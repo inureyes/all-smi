@@ -28,7 +28,7 @@ use api::run_api_mode;
 use clap::Parser;
 use cli::{Cli, Commands, LocalArgs};
 use tokio::signal;
-use utils::{ensure_sudo_permissions, ensure_sudo_permissions_with_fallback};
+use utils::{ensure_sudo_permissions, ensure_sudo_permissions_with_fallback, RuntimeEnvironment};
 
 #[cfg(target_os = "macos")]
 use device::is_apple_silicon;
@@ -106,14 +106,33 @@ async fn main() {
 
             view::run_local_mode(&args).await;
         }
-        Some(Commands::View(args)) => {
+        Some(Commands::View(mut args)) => {
             // Remote mode - no sudo required
-            // Validate that hosts or hostfile is provided
+
+            // Check if we're in Backend.AI environment and no hosts/hostfile provided
             if args.hosts.is_none() && args.hostfile.is_none() {
-                eprintln!("Error: Remote view mode requires --hosts or --hostfile");
-                eprintln!("Usage: all-smi view --hosts <URL>... or all-smi view --hostfile <FILE>");
-                eprintln!("\nFor local monitoring, use: all-smi local");
-                std::process::exit(1);
+                let runtime_env = RuntimeEnvironment::detect();
+
+                if let Some(backend_ai_hosts) = runtime_env.get_backend_ai_hosts() {
+                    eprintln!("Detected Backend.AI environment");
+                    eprintln!("Auto-discovered cluster hosts from BACKENDAI_CLUSTER_HOSTS:");
+                    for host in &backend_ai_hosts {
+                        eprintln!("  - {}", host);
+                    }
+                    args.hosts = Some(backend_ai_hosts);
+                } else {
+                    eprintln!("Error: Remote view mode requires --hosts or --hostfile");
+                    eprintln!(
+                        "Usage: all-smi view --hosts <URL>... or all-smi view --hostfile <FILE>"
+                    );
+                    if runtime_env.is_backend_ai() {
+                        eprintln!("\nBackend.AI environment detected but BACKENDAI_CLUSTER_HOSTS is not set.");
+                        eprintln!("Set the environment variable with comma-separated host names:");
+                        eprintln!("  export BACKENDAI_CLUSTER_HOSTS=\"host1,host2\"");
+                    }
+                    eprintln!("\nFor local monitoring, use: all-smi local");
+                    std::process::exit(1);
+                }
             }
             view::run_view_mode(&args).await;
         }

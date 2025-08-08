@@ -653,6 +653,42 @@ impl RuntimeEnvironment {
             None
         }
     }
+
+    /// Check if running in Backend.AI environment
+    pub fn is_backend_ai(&self) -> bool {
+        self.container.runtime == ContainerRuntime::BackendAI
+    }
+
+    /// Get Backend.AI cluster hosts from environment variable
+    /// Returns a list of host URLs constructed from BACKENDAI_CLUSTER_HOSTS
+    pub fn get_backend_ai_hosts(&self) -> Option<Vec<String>> {
+        if !self.is_backend_ai() {
+            return None;
+        }
+
+        // Try to get hosts from environment variable
+        if let Ok(hosts_str) = env::var("BACKENDAI_CLUSTER_HOSTS") {
+            let hosts: Vec<String> = hosts_str
+                .split(',')
+                .map(|host| {
+                    let host = host.trim();
+                    // If host doesn't have a scheme, prepend http://
+                    if !host.starts_with("http://") && !host.starts_with("https://") {
+                        format!("http://{}:9090", host)
+                    } else {
+                        host.to_string()
+                    }
+                })
+                .filter(|host| !host.is_empty())
+                .collect();
+
+            if !hosts.is_empty() {
+                return Some(hosts);
+            }
+        }
+
+        None
+    }
 }
 
 #[cfg(test)]
