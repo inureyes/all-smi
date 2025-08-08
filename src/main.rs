@@ -117,7 +117,7 @@ async fn main() {
                     eprintln!("Detected Backend.AI environment");
                     eprintln!("Auto-discovered cluster hosts from BACKENDAI_CLUSTER_HOSTS:");
                     for host in &backend_ai_hosts {
-                        eprintln!("  - {}", host);
+                        eprintln!("  - {host}");
                     }
                     args.hosts = Some(backend_ai_hosts);
                 } else {
