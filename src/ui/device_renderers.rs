@@ -476,14 +476,16 @@ pub fn print_cpu_info<W: Write>(
     if show_per_core && !info.per_core_utilization.is_empty() {
         // Add a note about which physical cores are being monitored in containers
         #[cfg(target_os = "linux")]
-        if std::path::Path::new("/.dockerenv").exists() || std::path::Path::new("/proc/self/cgroup").exists() {
+        if std::path::Path::new("/.dockerenv").exists()
+            || std::path::Path::new("/proc/self/cgroup").exists()
+        {
             // Check if we have cpuset information
             if let Ok(cpuset) = std::fs::read_to_string("/sys/fs/cgroup/cpuset.cpus")
                 .or_else(|_| std::fs::read_to_string("/sys/fs/cgroup/cpuset.cpus.effective"))
                 .or_else(|_| std::fs::read_to_string("/sys/fs/cgroup/cpuset/cpuset.cpus"))
             {
                 let cpuset = cpuset.trim();
-                if !cpuset.is_empty() && cpuset != "" {
+                if !cpuset.is_empty() && !cpuset.is_empty() {
                     print_colored_text(stdout, "     ", Color::White, None, None);
                     print_colored_text(stdout, "Container CPUs: ", Color::DarkGrey, None, None);
                     print_colored_text(stdout, cpuset, Color::DarkGrey, None, None);
@@ -491,7 +493,7 @@ pub fn print_cpu_info<W: Write>(
                 }
             }
         }
-        
+
         let total_cores = info.per_core_utilization.len();
         let cores_per_line = if total_cores <= 16 { 4 } else { 8 };
 

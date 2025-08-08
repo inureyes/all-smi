@@ -16,7 +16,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
-use sysinfo::{System, CpuRefreshKind, RefreshKind};
+use sysinfo::{CpuRefreshKind, RefreshKind, System};
 
 use chrono::Local;
 use once_cell::sync::Lazy;
@@ -74,7 +74,7 @@ impl LinuxCpuReader {
         let refresh_kind = RefreshKind::nothing().with_cpu(CpuRefreshKind::everything());
         let system = System::new_with_specifics(refresh_kind);
         // Skip initial refresh to avoid startup delay
-        
+
         Self {
             cached_lscpu_cache_size: RefCell::new(None),
             container_info: &*CONTAINER_INFO,
@@ -140,59 +140,59 @@ impl LinuxCpuReader {
 
         // Get overall CPU utilization from sysinfo
         let overall_utilization = self.system.borrow().global_cpu_usage() as f64;
-        
+
         // Read /proc/stat only to determine which cores are active
         let stat_content = fs::read_to_string("/proc/stat")?;
-        let (per_socket_info, per_core_utilization) =
-            if self.container_info.is_container {
-                // Use container-aware parsing to determine active cores
-                let (_stat_utilization, active_cores) =
-                    parse_cpu_stat_with_container_limits(&stat_content, self.container_info);
+        let (per_socket_info, per_core_utilization) = if self.container_info.is_container {
+            // Use container-aware parsing to determine active cores
+            let (_stat_utilization, active_cores) =
+                parse_cpu_stat_with_container_limits(&stat_content, self.container_info);
 
-                // Convert active cores to per-core utilization
-                let mut core_utils = Vec::new();
-                // Limit the number of cores displayed based on container limits
-                let max_cores_to_display = if self.container_info.cpuset_cpus.is_some() {
-                    active_cores.len()
-                } else {
-                    // If no cpuset, limit to effective CPU count
-                    self.container_info.effective_cpu_count.ceil() as usize
-                };
-                
-                // Use sysinfo to get accurate CPU utilization with delta calculation
-                let system = self.system.borrow();
-                let cpus = system.cpus();
-                
-                for (idx, &core_id) in active_cores.iter().take(max_cores_to_display).enumerate() {
-                    // Get utilization from sysinfo which handles delta calculation properly
-                    let core_util = if (core_id as usize) < cpus.len() {
-                        cpus[core_id as usize].cpu_usage() as f64
-                    } else {
-                        0.0
-                    };
-                    
-                    core_utils.push(CoreUtilization {
-                        core_id: idx as u32,  // Use sequential IDs for display, but read from actual core_id
-                        core_type: CoreType::Standard,
-                        utilization: core_util,
-                    });
-                }
-
-                // Create socket info for container
-                let socket_info = vec![CpuSocketInfo {
-                    socket_id: 0,
-                    utilization: overall_utilization,
-                    cores: total_cores,
-                    threads: total_threads,
-                    temperature: None,
-                    frequency_mhz: base_frequency,
-                }];
-
-                (socket_info, core_utils)
+            // Convert active cores to per-core utilization
+            let mut core_utils = Vec::new();
+            // Limit the number of cores displayed based on container limits
+            let max_cores_to_display = if self.container_info.cpuset_cpus.is_some() {
+                active_cores.len()
             } else {
-                let (_util, socket_info, core_utils) = self.parse_cpu_stat(&stat_content, socket_count)?;
-                (socket_info, core_utils)
+                // If no cpuset, limit to effective CPU count
+                self.container_info.effective_cpu_count.ceil() as usize
             };
+
+            // Use sysinfo to get accurate CPU utilization with delta calculation
+            let system = self.system.borrow();
+            let cpus = system.cpus();
+
+            for (idx, &core_id) in active_cores.iter().take(max_cores_to_display).enumerate() {
+                // Get utilization from sysinfo which handles delta calculation properly
+                let core_util = if (core_id as usize) < cpus.len() {
+                    cpus[core_id as usize].cpu_usage() as f64
+                } else {
+                    0.0
+                };
+
+                core_utils.push(CoreUtilization {
+                    core_id: idx as u32, // Use sequential IDs for display, but read from actual core_id
+                    core_type: CoreType::Standard,
+                    utilization: core_util,
+                });
+            }
+
+            // Create socket info for container
+            let socket_info = vec![CpuSocketInfo {
+                socket_id: 0,
+                utilization: overall_utilization,
+                cores: total_cores,
+                threads: total_threads,
+                temperature: None,
+                frequency_mhz: base_frequency,
+            }];
+
+            (socket_info, core_utils)
+        } else {
+            let (_util, socket_info, core_utils) =
+                self.parse_cpu_stat(&stat_content, socket_count)?;
+            (socket_info, core_utils)
+        };
 
         // Try to get CPU temperature (may not be available on all systems)
         let temperature = self.get_cpu_temperature();
@@ -560,14 +560,14 @@ impl LinuxCpuReader {
         // Use sysinfo to get per-core utilization
         let system = self.system.borrow();
         let cpus = system.cpus();
-        
+
         for (core_id, cpu) in cpus.iter().enumerate() {
             let utilization = cpu.cpu_usage() as f64;
-            
+
             // Check if this is a P-core or E-core based on CPU topology
             // For now, we'll use Standard type for all Linux cores
             let core_type = CoreType::Standard;
-            
+
             per_core_utilization.push(CoreUtilization {
                 core_id: core_id as u32,
                 core_type,
@@ -713,7 +713,6 @@ impl LinuxCpuReader {
 
         result
     }
-
 }
 
 impl CpuReader for LinuxCpuReader {
