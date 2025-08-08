@@ -16,6 +16,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
+use sysinfo::{System, CpuRefreshKind, RefreshKind};
 
 use chrono::Local;
 use once_cell::sync::Lazy;
@@ -55,6 +56,10 @@ pub struct LinuxCpuReader {
     // - Some(Some(value)): lscpu succeeded with value
     cached_lscpu_cache_size: RefCell<Option<Option<u32>>>,
     container_info: &'static ContainerInfo,
+    // System handle for CPU monitoring
+    system: RefCell<System>,
+    // Track if we've done the first refresh
+    first_refresh_done: RefCell<bool>,
 }
 
 impl Default for LinuxCpuReader {
@@ -65,13 +70,30 @@ impl Default for LinuxCpuReader {
 
 impl LinuxCpuReader {
     pub fn new() -> Self {
+        // Create system with only CPU refresh enabled
+        let refresh_kind = RefreshKind::nothing().with_cpu(CpuRefreshKind::everything());
+        let system = System::new_with_specifics(refresh_kind);
+        // Skip initial refresh to avoid startup delay
+        
         Self {
             cached_lscpu_cache_size: RefCell::new(None),
             container_info: &*CONTAINER_INFO,
+            system: RefCell::new(system),
+            first_refresh_done: RefCell::new(false),
         }
     }
 
     fn get_cpu_info_from_proc(&self) -> Result<CpuInfo, Box<dyn std::error::Error>> {
+        // On first call, do two refreshes to establish baseline
+        // This is needed for sysinfo to calculate deltas
+        if !*self.first_refresh_done.borrow() {
+            self.system.borrow_mut().refresh_cpu_all();
+            // Small delay for initial measurement (only on first call)
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            *self.first_refresh_done.borrow_mut() = true;
+        }
+        // Regular refresh for current data
+        self.system.borrow_mut().refresh_cpu_all();
         let hostname = get_hostname();
         let instance = hostname.clone();
         let time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -116,21 +138,41 @@ impl LinuxCpuReader {
             }
         }
 
-        // Read /proc/stat for CPU utilization
+        // Get overall CPU utilization from sysinfo
+        let overall_utilization = self.system.borrow().global_cpu_usage() as f64;
+        
+        // Read /proc/stat only to determine which cores are active
         let stat_content = fs::read_to_string("/proc/stat")?;
-        let (overall_utilization, per_socket_info, per_core_utilization) =
+        let (per_socket_info, per_core_utilization) =
             if self.container_info.is_container {
-                // Use container-aware parsing
-                let (utilization, active_cores) =
+                // Use container-aware parsing to determine active cores
+                let (_stat_utilization, active_cores) =
                     parse_cpu_stat_with_container_limits(&stat_content, self.container_info);
 
                 // Convert active cores to per-core utilization
                 let mut core_utils = Vec::new();
-                for &core_id in &active_cores {
-                    // Parse individual core stats
-                    let core_util = self.get_core_utilization_from_stat(&stat_content, core_id);
+                // Limit the number of cores displayed based on container limits
+                let max_cores_to_display = if self.container_info.cpuset_cpus.is_some() {
+                    active_cores.len()
+                } else {
+                    // If no cpuset, limit to effective CPU count
+                    self.container_info.effective_cpu_count.ceil() as usize
+                };
+                
+                // Use sysinfo to get accurate CPU utilization with delta calculation
+                let system = self.system.borrow();
+                let cpus = system.cpus();
+                
+                for (idx, &core_id) in active_cores.iter().take(max_cores_to_display).enumerate() {
+                    // Get utilization from sysinfo which handles delta calculation properly
+                    let core_util = if (core_id as usize) < cpus.len() {
+                        cpus[core_id as usize].cpu_usage() as f64
+                    } else {
+                        0.0
+                    };
+                    
                     core_utils.push(CoreUtilization {
-                        core_id,
+                        core_id: idx as u32,  // Use sequential IDs for display, but read from actual core_id
                         core_type: CoreType::Standard,
                         utilization: core_util,
                     });
@@ -139,16 +181,17 @@ impl LinuxCpuReader {
                 // Create socket info for container
                 let socket_info = vec![CpuSocketInfo {
                     socket_id: 0,
-                    utilization,
+                    utilization: overall_utilization,
                     cores: total_cores,
                     threads: total_threads,
                     temperature: None,
                     frequency_mhz: base_frequency,
                 }];
 
-                (utilization, socket_info, core_utils)
+                (socket_info, core_utils)
             } else {
-                self.parse_cpu_stat(&stat_content, socket_count)?
+                let (_util, socket_info, core_utils) = self.parse_cpu_stat(&stat_content, socket_count)?;
+                (socket_info, core_utils)
             };
 
         // Try to get CPU temperature (may not be available on all systems)
@@ -509,77 +552,27 @@ impl LinuxCpuReader {
         ))
     }
 
-    fn parse_cpu_stat(&self, content: &str, socket_count: u32) -> CpuStatParseResult {
-        let mut overall_utilization = 0.0;
+    fn parse_cpu_stat(&self, _content: &str, socket_count: u32) -> CpuStatParseResult {
+        let overall_utilization = self.system.borrow().global_cpu_usage() as f64;
         let mut per_socket_info = Vec::new();
         let mut per_core_utilization = Vec::new();
 
-        let lines: Vec<&str> = content.lines().collect();
-
-        // Parse overall CPU stats (first line starting with "cpu ")
-        if let Some(cpu_line) = lines.iter().find(|line| line.starts_with("cpu ")) {
-            let fields: Vec<&str> = cpu_line.split_whitespace().collect();
-            if fields.len() >= 8 {
-                let user: u64 = fields[1].parse().unwrap_or(0);
-                let nice: u64 = fields[2].parse().unwrap_or(0);
-                let system: u64 = fields[3].parse().unwrap_or(0);
-                let idle: u64 = fields[4].parse().unwrap_or(0);
-                let iowait: u64 = fields[5].parse().unwrap_or(0);
-                let irq: u64 = fields[6].parse().unwrap_or(0);
-                let softirq: u64 = fields[7].parse().unwrap_or(0);
-
-                let total_time = user + nice + system + idle + iowait + irq + softirq;
-                let active_time = total_time - idle - iowait;
-
-                if total_time > 0 {
-                    overall_utilization = (active_time as f64 / total_time as f64) * 100.0;
-                }
-            }
-        }
-
-        // Parse individual CPU core stats
-        for line in lines.iter() {
-            if line.starts_with("cpu") && !line.starts_with("cpu ") {
-                // Extract CPU core number
-                if let Some(cpu_num_str) = line.split_whitespace().next() {
-                    if let Some(cpu_num_str) = cpu_num_str.strip_prefix("cpu") {
-                        if let Ok(core_id) = cpu_num_str.parse::<u32>() {
-                            let fields: Vec<&str> = line.split_whitespace().collect();
-                            if fields.len() >= 8 {
-                                let user: u64 = fields[1].parse().unwrap_or(0);
-                                let nice: u64 = fields[2].parse().unwrap_or(0);
-                                let system: u64 = fields[3].parse().unwrap_or(0);
-                                let idle: u64 = fields[4].parse().unwrap_or(0);
-                                let iowait: u64 = fields[5].parse().unwrap_or(0);
-                                let irq: u64 = fields[6].parse().unwrap_or(0);
-                                let softirq: u64 = fields[7].parse().unwrap_or(0);
-
-                                let total_time =
-                                    user + nice + system + idle + iowait + irq + softirq;
-                                let active_time = total_time - idle - iowait;
-
-                                let utilization = if total_time > 0 {
-                                    (active_time as f64 / total_time as f64) * 100.0
-                                } else {
-                                    0.0
-                                };
-
-                                // Check if this is a P-core or E-core based on CPU topology
-                                // For now, we'll use Standard type for all Linux cores
-                                // In the future, we could check /sys/devices/system/cpu/cpu*/cpufreq/base_frequency
-                                // to distinguish between P-cores and E-cores on Intel systems
-                                let core_type = CoreType::Standard;
-
-                                per_core_utilization.push(CoreUtilization {
-                                    core_id,
-                                    core_type,
-                                    utilization,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
+        // Use sysinfo to get per-core utilization
+        let system = self.system.borrow();
+        let cpus = system.cpus();
+        
+        for (core_id, cpu) in cpus.iter().enumerate() {
+            let utilization = cpu.cpu_usage() as f64;
+            
+            // Check if this is a P-core or E-core based on CPU topology
+            // For now, we'll use Standard type for all Linux cores
+            let core_type = CoreType::Standard;
+            
+            per_core_utilization.push(CoreUtilization {
+                core_id: core_id as u32,
+                core_type,
+                utilization,
+            });
         }
 
         // Sort cores by ID for consistent display
@@ -721,36 +714,6 @@ impl LinuxCpuReader {
         result
     }
 
-    fn get_core_utilization_from_stat(&self, stat_content: &str, core_id: u32) -> f64 {
-        let cpu_line_prefix = format!("cpu{core_id}");
-
-        for line in stat_content.lines() {
-            if line.starts_with(&cpu_line_prefix)
-                && !line[cpu_line_prefix.len()..].starts_with(|c: char| c.is_ascii_digit())
-            {
-                let fields: Vec<&str> = line.split_whitespace().collect();
-                if fields.len() >= 8 {
-                    let user: u64 = fields[1].parse().unwrap_or(0);
-                    let nice: u64 = fields[2].parse().unwrap_or(0);
-                    let system: u64 = fields[3].parse().unwrap_or(0);
-                    let idle: u64 = fields[4].parse().unwrap_or(0);
-                    let iowait: u64 = fields[5].parse().unwrap_or(0);
-                    let irq: u64 = fields[6].parse().unwrap_or(0);
-                    let softirq: u64 = fields[7].parse().unwrap_or(0);
-
-                    let total_time = user + nice + system + idle + iowait + irq + softirq;
-                    let active_time = total_time - idle - iowait;
-
-                    if total_time > 0 {
-                        return (active_time as f64 / total_time as f64) * 100.0;
-                    }
-                }
-                break;
-            }
-        }
-
-        0.0
-    }
 }
 
 impl CpuReader for LinuxCpuReader {

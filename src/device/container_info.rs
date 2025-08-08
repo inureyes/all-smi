@@ -211,6 +211,11 @@ impl ContainerInfo {
             return true;
         }
 
+        // Check for Kubernetes service account
+        if Path::new("/var/run/secrets/kubernetes.io").exists() {
+            return true;
+        }
+
         // Check /proc/self/cgroup for container indicators
         if let Ok(cgroup_content) = fs::read_to_string("/proc/self/cgroup") {
             for line in cgroup_content.lines() {
@@ -219,8 +224,30 @@ impl ContainerInfo {
                     || line.contains("/kubepods/")
                     || line.contains("/containerd/")
                     || line.contains("/podman/")
+                    || line.contains("/machine.slice/")
+                    || line.contains("/system.slice/docker-")
                 {
                     return true;
+                }
+            }
+        }
+
+        // Check for cgroups v2 unified hierarchy
+        if let Ok(cgroup_content) = fs::read_to_string("/proc/self/mountinfo") {
+            for line in cgroup_content.lines() {
+                if line.contains("/sys/fs/cgroup") && line.contains("cgroup2") {
+                    // In cgroups v2, check if we're in a non-root cgroup
+                    if let Ok(cgroup_path) = fs::read_to_string("/proc/self/cgroup") {
+                        // In cgroups v2, format is "0::/path"
+                        if let Some(line) = cgroup_path.lines().find(|l| l.starts_with("0::")) {
+                            if let Some(path) = line.strip_prefix("0::") {
+                                // If path is not "/" we're in a container
+                                if path != "/" && !path.is_empty() {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -719,8 +746,12 @@ pub fn parse_cpu_stat_with_container_limits(
     // If we have a cpuset, only consider those CPUs
     let allowed_cpus = if let Some(cpuset) = &container_info.cpuset_cpus {
         cpuset.clone()
+    } else if container_info.is_container {
+        // In a container without cpuset, limit to effective CPU count
+        let effective_cores = container_info.effective_cpu_count.ceil() as u32;
+        (0..effective_cores.min(num_cpus::get() as u32)).collect()
     } else {
-        // Consider all CPUs
+        // Not in container, consider all CPUs
         (0..num_cpus::get() as u32).collect()
     };
 

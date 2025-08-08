@@ -98,31 +98,7 @@ cpu3 2500 0 5000 17500 0 0 0 0 0 0"#;
     }
 }
 
-#[test]
-fn test_get_core_utilization_from_stat() {
-    let stat_content = r#"cpu  10000 0 20000 70000 0 0 0 0 0 0
-cpu0 2500 0 5000 17500 0 0 0 0 0 0
-cpu1 1000 0 1000 18000 0 0 0 0 0 0
-cpu10 3000 0 7000 15000 0 0 0 0 0 0"#;
-
-    let reader = LinuxCpuReader::new();
-
-    // Test cpu0: (2500 + 5000) / 25000 = 30%
-    let util = reader.get_core_utilization_from_stat(stat_content, 0);
-    assert_eq!(util, 30.0);
-
-    // Test cpu1: (1000 + 1000) / 20000 = 10%
-    let util = reader.get_core_utilization_from_stat(stat_content, 1);
-    assert_eq!(util, 10.0);
-
-    // Test cpu10: (3000 + 7000) / 25000 = 40%
-    let util = reader.get_core_utilization_from_stat(stat_content, 10);
-    assert_eq!(util, 40.0);
-
-    // Test non-existent cpu
-    let util = reader.get_core_utilization_from_stat(stat_content, 99);
-    assert_eq!(util, 0.0);
-}
+// Removed test_get_core_utilization_from_stat as we now use sysinfo crate for CPU utilization
 
 #[test]
 fn test_container_aware_parsing() {
