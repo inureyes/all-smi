@@ -277,8 +277,8 @@ impl FuriosaReader {
         if result.is_empty() {
             if let Some(fallback) = self.config.fallback_method {
                 eprintln!(
-                    "Primary method {:?} failed, trying fallback {:?}",
-                    self.config.primary_method, fallback
+                    "Primary method {:?} failed, trying fallback {fallback:?}",
+                    self.config.primary_method
                 );
                 result = match fallback {
                     CollectionMethod::FuriosaSmi => self.collect_via_furiosa_smi(),

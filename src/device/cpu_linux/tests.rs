@@ -176,7 +176,7 @@ fn test_get_cache_size_from_lscpu() {
 
     // Just verify it returns Some value or None, both are valid
     match cache_size {
-        Some(size) => println!("Found cache size: {} MB", size),
+        Some(size) => println!("Found cache size: {size} MB"),
         None => println!("No cache size found (lscpu not available or failed)"),
     }
 }

@@ -848,8 +848,8 @@ all_smi_cpu_utilization{cpu_model="Intel Xeon", instance="production-node-42", h
                     assert_eq!(actual, expected);
                 }
                 _ => panic!(
-                    "Platform type mismatch for {}: expected {:?}, got {:?}",
-                    cpu_model, expected_type, cpu_info[0].platform_type
+                    "Platform type mismatch for {cpu_model}: expected {expected_type:?}, got {:?}",
+                    cpu_info[0].platform_type
                 ),
             }
         }

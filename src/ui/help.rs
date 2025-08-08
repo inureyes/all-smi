@@ -61,7 +61,7 @@ fn pad_content_to_width(content: String, target_width: usize) -> String {
         content
     } else {
         // Pad with spaces to reach target width
-        format!("{}{}", content, " ".repeat(target_width - display_width))
+        format!("{content}{}", " ".repeat(target_width - display_width))
     }
 }
 
@@ -342,7 +342,7 @@ fn format_shortcut_line(key: &str, desc: &str, style: &str, width: usize) -> Str
                 } else {
                     desc.to_string()
                 };
-                format!(" {:<10} {}", key_str, truncated_desc.white())
+                format!(" {key_str:<10} {}", truncated_desc.white())
             }
         }
         "legend" => {
@@ -352,7 +352,7 @@ fn format_shortcut_line(key: &str, desc: &str, style: &str, width: usize) -> Str
             } else {
                 desc.to_string()
             };
-            format!(" {:<10} {}", key, truncated_desc.white())
+            format!(" {key:<10} {}", truncated_desc.white())
         }
         "status" => {
             let key_str = key.cyan().to_string();

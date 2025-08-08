@@ -42,9 +42,8 @@ impl<'a> MetricExporter for RuntimeMetricExporter<'a> {
             output.push_str(&format!(
                 "# HELP all_smi_container_runtime_info Container runtime environment information\n\
                  # TYPE all_smi_container_runtime_info gauge\n\
-                 all_smi_container_runtime_info{{hostname=\"{}\",runtime=\"{}\",container_id=\"{}\"}} 1\n",
+                 all_smi_container_runtime_info{{hostname=\"{}\",runtime=\"{runtime_name}\",container_id=\"{}\"}} 1\n",
                 self.hostname,
-                runtime_name,
                 self.runtime_env.container.container_id.as_deref().unwrap_or("unknown")
             ));
 
@@ -54,9 +53,8 @@ impl<'a> MetricExporter for RuntimeMetricExporter<'a> {
                     output.push_str(&format!(
                         "# HELP all_smi_kubernetes_pod_info Kubernetes pod information\n\
                          # TYPE all_smi_kubernetes_pod_info gauge\n\
-                         all_smi_kubernetes_pod_info{{hostname=\"{}\",pod_name=\"{}\",namespace=\"{}\"}} 1\n",
+                         all_smi_kubernetes_pod_info{{hostname=\"{}\",pod_name=\"{pod_name}\",namespace=\"{}\"}} 1\n",
                         self.hostname,
-                        pod_name,
                         self.runtime_env.container.namespace.as_deref().unwrap_or("default")
                     ));
                 }
@@ -70,9 +68,8 @@ impl<'a> MetricExporter for RuntimeMetricExporter<'a> {
             output.push_str(&format!(
                 "# HELP all_smi_virtualization_info Virtualization environment information\n\
                  # TYPE all_smi_virtualization_info gauge\n\
-                 all_smi_virtualization_info{{hostname=\"{}\",vm_type=\"{}\",hypervisor=\"{}\"}} 1\n",
+                 all_smi_virtualization_info{{hostname=\"{}\",vm_type=\"{vm_type}\",hypervisor=\"{}\"}} 1\n",
                 self.hostname,
-                vm_type,
                 self.runtime_env.virtualization.hypervisor.as_deref().unwrap_or(vm_type)
             ));
         }
@@ -82,9 +79,8 @@ impl<'a> MetricExporter for RuntimeMetricExporter<'a> {
             output.push_str(&format!(
                 "# HELP all_smi_runtime_environment Current runtime environment (container or VM)\n\
                  # TYPE all_smi_runtime_environment gauge\n\
-                 all_smi_runtime_environment{{hostname=\"{}\",environment=\"{}\"}} 1\n",
-                self.hostname,
-                name
+                 all_smi_runtime_environment{{hostname=\"{}\",environment=\"{name}\"}} 1\n",
+                self.hostname
             ));
         }
 

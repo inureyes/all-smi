@@ -149,7 +149,7 @@ pub fn print_gpu_info<W: Write>(
         format!("{:5.2}W", info.power_consumption)
     } else if let Some(power_max_str) = info.detail.get("power_limit_max") {
         if let Ok(power_max) = power_max_str.parse::<f64>() {
-            format!("{:.0}/{:.0}W", info.power_consumption, power_max)
+            format!("{:.0}/{power_max:.0}W", info.power_consumption)
         } else {
             format!("{:.0}W", info.power_consumption)
         }
@@ -326,9 +326,9 @@ pub fn print_cpu_info<W: Write>(
                     e_freq as f64 / 1000.0
                 )
             } else if p_freq >= 1000 {
-                format!("{:.2}GHz+{}MHz", p_freq as f64 / 1000.0, e_freq)
+                format!("{:.2}GHz+{e_freq}MHz", p_freq as f64 / 1000.0)
             } else if e_freq >= 1000 {
-                format!("{}MHz+{:.2}GHz", p_freq, e_freq as f64 / 1000.0)
+                format!("{p_freq}MHz+{:.2}GHz", e_freq as f64 / 1000.0)
             } else {
                 format!("{p_freq}+{e_freq}MHz")
             };

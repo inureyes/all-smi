@@ -106,13 +106,13 @@ fn test_container_detection() {
             info.effective_cpu_count
         );
         if let Some(quota) = info.cpu_quota {
-            println!("CPU quota: {}", quota);
+            println!("CPU quota: {quota}");
         }
         if let Some(period) = info.cpu_period {
-            println!("CPU period: {}", period);
+            println!("CPU period: {period}");
         }
         if let Some(cpuset) = &info.cpuset_cpus {
-            println!("CPUSet: {:?}", cpuset);
+            println!("CPUSet: {cpuset:?}");
         }
         if let Some(mem_limit) = info.memory_limit_bytes {
             println!("Memory limit: {} MB", mem_limit / 1024 / 1024);
@@ -134,7 +134,7 @@ fn test_memory_limit_detection() {
         // In a container, we should have memory limits
         if let Some(limit) = info.memory_limit_bytes {
             assert!(limit > 0);
-            println!("Container memory limit: {} bytes", limit);
+            println!("Container memory limit: {limit} bytes");
         }
     } else {
         // Not in a container, memory limits should be None

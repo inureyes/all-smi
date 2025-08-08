@@ -70,3 +70,18 @@ path = "src/main.rs"
 name = "all-smi-mock-server"
 path = "src/bin/all-smi-mock-server.rs"
 required-features = ["mock"]
+
+[lints.clippy]
+# Enable the same lints that CI uses
+uninlined_format_args = "warn"
+# Other useful lints
+needless_return = "warn"
+redundant_closure = "warn"
+manual_range_contains = "warn"
+module_inception = "warn"
+bool_comparison = "warn"
+
+[lints.rust]
+# Rust compiler lints
+unsafe_code = "allow"  # Required for libc calls in process_list.rs
+missing_docs = "allow"

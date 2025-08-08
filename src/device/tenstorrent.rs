@@ -205,13 +205,12 @@ impl TenstorrentReader {
                 // Get board type name
                 let board_type = telemetry.try_board_type().unwrap_or("Unknown");
                 let device_name = format!(
-                    "Tenstorrent {} {}",
+                    "Tenstorrent {} {board_type}",
                     match telemetry.arch {
                         all_smi_luwen_core::Arch::Grayskull => "Grayskull",
                         all_smi_luwen_core::Arch::Wormhole => "Wormhole",
                         all_smi_luwen_core::Arch::Blackhole => "Blackhole",
-                    },
-                    board_type
+                    }
                 );
 
                 // Extract PCIe information if available

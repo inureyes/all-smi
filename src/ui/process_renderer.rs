@@ -95,29 +95,13 @@ pub fn print_process_info<W: Write>(
         format!("VRAM{}", get_sort_arrow(crate::app_state::SortCriteria::GpuMemoryUsage)),
         format!("TIME+{}", get_sort_arrow(crate::app_state::SortCriteria::CpuTime)),
         format!("Command{}", get_sort_arrow(crate::app_state::SortCriteria::Command)),
-        pid_w = pid_w,
-        user_w = user_w,
-        pri_w = pri_w,
-        ni_w = ni_w,
-        virt_w = virt_w,
-        res_w = res_w,
-        s_w = s_w,
-        cpu_w = cpu_w,
-        mem_w = mem_w,
-        gpu_w = gpu_w,
-        gpu_mem_w = gpu_mem_w,
-        time_w = time_w,
     );
 
     // Apply horizontal scrolling
     let visible_header = if horizontal_scroll_offset < header_format.len() {
         let scrolled = &header_format[horizontal_scroll_offset..];
         // Pad the header to full width to clear any previous content
-        format!(
-            "{:<width$}",
-            truncate_to_width(scrolled, width),
-            width = width
-        )
+        format!("{:<width$}", truncate_to_width(scrolled, width))
     } else {
         // Clear the entire line when scrolled past the content
         " ".repeat(width)
@@ -190,43 +174,15 @@ pub fn print_process_info<W: Write>(
 
             // Build the row with proper formatting and padding
             let row_format = format!(
-                "{:>pid_w$} {:<user_w$} {:>pri_w$} {:>ni_w$} {:>virt_w$} {:>res_w$} {:<s_w$} {:>cpu_w$} {:>mem_w$} {:>gpu_w$} {:>gpu_mem_w$} {:>time_w$} {}",
-                pid,
+                "{pid:>pid_w$} {:<user_w$} {priority:>pri_w$} {nice:>ni_w$} {virt:>virt_w$} {res:>res_w$} {state:<s_w$} {cpu_percent:>cpu_w$} {mem_percent:>mem_w$} {gpu_percent:>gpu_w$} {gpu_mem:>gpu_mem_w$} {time_plus:>time_w$} {command}",
                 truncate_to_width(&user, user_w),
-                priority,
-                nice,
-                virt,
-                res,
-                state,
-                cpu_percent,
-                mem_percent,
-                gpu_percent,
-                gpu_mem,
-                time_plus,
-                command,
-                pid_w = pid_w,
-                user_w = user_w,
-                pri_w = pri_w,
-                ni_w = ni_w,
-                virt_w = virt_w,
-                res_w = res_w,
-                s_w = s_w,
-                cpu_w = cpu_w,
-                mem_w = mem_w,
-                gpu_w = gpu_w,
-                gpu_mem_w = gpu_mem_w,
-                time_w = time_w,
             );
 
             // Apply horizontal scrolling
             let visible_row = if horizontal_scroll_offset < row_format.len() {
                 let scrolled = &row_format[horizontal_scroll_offset..];
                 // Pad the row to full width to clear any previous content
-                format!(
-                    "{:<width$}",
-                    truncate_to_width(scrolled, width),
-                    width = width
-                )
+                format!("{:<width$}", truncate_to_width(scrolled, width))
             } else {
                 // Clear the entire line when scrolled past the content
                 " ".repeat(width)
@@ -281,9 +237,8 @@ pub fn print_process_info<W: Write>(
     // Show navigation info if there are more processes
     if processes.len() > available_rows_for_processes {
         let nav_info = format!(
-            "Showing {}-{} of {} processes (Use ↑↓ to navigate, PgUp/PgDn for pages)",
+            "Showing {}-{end_index} of {} processes (Use ↑↓ to navigate, PgUp/PgDn for pages)",
             start_index + 1,
-            end_index,
             processes.len()
         );
         // Pad the line to full width to clear any previous content
@@ -536,11 +491,7 @@ fn print_process_row_colored<W: Write>(
             let formatted = if idx < fixed_widths.len() {
                 match idx {
                     0 => format!("{value:>col_width$}"), // PID - right align
-                    1 => format!(
-                        "{:<width$}",
-                        truncate_to_width(value, col_width),
-                        width = col_width
-                    ), // USER - left align
+                    1 => format!("{:<col_width$}", truncate_to_width(value, col_width)), // USER - left align
                     2..=11 => format!("{value:>col_width$}"), // Numbers - right align
                     _ => value.to_string(),
                 }
@@ -599,6 +550,6 @@ fn format_cpu_time(seconds: u64) -> String {
     if hours > 0 {
         format!("{hours}:{minutes:02}:{secs:02}")
     } else {
-        format!("{}:{:02}:{:02}", minutes / 60, minutes % 60, secs)
+        format!("{}:{:02}:{secs:02}", minutes / 60, minutes % 60)
     }
 }

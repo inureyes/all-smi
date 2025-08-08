@@ -30,8 +30,8 @@ mod container_integration_tests {
         assert!((0.0..=100.0).contains(&overall_utilization));
 
         println!("Host CPU info:");
-        println!("  Total cores: {}", total_cores);
-        println!("  Utilization: {:.2}%", overall_utilization);
+        println!("  Total cores: {total_cores}");
+        println!("  Utilization: {overall_utilization:.2}%");
     }
 
     #[test]
@@ -71,7 +71,7 @@ mod container_integration_tests {
         let total_cores: u32 = cpu_infos.iter().map(|info| info.total_cores).sum();
 
         println!("Environment detection test:");
-        println!("  CPU cores detected: {}", total_cores);
+        println!("  CPU cores detected: {total_cores}");
         println!(
             "  Memory detected: {} MB",
             memory_infos[0].total_bytes / 1024 / 1024
