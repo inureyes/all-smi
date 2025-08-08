@@ -115,12 +115,16 @@ impl DataCollector {
             if gpu_readers.is_empty() {
                 use crate::device::process_list::get_all_processes;
                 use std::collections::HashSet;
-                use sysinfo::{ProcessesToUpdate, System};
+                use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
                 // Use System::new() instead of new_all() for faster initialization
                 let mut system = System::new();
-                // Only refresh what we need: processes and memory
-                system.refresh_processes(ProcessesToUpdate::All, true);
+                // Refresh processes with user information
+                system.refresh_processes_specifics(
+                    ProcessesToUpdate::All,
+                    true,
+                    ProcessRefreshKind::everything().with_user(UpdateKind::Always),
+                );
                 system.refresh_memory();
                 if first_iteration {
                     profiler.checkpoint("System processes refreshed (lightweight)");
