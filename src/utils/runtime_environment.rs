@@ -674,7 +674,7 @@ impl RuntimeEnvironment {
                     let host = host.trim();
                     // If host doesn't have a scheme, prepend http://
                     if !host.starts_with("http://") && !host.starts_with("https://") {
-                        format!("http://{}:9090", host)
+                        format!("http://{host}:9090")
                     } else {
                         host.to_string()
                     }
