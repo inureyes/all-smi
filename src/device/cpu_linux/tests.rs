@@ -91,14 +91,14 @@ cpu3 2500 0 5000 17500 0 0 0 0 0 0"#;
     // The parse_cpu_stat now uses sysinfo crate which returns actual system CPU usage
     // Since we're in a test environment, we can't predict the exact value
     // Just verify it's a valid percentage
-    assert!(overall_util >= 0.0 && overall_util <= 100.0);
+    assert!((0.0..=100.0).contains(&overall_util));
     assert_eq!(socket_info.len(), 1);
     // The number of cores now comes from the actual system, not the test data
-    assert!(core_utils.len() > 0);
+    assert!(!core_utils.is_empty());
 
     // Each core should have a valid utilization percentage
     for core in &core_utils {
-        assert!(core.utilization >= 0.0 && core.utilization <= 100.0);
+        assert!((0.0..=100.0).contains(&core.utilization));
         assert_eq!(core.core_type, CoreType::Standard);
     }
 }

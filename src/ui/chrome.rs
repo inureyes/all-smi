@@ -87,8 +87,6 @@ pub fn print_loading_indicator<W: Write>(
             // Use different colors based on status
             let color = if status_line.contains("✓") {
                 Color::DarkGreen
-            } else if status_line.contains("○") {
-                Color::DarkGrey
             } else {
                 Color::DarkGrey
             };

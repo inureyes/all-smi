@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
+use std::sync::RwLock;
 use sysinfo::System;
 
 use chrono::Local;
@@ -53,14 +53,14 @@ pub struct LinuxCpuReader {
     // - None: not cached yet
     // - Some(None): lscpu was called but failed
     // - Some(Some(value)): lscpu succeeded with value
-    cached_lscpu_cache_size: RefCell<Option<Option<u32>>>,
+    cached_lscpu_cache_size: RwLock<Option<Option<u32>>>,
     // Cache entire lscpu output to avoid multiple calls
-    cached_lscpu_output: RefCell<Option<String>>,
+    cached_lscpu_output: RwLock<Option<String>>,
     container_info: &'static ContainerInfo,
     // System handle for CPU monitoring
-    system: RefCell<System>,
+    system: RwLock<System>,
     // Track if we've done the first refresh
-    first_refresh_done: RefCell<bool>,
+    first_refresh_done: RwLock<bool>,
 }
 
 impl Default for LinuxCpuReader {
@@ -75,24 +75,24 @@ impl LinuxCpuReader {
         let system = System::new();
 
         Self {
-            cached_lscpu_cache_size: RefCell::new(None),
-            cached_lscpu_output: RefCell::new(None),
+            cached_lscpu_cache_size: RwLock::new(None),
+            cached_lscpu_output: RwLock::new(None),
             container_info: &*CONTAINER_INFO,
-            system: RefCell::new(system),
-            first_refresh_done: RefCell::new(false),
+            system: RwLock::new(system),
+            first_refresh_done: RwLock::new(false),
         }
     }
 
     fn get_lscpu_output(&self) -> Option<String> {
         // Check cache first
-        if let Some(ref cached) = *self.cached_lscpu_output.borrow() {
+        if let Some(ref cached) = *self.cached_lscpu_output.read().unwrap() {
             return Some(cached.clone());
         }
 
         // Run lscpu once and cache the result
         if let Ok(output) = std::process::Command::new("lscpu").output() {
             if let Ok(lscpu_output) = String::from_utf8(output.stdout) {
-                *self.cached_lscpu_output.borrow_mut() = Some(lscpu_output.clone());
+                *self.cached_lscpu_output.write().unwrap() = Some(lscpu_output.clone());
                 return Some(lscpu_output);
             }
         }
@@ -103,14 +103,14 @@ impl LinuxCpuReader {
     fn get_cpu_info_from_proc(&self) -> Result<CpuInfo, Box<dyn std::error::Error>> {
         // On first call, do two refreshes to establish baseline
         // This is needed for sysinfo to calculate deltas
-        if !*self.first_refresh_done.borrow() {
-            self.system.borrow_mut().refresh_cpu_usage();
+        if !*self.first_refresh_done.read().unwrap() {
+            self.system.write().unwrap().refresh_cpu_usage();
             // Minimal delay for initial measurement (only on first call)
             std::thread::sleep(std::time::Duration::from_millis(10));
-            *self.first_refresh_done.borrow_mut() = true;
+            *self.first_refresh_done.write().unwrap() = true;
         }
         // Regular refresh for current data
-        self.system.borrow_mut().refresh_cpu_usage();
+        self.system.write().unwrap().refresh_cpu_usage();
         let hostname = get_hostname();
         let instance = hostname.clone();
         let time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -156,7 +156,7 @@ impl LinuxCpuReader {
         }
 
         // Get overall CPU utilization from sysinfo
-        let overall_utilization = self.system.borrow().global_cpu_usage() as f64;
+        let overall_utilization = self.system.read().unwrap().global_cpu_usage() as f64;
 
         // Read /proc/stat only to determine which cores are active
         let stat_content = fs::read_to_string("/proc/stat")?;
@@ -176,7 +176,7 @@ impl LinuxCpuReader {
             };
 
             // Use sysinfo to get accurate CPU utilization with delta calculation
-            let system = self.system.borrow();
+            let system = self.system.read().unwrap();
             let cpus = system.cpus();
 
             for (idx, &core_id) in active_cores.iter().take(max_cores_to_display).enumerate() {
@@ -568,12 +568,12 @@ impl LinuxCpuReader {
     }
 
     fn parse_cpu_stat(&self, _content: &str, socket_count: u32) -> CpuStatParseResult {
-        let overall_utilization = self.system.borrow().global_cpu_usage() as f64;
+        let overall_utilization = self.system.read().unwrap().global_cpu_usage() as f64;
         let mut per_socket_info = Vec::new();
         let mut per_core_utilization = Vec::new();
 
         // Use sysinfo to get per-core utilization
-        let system = self.system.borrow();
+        let system = self.system.read().unwrap();
         let cpus = system.cpus();
 
         for (core_id, cpu) in cpus.iter().enumerate() {
@@ -630,7 +630,7 @@ impl LinuxCpuReader {
 
     fn get_cache_size_from_lscpu(&self) -> Option<u32> {
         // Check if we have cached value
-        if let Some(cached_result) = &*self.cached_lscpu_cache_size.borrow() {
+        if let Some(cached_result) = &*self.cached_lscpu_cache_size.read().unwrap() {
             // We've already tried lscpu, return the cached result
             return *cached_result;
         }
@@ -722,7 +722,7 @@ impl LinuxCpuReader {
         };
 
         // Cache the result (whether success or failure)
-        *self.cached_lscpu_cache_size.borrow_mut() = Some(result);
+        *self.cached_lscpu_cache_size.write().unwrap() = Some(result);
 
         result
     }
