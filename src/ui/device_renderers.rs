@@ -52,8 +52,8 @@ fn render_cpu_visualization<W: Write>(
 
     let total_cpus = per_core_utilization.len();
 
-    // Define consistent box width for all lines
-    let box_width = width.saturating_sub(10).min(60);
+    // Use full width minus padding (5 chars on each side)
+    let box_width = width.saturating_sub(10);
 
     // Create a visual representation
     print_colored_text(stdout, "     ", Color::White, None, None);
@@ -92,6 +92,15 @@ fn render_cpu_visualization<W: Write>(
 
     let display_count = cores_to_show.len();
 
+    // Determine grouping based on number of cores
+    let group_size = if display_count <= 32 {
+        4
+    } else if display_count <= 64 {
+        8
+    } else {
+        16
+    };
+
     let content_str = {
         let mut content = String::new();
         let mut idx = 0;
@@ -100,9 +109,9 @@ fn render_cpu_visualization<W: Write>(
             let (block, _) = get_utilization_block(core.utilization);
             content.push_str(block);
 
-            // Add grouping spaces every 4 CPUs for readability
+            // Add grouping spaces for readability
             idx += 1;
-            if (idx % 4 == 0) && (idx < display_count) {
+            if (idx % group_size == 0) && (idx < display_count) {
                 content.push(' ');
             }
         }
@@ -131,9 +140,9 @@ fn render_cpu_visualization<W: Write>(
         let (block, color) = get_utilization_block(core.utilization);
         print_colored_text(stdout, block, color, None, None);
 
-        // Add grouping spaces every 4 CPUs for readability
+        // Add grouping spaces for readability
         idx += 1;
-        if (idx % 4 == 0) && (idx < display_count) {
+        if (idx % group_size == 0) && (idx < display_count) {
             print_colored_text(stdout, " ", Color::White, None, None);
         }
     }
