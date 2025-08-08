@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  PROTOC_VERSION: "31.1"  # or "32.0-rc-2" etc.
 
 jobs:
   test:
@@ -17,16 +18,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      # protoc: cached install via composite action
+      - name: Setup protoc
+        uses: ./.github/actions/setup-protoc
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          platform: linux-x86_64
 
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y protobuf-compiler
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Run tests
         run: cargo test --verbose
@@ -45,24 +53,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      # protoc: cached install via composite action
+      - name: Setup protoc
+        uses: ./.github/actions/setup-protoc
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          platform: linux-x86_64
 
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Build binary
-        run: |
-          sudo apt update
-          sudo apt install -y protobuf-compiler
-          cargo build --release --bin all-smi
+        run: cargo build --release --bin all-smi
 
   docker-check:
     name: Docker Build Check
     runs-on: ubuntu-latest
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
     steps:
       - name: Checkout
         uses: actions/checkout@v4

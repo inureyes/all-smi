@@ -1,0 +1,35 @@
+name: "Setup protoc (cache + install)"
+description: "Cache and install protoc, then add bin to PATH"
+inputs:
+  version:
+    description: "protoc version (e.g., 31.1 or 32.0-rc-2)"
+    required: false
+    default: "31.1"
+  platform:
+    description: "protobuf release archive suffix (e.g., linux-x86_64, linux-aarch_64, osx-aarch_64)"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Restore protoc cache
+      id: cache-protoc
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/protoc-${{ inputs.version }}
+        key: ${{ runner.os }}-protoc-${{ inputs.version }}-${{ inputs.platform }}
+
+    - name: Install protoc (if cache miss)
+      if: steps.cache-protoc.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euxo pipefail
+        PB_REL="https://github.com/protocolbuffers/protobuf/releases"
+        curl -sSL "$PB_REL/download/v${{ inputs.version }}/protoc-${{ inputs.version }}-${{ inputs.platform }}.zip" -o protoc.zip
+        mkdir -p "$HOME/.local/protoc-${{ inputs.version }}"
+        unzip -o protoc.zip -d "$HOME/.local/protoc-${{ inputs.version }}"
+        rm -f protoc.zip
+
+    - name: Add protoc to PATH
+      shell: bash
+      run: echo "$HOME/.local/protoc-${{ inputs.version }}/bin" >> "$GITHUB_PATH"

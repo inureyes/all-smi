@@ -1,229 +1,177 @@
-# .github/workflows/release.yml
 name: Release
 
-# ═══════════════════════════════════════════════════════════════
-# Workflow Triggers
-# ═══════════════════════════════════════════════════════════════
-# This workflow runs when:
-# 1. A GitHub Release is published (Draft → Published)
-# 2. Manually triggered via workflow_dispatch
-# ───────────────────────────────────────────────────────────────
 on:
   release:
     types: [published]
-  
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
     inputs:
       update_homebrew:
         description: 'Update Homebrew formula after build'
         required: false
         default: 'false'
         type: choice
-        options:
-          - 'true'
-          - 'false'
+        options: ['true','false']
       release_tag:
         description: 'Release tag to upload artifacts to (e.g. v1.2.3)'
         required: false
 
-# Required permissions for release uploads
 permissions:
   contents: write
 
 jobs:
-  # ═══════════════════════════════════════════════════════════════
-  # Job: Build Release Binaries
-  # ═══════════════════════════════════════════════════════════════
-  # Builds release binaries for multiple platforms and architectures
-  # ───────────────────────────────────────────────────────────────
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-    
-    # Access secrets from "packaging" environment
     environment: packaging
-    
+
     strategy:
       fail-fast: false
       matrix:
         include:
           # Linux x86_64 (glibc)
-          # Uses Ubuntu 22.04 for compatibility
-          # with most glibc-based systems
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
             artifact_name: all-smi
             asset_name: all-smi-linux-x86_64
-            cross: false
             archive_ext: ".tar.gz"
-          
-          # Linux x86_64 (musl - static binary)
+            protoc_platform: linux-x86_64
+
+          # Linux x86_64 (musl - static)
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             artifact_name: all-smi
             asset_name: all-smi-linux-x86_64-musl
-            cross: false
             archive_ext: ".tar.gz"
-          
+            protoc_platform: linux-x86_64
+
           # Linux ARM64 (glibc)
-          # Uses Ubuntu 22.04 for compatibility
-          # with most glibc-based systems
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04-arm
             artifact_name: all-smi
             asset_name: all-smi-linux-aarch64
-            cross: false
             archive_ext: ".tar.gz"
-          
-          # Linux ARM64 (musl - static binary)
+            protoc_platform: linux-aarch_64
+
+          # Linux ARM64 (musl - static)
           - target: aarch64-unknown-linux-musl
             os: ubuntu-24.04-arm
             artifact_name: all-smi
             asset_name: all-smi-linux-aarch64-musl
-            cross: false
             archive_ext: ".tar.gz"
-          
-          # macOS ARM64 (Apple Silicon)
+            protoc_platform: linux-aarch_64
+
+          # macOS ARM64
           - target: aarch64-apple-darwin
             os: macos-14
             artifact_name: all-smi
             asset_name: all-smi-macos-aarch64
-            cross: false
             archive_ext: ".zip"
-    
-    # Environment variables shared across all steps
+            protoc_platform: osx-aarch_64
+
     env:
       BIN_NAME: all-smi
-      BUNDLE_ID: ${{ vars.BUNDLE_ID }}  # From "packaging" environment
-    
-    steps:
-    # ───────────────────────────────────────────────────────────────
-    # Step 1: Checkout source code
-    # ───────────────────────────────────────────────────────────────
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 2: Install system dependencies for cross-compilation
-    # ───────────────────────────────────────────────────────────────
-    - name: Install ARM64 musl cross-compilation tools
-      if: matrix.asset_name == 'all-smi-linux-aarch64-musl'
-      run: |
-        sudo apt update
-        sudo apt install -y musl-tools gcc-aarch64-linux-gnu
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 3: Setup Rust toolchain
-    # ───────────────────────────────────────────────────────────────
-    - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
-        override: true
-    
-    - name: Add target architecture
-      run: rustup target add ${{ matrix.target }}
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 4: Install cross-compilation tool (if needed)
-    # ───────────────────────────────────────────────────────────────
-    - name: Install cross
-      if: matrix.cross
-      run: |
-        cargo install cross --locked
-        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 5: Build the binary
-    # ───────────────────────────────────────────────────────────────
-    - name: Install protobuf compiler (for tenstorrent)
-      run: |
-        if [[ "${{ runner.os }}" == "macOS" ]]; then
-          brew install protobuf
-        else
-          sudo apt update
-          sudo apt install -y protobuf-compiler
-        fi
-        if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" ]]; then
-          sudo apt install -y musl-tools
-        fi
+      BUNDLE_ID: ${{ vars.BUNDLE_ID }}
+      # Must match the release asset filename version in protoc releases (e.g. "30.2" or "32.0-rc-2")
+      PROTOC_VERSION: "31.1"
 
-    - name: Build release binary
-      run: |
-        if [[ "${{ matrix.cross }}" == "true" ]]; then
-          cross build --release --target ${{ matrix.target }} --locked
-        else
-          cargo build --release --target ${{ matrix.target }} --locked
-        fi
-    # ───────────────────────────────────────────────────────────────
-    # Step 6: macOS code signing
-    # ───────────────────────────────────────────────────────────────
-    - name: Import Developer ID certificate
-      if: runner.os == 'macOS'
-      uses: apple-actions/import-codesign-certs@v3
-      with:
-        p12-file-base64: ${{ secrets.DEV_ID_CERT_P12 }}
-        p12-password: ${{ secrets.DEV_ID_CERT_PASSWORD }}
-    
-    - name: Code sign macOS binary
-      if: runner.os == 'macOS'
-      run: |
-        BIN=target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
-        codesign --force --timestamp --options runtime \
-                 --sign "Developer ID Application" "$BIN"
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 7: Package the binary
-    # ───────────────────────────────────────────────────────────────
-    - name: Package Linux binary (tar.gz)
-      if: runner.os == 'Linux'
-      run: |
-        BIN_DIR=target/${{ matrix.target }}/release
-        # Create temporary directory for packaging
-        mkdir -p package
-        # Copy binary
-        cp "$BIN_DIR/${{ matrix.artifact_name }}" package/
-        # Copy man page
-        cp docs/man/all-smi.1 package/
-        # Create tarball
-        tar -C package -czf ${{ matrix.asset_name }}.tar.gz .
-    
-    - name: Package macOS binary (zip)
-      if: runner.os == 'macOS'
-      run: |
-        BIN="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
-        ASSET="${{ matrix.asset_name }}.zip"
-        # Create temporary directory for packaging
-        mkdir -p package
-        # Copy binary
-        cp "$BIN" package/
-        # Copy man page
-        cp docs/man/all-smi.1 package/
-        # Create zip preserving extended attributes
-        ditto -c -k --sequesterRsrc package "$ASSET"
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 8: macOS notarization (currently disabled)
-    # ───────────────────────────────────────────────────────────────
-    # TODO: Enable once Apple Developer notarization is configured
-    #- name: Notarize and staple macOS binary
-    #  if: runner.os == 'macOS'
-    #  uses: lando/notarize-action@v2
-    #  with:
-    #    product-path: "${{ matrix.asset_name }}${{ matrix.archive_ext }}"
-    #    api-key: ${{ secrets.AC_API_PRIVATE_KEY_P8 }}
-    #    api-key-id: ${{ secrets.AC_API_KEY_ID }}
-    #    api-issuer-id: ${{ secrets.AC_API_ISSUER_ID }}
-    #    staple: true
-    #    tool: "notarytool"
-    
-    # ───────────────────────────────────────────────────────────────
-    # Step 9: Upload binary to GitHub Release
-    # ───────────────────────────────────────────────────────────────
-    - name: Upload release artifact
-      if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ github.event.release.tag_name || github.event.inputs.release_tag }}
-        files: ${{ matrix.asset_name }}${{ matrix.archive_ext }}
+    steps:
+      # 1) Checkout repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2) Cache Cargo build artifacts
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+
+      # 3) Install Rust toolchain
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      # 4) Add target architecture
+      - name: Add target architecture
+        run: rustup target add ${{ matrix.target }}
+
+      # 5) Install musl tools only for aarch64 musl builds
+      - name: Install ARM64 musl tools (Linux aarch64 musl only)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          sudo apt update
+          sudo apt install -y musl-tools
+
+      # 6) Setup protoc (cached)
+      - name: Setup protoc
+        uses: ./.github/actions/setup-protoc
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          platform: ${{ matrix.protoc_platform }}
+
+      # 7) Build the release binary
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --locked
+
+      # 8) macOS code signing
+      - name: Import Developer ID certificate
+        if: runner.os == 'macOS'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.DEV_ID_CERT_P12 }}
+          p12-password: ${{ secrets.DEV_ID_CERT_PASSWORD }}
+
+      - name: Code sign macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          BIN=target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+          codesign --force --timestamp --options runtime \
+                   --sign "Developer ID Application" "$BIN"
+
+      # 9) Package binaries
+      - name: Package Linux binary (tar.gz)
+        if: runner.os == 'Linux'
+        run: |
+          BIN_DIR=target/${{ matrix.target }}/release
+          mkdir -p package
+          cp "$BIN_DIR/${{ matrix.artifact_name }}" package/
+          cp docs/man/all-smi.1 package/
+          tar -C package -czf ${{ matrix.asset_name }}.tar.gz .
+
+      - name: Package macOS binary (zip)
+        if: runner.os == 'macOS'
+        run: |
+          BIN="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
+          ASSET="${{ matrix.asset_name }}.zip"
+          mkdir -p package
+          cp "$BIN" package/
+          cp docs/man/all-smi.1 package/
+          ditto -c -k --sequesterRsrc package "$ASSET"
+
+      # 10) Generate checksum
+      - name: Generate checksum
+        run: |
+          FILE="${{ matrix.asset_name }}${{ matrix.archive_ext }}"
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sha256sum "$FILE" > "$FILE.sha256"
+          else
+            shasum -a 256 "$FILE" > "$FILE.sha256"
+          fi
+
+      # 11) Upload release artifacts and checksum
+      - name: Upload release artifacts
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name || github.event.inputs.release_tag }}
+          files: |
+            ${{ matrix.asset_name }}${{ matrix.archive_ext }}
+            ${{ matrix.asset_name }}${{ matrix.archive_ext }}.sha256

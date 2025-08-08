@@ -32,6 +32,21 @@ impl<'a> CpuMetricExporter<'a> {
             ("index", &index.to_string()),
         ];
 
+        // CPU info metric with architecture
+        let cpu_info_labels = [
+            ("cpu_model", info.cpu_model.as_str()),
+            ("instance", info.instance.as_str()),
+            ("hostname", info.hostname.as_str()),
+            ("index", &index.to_string()),
+            ("architecture", info.architecture.as_str()),
+            ("platform_type", &format!("{:?}", info.platform_type)),
+        ];
+        
+        builder
+            .help("all_smi_cpu_info", "CPU device information")
+            .type_("all_smi_cpu_info", "info")
+            .metric("all_smi_cpu_info", &cpu_info_labels, 1);
+
         // CPU utilization
         builder
             .help("all_smi_cpu_utilization", "CPU utilization percentage")

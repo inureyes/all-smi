@@ -362,6 +362,24 @@ impl MetricsParser {
                     }
                 }
             }
+            "cpu_info" => {
+                // Extract architecture and platform type from cpu_info metric
+                if let Some(architecture) = labels.get("architecture") {
+                    cpu_info.architecture = architecture.clone();
+                }
+                if let Some(platform_type_str) = labels.get("platform_type") {
+                    // Parse the platform type from the Debug format
+                    cpu_info.platform_type = if platform_type_str.contains("AppleSilicon") {
+                        CpuPlatformType::AppleSilicon
+                    } else if platform_type_str.contains("Intel") {
+                        CpuPlatformType::Intel
+                    } else if platform_type_str.contains("Amd") {
+                        CpuPlatformType::Amd
+                    } else {
+                        CpuPlatformType::Other(platform_type_str.clone())
+                    };
+                }
+            }
             _ => {}
         }
     }
