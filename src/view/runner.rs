@@ -57,11 +57,6 @@ pub async fn run_local_mode(args: &LocalArgs) {
         }
     };
 
-    let view_args = ViewArgs {
-        hosts: None,
-        hostfile: None,
-        interval: args.interval,
-    };
     if let Err(e) = ui_loop.run(&view_args).await {
         eprintln!("UI loop error: {e}");
     }
