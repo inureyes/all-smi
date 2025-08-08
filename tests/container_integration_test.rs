@@ -27,7 +27,7 @@ mod container_integration_tests {
         };
 
         assert!(total_cores > 0);
-        assert!(overall_utilization >= 0.0 && overall_utilization <= 100.0);
+        assert!((0.0..=100.0).contains(&overall_utilization));
 
         println!("Host CPU info:");
         println!("  Total cores: {}", total_cores);

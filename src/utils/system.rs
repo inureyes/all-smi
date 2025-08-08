@@ -214,9 +214,7 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     fn test_has_sudo_privileges_on_non_macos() {
         let result = has_sudo_privileges();
-        assert!(
-            result == true || result == false,
-            "has_sudo_privileges should return a boolean"
-        );
+        // Result is always a boolean, so just verify it completes
+        let _ = result;
     }
 }
