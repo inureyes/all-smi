@@ -65,8 +65,12 @@ impl Drop for TerminalManager {
     fn drop(&mut self) {
         if self.initialized {
             let mut stdout = stdout();
+            // Leave alternate screen first to show termination message in normal screen
             let _ = execute!(stdout, LeaveAlternateScreen, DisableMouseCapture);
             let _ = disable_raw_mode();
+
+            // Show termination message after returning to normal screen
+            println!("Terminating...");
         }
     }
 }
