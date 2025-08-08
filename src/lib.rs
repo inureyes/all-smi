@@ -15,3 +15,8 @@
 // Re-export modules for testing
 pub mod device;
 pub mod utils;
+
+// Re-export just the config module from common for library users
+pub mod common {
+    pub mod config;
+}

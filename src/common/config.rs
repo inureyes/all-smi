@@ -23,6 +23,7 @@ impl AppConfig {
     pub const SCROLL_UPDATE_FREQUENCY: u64 = 2; // Every 2 frames
 
     // Network Configuration
+    pub const BACKEND_AI_DEFAULT_PORT: u16 = 9090;
     pub const MAX_CONCURRENT_CONNECTIONS: usize = 128;
     pub const CONNECTION_TIMEOUT_SECS: u64 = 5;
     pub const POOL_IDLE_TIMEOUT_SECS: u64 = 60;

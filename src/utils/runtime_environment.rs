@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::common::config::AppConfig;
 use crossterm::style::Color;
 use std::env;
 use std::fs;
@@ -674,7 +675,7 @@ impl RuntimeEnvironment {
                     let host = host.trim();
                     // If host doesn't have a scheme, prepend http://
                     if !host.starts_with("http://") && !host.starts_with("https://") {
-                        format!("http://{host}:{}", BACKEND_AI_DEFAULT_PORT)
+                        format!("http://{host}:{}", AppConfig::BACKEND_AI_DEFAULT_PORT)
                     } else {
                         host.to_string()
                     }
