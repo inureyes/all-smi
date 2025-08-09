@@ -18,7 +18,7 @@ use crate::mock::generator::{
     generate_cpu_metrics, generate_disk_metrics, generate_gpus, generate_memory_metrics,
 };
 use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics, PlatformType};
-use crate::mock::template::{build_response_template, render_response};
+use crate::mock::template_engine::{build_response_template, render_response};
 use rand::{rng, Rng};
 
 /// High-performance template-based mock node

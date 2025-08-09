@@ -1,0 +1,137 @@
+//! NVIDIA Jetson mock template generator
+
+// Copyright 2025 Lablup Inc. and Jeongkyu Shin
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics};
+use all_smi::traits::mock_generator::{MockConfig, MockData, MockGenerator, MockPlatform, MockResult};
+
+/// Jetson GPU mock generator
+pub struct JetsonMockGenerator {
+    gpu_name: String,
+    instance_name: String,
+}
+
+impl JetsonMockGenerator {
+    pub fn new(gpu_name: Option<String>, instance_name: String) -> Self {
+        Self {
+            gpu_name: gpu_name.unwrap_or_else(|| "NVIDIA Jetson AGX Orin".to_string()),
+            instance_name,
+        }
+    }
+
+    pub fn build_jetson_template(&self, gpus: &[GpuMetrics]) -> String {
+        let mut template = String::with_capacity(3072);
+        
+        // Basic GPU metrics
+        super::common::add_basic_gpu_metrics(&mut template, &self.gpu_name, &self.instance_name, gpus);
+        
+        // Jetson-specific: DLA metrics
+        self.add_dla_metrics(&mut template, gpus);
+        
+        // System metrics
+        super::common::add_system_metrics(&mut template, &self.instance_name);
+        
+        template
+    }
+
+    fn add_dla_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {
+        // DLA utilization (Deep Learning Accelerator)
+        template.push_str("# HELP all_smi_dla_utilization DLA utilization percentage\n");
+        template.push_str("# TYPE all_smi_dla_utilization gauge\n");
+        
+        for (i, gpu) in gpus.iter().enumerate() {
+            for dla_idx in 0..2 {  // Jetson has 2 DLA cores
+                let labels = format!(
+                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", dla=\"{dla_idx}\"",
+                    self.gpu_name, self.instance_name, gpu.uuid
+                );
+                template.push_str(&format!(
+                    "all_smi_dla_utilization{{{labels}}} {{{{DLA_{i}_{dla_idx}}}}}\n"
+                ));
+            }
+        }
+
+        // DLA frequency
+        template.push_str("# HELP all_smi_dla_frequency_mhz DLA frequency in MHz\n");
+        template.push_str("# TYPE all_smi_dla_frequency_mhz gauge\n");
+        
+        for (i, gpu) in gpus.iter().enumerate() {
+            for dla_idx in 0..2 {
+                let labels = format!(
+                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", dla=\"{dla_idx}\"",
+                    self.gpu_name, self.instance_name, gpu.uuid
+                );
+                template.push_str(&format!(
+                    "all_smi_dla_frequency_mhz{{{labels}}} {{{{DLA_FREQ_{i}_{dla_idx}}}}}\n"
+                ));
+            }
+        }
+    }
+
+    pub fn render_jetson_response(&self, template: &str, gpus: &[GpuMetrics]) -> String {
+        let mut response = template.to_string();
+        
+        // Render basic GPU metrics
+        response = super::common::render_basic_gpu_metrics(response, gpus);
+        
+        // Render DLA metrics
+        for (i, _gpu) in gpus.iter().enumerate() {
+            for dla_idx in 0..2 {
+                let dla_util = rand::rng().random_range(0.0..100.0);
+                let dla_freq = rand::rng().random_range(600..1400);
+                
+                response = response
+                    .replace(&format!("{{{{DLA_{i}_{dla_idx}}}}}"), &format!("{:.2}", dla_util))
+                    .replace(&format!("{{{{DLA_FREQ_{i}_{dla_idx}}}}}"), &dla_freq.to_string());
+            }
+        }
+        
+        // Render system metrics
+        response = super::common::render_system_metrics(response);
+        
+        response
+    }
+}
+
+impl MockGenerator for JetsonMockGenerator {
+    fn generate(&self, config: &MockConfig) -> MockResult<MockData> {
+        self.validate_config(config)?;
+        
+        let gpus = super::common::generate_gpu_metrics(config.device_count, 32_000_000_000); // 32GB
+        let template = self.build_jetson_template(&gpus);
+        let response = self.render_jetson_response(&template, &gpus);
+
+        Ok(MockData {
+            response,
+            content_type: "text/plain; version=0.0.4".to_string(),
+            timestamp: chrono::Utc::now(),
+            platform: MockPlatform::Jetson,
+        })
+    }
+
+    fn generate_template(&self, config: &MockConfig) -> MockResult<String> {
+        self.validate_config(config)?;
+        let gpus = super::common::generate_empty_gpu_metrics(config.device_count, 32_000_000_000);
+        Ok(self.build_jetson_template(&gpus))
+    }
+
+    fn render(&self, template: &str, _config: &MockConfig) -> MockResult<String> {
+        Ok(template.to_string())
+    }
+
+    fn platform(&self) -> MockPlatform {
+        MockPlatform::Jetson
+    }
+}
