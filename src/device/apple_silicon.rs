@@ -26,9 +26,11 @@ use std::sync::{
     Mutex,
 };
 
+// Type alias to simplify the complex type
+type GpuInfoCache = (String, Option<String>, Option<u32>);
+
 // Cache GPU info to avoid expensive system_profiler calls on every initialization
-static CACHED_GPU_INFO: Lazy<Mutex<Option<(String, Option<String>, Option<u32>)>>> =
-    Lazy::new(|| Mutex::new(None));
+static CACHED_GPU_INFO: Lazy<Mutex<Option<GpuInfoCache>>> = Lazy::new(|| Mutex::new(None));
 
 pub struct AppleSiliconGpuReader {
     name: OnceCell<String>,
