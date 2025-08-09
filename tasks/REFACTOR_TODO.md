@@ -5,32 +5,35 @@ Each task can be completed independently and allows for immediate testing and de
 
 ## Work Progress Guide
 
+Use the Work Progress Guide checkboxes below to record the status of each phase's subsections as they are executed and verified. Clear the checkboxes when complete.
+
 - [ ] Verify all tests pass on current branch before starting work
 - [ ] Work on each task in a separate feature branch
-- [ ] Run `cargo test` after completing task
-- [ ] Run `cargo clippy` after completing task
-- [ ] Run `cargo fmt --check` after completing task
+- [x] Run `cargo test` after completing task
+- [x] Run `cargo clippy` after completing task
+- [x] Run `cargo fmt --check` after completing task
 - [ ] Test actual behavior with relevant mock server before creating PR
 
 ---
+Read the guide below and check the box when you have completed each step.
 
 ## Phase 1: Foundation
 
 ### 1.1 Extract Common Device Patterns
-- [ ] Create `src/device/common/` directory
-- [ ] Create `src/device/common/command_executor.rs`
-  - [ ] Analyze Command execution patterns in existing device files
-  - [ ] Implement common `execute_command()` function
-  - [ ] Standardize timeout and error handling
-  - [ ] Write unit tests
-- [ ] Create `src/device/common/error_handling.rs`
-  - [ ] Define `DeviceError` enum
-  - [ ] Define Result type aliases
-  - [ ] Implement error conversion traits
-- [ ] Create `src/device/common/json_parser.rs`
-  - [ ] Implement common JSON parsing utilities
-  - [ ] Implement generic parsing functions
-- [ ] Migrate one device (nvidia.rs) to use common modules
+- [x] Create `src/device/common/` directory
+- [x] Create `src/device/common/command_executor.rs`
+  - [x] Analyze Command execution patterns in existing device files
+  - [x] Implement common `execute_command()` function
+  - [x] Standardize timeout and error handling
+  - [x] Write unit tests
+- [x] Create `src/device/common/error_handling.rs`
+  - [x] Define `DeviceError` enum
+  - [x] Define Result type aliases
+  - [x] Implement error conversion traits
+- [x] Create `src/device/common/json_parser.rs`
+  - [x] Implement common JSON parsing utilities
+  - [x] Implement generic parsing functions
+- [x] Migrate one device (nvidia.rs) to use common modules
 - [ ] Test: `cargo test --test device_tests`
 - [ ] Verify NVIDIA GPU operation with mock server
 
@@ -312,4 +315,4 @@ If issues occur:
 
 ---
 
-Last updated: 2025-01-09
+Last updated: 2025-08-09

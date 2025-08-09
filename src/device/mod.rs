@@ -46,7 +46,8 @@ pub mod powermetrics_manager;
 #[cfg(target_os = "macos")]
 pub mod powermetrics_parser;
 
-// Refactored modules
+/* Refactored modules */
+pub mod common;
 pub mod container_utils;
 pub mod platform_detection;
 pub mod process_list;

@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::device::common::{execute_command_default, parse_csv_line};
 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
-use crate::utils::{get_hostname, run_command_fast_fail};
+use crate::utils::get_hostname;
 use chrono::Local;
 use nvml_wrapper::enums::device::UsedGpuMemory;
 use nvml_wrapper::error::NvmlError;
@@ -177,7 +178,7 @@ impl NvidiaGpuReader {
         let mut gpu_processes = Vec::new();
         let mut gpu_pids = HashSet::new();
 
-        let output = run_command_fast_fail(
+        let output = execute_command_default(
             "nvidia-smi",
             &[
                 "--query-compute-apps=pid,used_memory",
@@ -185,14 +186,13 @@ impl NvidiaGpuReader {
             ],
         );
 
-        if let Ok(output) = output {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                for line in output_str.lines() {
-                    let parts: Vec<&str> = line.split(',').collect();
+        if let Ok(out) = output {
+            if out.status == 0 {
+                for line in out.stdout.lines() {
+                    let parts = parse_csv_line(line);
                     if parts.len() >= 2 {
-                        if let Ok(pid) = parts[0].trim().parse::<u32>() {
-                            if let Ok(used_memory_mb) = parts[1].trim().parse::<u64>() {
+                        if let Ok(pid) = parts[0].parse::<u32>() {
+                            if let Ok(used_memory_mb) = parts[1].parse::<u64>() {
                                 gpu_pids.insert(pid);
 
                                 gpu_processes.push(ProcessInfo {
@@ -410,11 +410,10 @@ impl NvidiaGpuReader {
 
         // First, get CUDA version using nvidia-smi without query (appears in header)
         let mut cuda_version = String::new();
-        if let Ok(output) = run_command_fast_fail("nvidia-smi", &[]) {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Ok(out) = execute_command_default("nvidia-smi", &[]) {
+            if out.status == 0 {
                 // Look for CUDA version in the header
-                for line in output_str.lines() {
+                for line in out.stdout.lines() {
                     if line.contains("CUDA Version:") {
                         if let Some(version_part) = line.split("CUDA Version:").nth(1) {
                             cuda_version = version_part
@@ -429,7 +428,7 @@ impl NvidiaGpuReader {
             }
         }
 
-        let output = run_command_fast_fail(
+        let output = execute_command_default(
             "nvidia-smi",
             &[
                 "--query-gpu=index,uuid,name,utilization.gpu,memory.used,memory.total,temperature.gpu,clocks.current.graphics,power.draw,driver_version",
@@ -437,22 +436,21 @@ impl NvidiaGpuReader {
             ],
         );
 
-        if let Ok(output) = output {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                for line in output_str.lines() {
-                    let parts: Vec<&str> = line.split(',').collect();
+        if let Ok(out) = output {
+            if out.status == 0 {
+                for line in out.stdout.lines() {
+                    let parts = parse_csv_line(line);
                     if parts.len() >= 10 {
-                        let index = parts[0].trim().parse::<u32>().unwrap_or(0);
-                        let uuid = parts[1].trim().to_string();
-                        let name = parts[2].trim().to_string();
-                        let utilization = parts[3].trim().parse::<f64>().unwrap_or(0.0);
-                        let used_memory_mb = parts[4].trim().parse::<u64>().unwrap_or(0);
-                        let total_memory_mb = parts[5].trim().parse::<u64>().unwrap_or(0);
-                        let temperature = parts[6].trim().parse::<u32>().unwrap_or(0);
-                        let frequency = parts[7].trim().parse::<u32>().unwrap_or(0);
-                        let power_draw = parts[8].trim().parse::<f64>().unwrap_or(0.0);
-                        let driver_version = parts[9].trim().to_string();
+                        let index = parts[0].parse::<u32>().unwrap_or(0);
+                        let uuid = parts[1].clone();
+                        let name = parts[2].clone();
+                        let utilization = parts[3].parse::<f64>().unwrap_or(0.0);
+                        let used_memory_mb = parts[4].parse::<u64>().unwrap_or(0);
+                        let total_memory_mb = parts[5].parse::<u64>().unwrap_or(0);
+                        let temperature = parts[6].parse::<u32>().unwrap_or(0);
+                        let frequency = parts[7].parse::<u32>().unwrap_or(0);
+                        let power_draw = parts[8].parse::<f64>().unwrap_or(0.0);
+                        let driver_version = parts[9].clone();
 
                         let mut detail = HashMap::new();
                         detail.insert("Driver Version".to_string(), driver_version);
