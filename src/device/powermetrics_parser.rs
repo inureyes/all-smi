@@ -224,33 +224,29 @@ pub fn parse_powermetrics_output(
 
 /// Parse frequency from a line like "E-Cluster HW active frequency: 1187 MHz"
 fn parse_frequency(line: &str) -> Result<u32, Box<dyn std::error::Error>> {
-    if let Some(freq_str) = line.split(':').nth(1) {
-        if let Some(freq) = freq_str.split_whitespace().next() {
-            return Ok(freq.parse::<u32>()?);
-        }
+    if let Some(v) = crate::parse_metric!(line, "MHz", u32) {
+        Ok(v)
+    } else {
+        Err("Failed to parse frequency".into())
     }
-    Err("Failed to parse frequency".into())
 }
 
 /// Parse residency from a line like "E-Cluster HW active residency:  64.29%"
 fn parse_residency(line: &str) -> Result<f64, Box<dyn std::error::Error>> {
-    if let Some(residency_str) = line.split(':').nth(1) {
-        if let Some(percent_str) = residency_str.split_whitespace().next() {
-            let percent = percent_str.trim_end_matches('%').parse::<f64>()?;
-            return Ok(percent);
-        }
+    if let Some(v) = crate::parse_metric!(line, "%", f64) {
+        Ok(v)
+    } else {
+        Err("Failed to parse residency".into())
     }
-    Err("Failed to parse residency".into())
 }
 
 /// Parse power from a line like "CPU Power: 475 mW"
 fn parse_power_mw(line: &str) -> Result<f64, Box<dyn std::error::Error>> {
-    if let Some(power_str) = line.split(':').nth(1) {
-        if let Some(mw_str) = power_str.split_whitespace().next() {
-            return Ok(mw_str.parse::<f64>()?);
-        }
+    if let Some(v) = crate::parse_metric!(line, "mW", f64) {
+        Ok(v)
+    } else {
+        Err("Failed to parse power".into())
     }
-    Err("Failed to parse power".into())
 }
 
 #[cfg(test)]

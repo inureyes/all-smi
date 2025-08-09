@@ -14,6 +14,8 @@
 
 // Re-export modules for testing
 pub mod device;
+#[macro_use]
+pub mod parsing;
 pub mod utils;
 
 // Re-export just the config module from common for library users

@@ -34,24 +34,25 @@ Read the guide below and check the box when you have completed each step.
   - [x] Implement common JSON parsing utilities
   - [x] Implement generic parsing functions
 - [x] Migrate one device (nvidia.rs) to use common modules
-- [ ] Migrate other devices to use common modules
+- [x] Migrate other devices to use common modules
 - [x] Test: `cargo test --test device_tests`
-- [ ] Verify NVIDIA GPU operation with mock server
+- [x] Verify NVIDIA GPU operation with mock server
 
 ### 1.2 Create Parsing Macros and Utilities
-- [ ] Create `src/parsing/` directory
-- [ ] Create `src/parsing/macros.rs`
-  - [ ] Implement `parse_metric!` macro
-  - [ ] Implement `parse_prometheus!` macro
-  - [ ] Write macro tests
-- [ ] Create `src/parsing/common.rs`
-  - [ ] Number parsing utilities
-  - [ ] Unit conversion functions
-  - [ ] String sanitization functions
-- [ ] Replace some functions in powermetrics_parser.rs with macros
-  - [ ] Select 5 parsing functions to apply macros
-  - [ ] Verify existing tests still pass
-- [ ] Test: `cargo test --lib parsing`
+- [x] Create `src/parsing/` directory
+- [x] Create `src/parsing/macros.rs`
+  - [x] Implement `parse_metric!` macro
+  - [x] Implement `parse_prometheus!` macro
+  - [x] Write macro tests
+- [x] Create `src/parsing/common.rs`
+  - [x] Number parsing utilities
+  - [x] Unit conversion functions
+  - [x] String sanitization functions
+- [x] Replace some functions in powermetrics_parser.rs with macros
+  - [x] Select 5 parsing functions to apply macros
+  - [x] Verify existing tests still pass
+- [ ] Replace some functions in other parsers with macros
+- [x] Test: `cargo test --lib parsing`
 
 ### 1.3 Define Base Traits
 - [ ] Create `src/traits/` directory

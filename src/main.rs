@@ -17,6 +17,8 @@ mod app_state;
 mod cli;
 mod common;
 mod device;
+#[macro_use]
+mod parsing;
 mod metrics;
 mod network;
 mod storage;
