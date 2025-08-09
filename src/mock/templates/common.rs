@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics};
+use crate::mock::metrics::GpuMetrics;
 use rand::{rng, Rng};
 
 /// Add basic GPU metrics that are common across all platforms
@@ -103,6 +103,7 @@ pub fn render_basic_gpu_metrics(mut response: String, gpus: &[GpuMetrics]) -> St
 
 /// Render system metrics with default values
 pub fn render_system_metrics(mut response: String) -> String {
+    use rand::{rng, Rng};
     let mut rng = rng();
     
     response = response

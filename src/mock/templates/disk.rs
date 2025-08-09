@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::mock::constants::{PLACEHOLDER_DISK_AVAIL, PLACEHOLDER_DISK_TOTAL};
 use rand::{rng, Rng};
 
 /// Add disk metrics to template
@@ -23,13 +24,13 @@ pub fn add_disk_metrics(template: &mut String, instance_name: &str) {
     
     let disk_labels = format!("instance=\"{instance_name}\", mount_point=\"/\", index=\"0\"");
     template.push_str(&format!(
-        "all_smi_disk_total_bytes{{{disk_labels}}} {{{{DISK_TOTAL}}}}\n"
+        "all_smi_disk_total_bytes{{{disk_labels}}} {PLACEHOLDER_DISK_TOTAL}\n"
     ));
 
     template.push_str("# HELP all_smi_disk_available_bytes Available disk space in bytes\n");
     template.push_str("# TYPE all_smi_disk_available_bytes gauge\n");
     template.push_str(&format!(
-        "all_smi_disk_available_bytes{{{disk_labels}}} {{{{DISK_AVAIL}}}}\n"
+        "all_smi_disk_available_bytes{{{disk_labels}}} {PLACEHOLDER_DISK_AVAIL}\n"
     ));
 
     // Disk utilization percentage

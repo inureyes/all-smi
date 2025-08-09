@@ -184,7 +184,7 @@ impl NvidiaMockGenerator {
         template.push_str("# TYPE all_smi_cpu_cores gauge\n");
         template.push_str(&format!(
             "all_smi_cpu_cores{{instance=\"{}\"}} {}\n",
-            self.instance_name, cpu.cores
+            self.instance_name, cpu.core_count
         ));
 
         // Memory metrics
@@ -283,14 +283,39 @@ impl MockGenerator for NvidiaMockGenerator {
             .collect();
 
         // Generate CPU and memory metrics
+        use rand::{rng, Rng};
+        let mut rng = rng();
         let cpu = CpuMetrics {
-            utilization: rand::rng().random_range(10.0..90.0),
-            cores: 128,
+            model: "Intel Xeon Platinum".to_string(),
+            utilization: rng.random_range(10.0..90.0),
+            socket_count: 2,
+            core_count: 128,
+            thread_count: 256,
+            frequency_mhz: 2400,
+            temperature_celsius: Some(65),
+            power_consumption_watts: Some(250.0),
+            socket_utilizations: vec![rng.random_range(10.0..90.0), rng.random_range(10.0..90.0)],
+            p_core_count: None,
+            e_core_count: None,
+            gpu_core_count: None,
+            p_core_utilization: None,
+            e_core_utilization: None,
+            p_cluster_frequency_mhz: None,
+            e_cluster_frequency_mhz: None,
+            per_core_utilization: vec![],
         };
         
         let memory = MemoryMetrics {
-            used_bytes: rand::rng().random_range(10_000_000_000..500_000_000_000),
             total_bytes: 1099511627776, // 1TB
+            used_bytes: rng.random_range(10_000_000_000..500_000_000_000),
+            available_bytes: rng.random_range(100_000_000_000..600_000_000_000),
+            free_bytes: rng.random_range(50_000_000_000..400_000_000_000),
+            cached_bytes: rng.random_range(10_000_000_000..100_000_000_000),
+            buffers_bytes: rng.random_range(1_000_000_000..10_000_000_000),
+            swap_total_bytes: 0,
+            swap_used_bytes: 0,
+            swap_free_bytes: 0,
+            utilization: rng.random_range(10.0..90.0),
         };
 
         // Build and render template
@@ -310,8 +335,8 @@ impl MockGenerator for NvidiaMockGenerator {
         
         // Generate sample metrics for template
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
-            .map(|_| GpuMetrics {
-                uuid: format!("GPU-{:08x}", rand::rng().random::<u32>()),
+            .map(|i| GpuMetrics {
+                uuid: format!("GPU-{:08x}", i as u32),
                 utilization: 0.0,
                 memory_used_bytes: 0,
                 memory_total_bytes: 85_899_345_920,
@@ -324,13 +349,36 @@ impl MockGenerator for NvidiaMockGenerator {
             .collect();
 
         let cpu = CpuMetrics {
+            model: "Intel Xeon Platinum".to_string(),
             utilization: 0.0,
-            cores: 128,
+            socket_count: 2,
+            core_count: 128,
+            thread_count: 256,
+            frequency_mhz: 2400,
+            temperature_celsius: Some(65),
+            power_consumption_watts: Some(250.0),
+            socket_utilizations: vec![0.0, 0.0],
+            p_core_count: None,
+            e_core_count: None,
+            gpu_core_count: None,
+            p_core_utilization: None,
+            e_core_utilization: None,
+            p_cluster_frequency_mhz: None,
+            e_cluster_frequency_mhz: None,
+            per_core_utilization: vec![],
         };
         
         let memory = MemoryMetrics {
-            used_bytes: 0,
             total_bytes: 1099511627776,
+            used_bytes: 0,
+            available_bytes: 1099511627776,
+            free_bytes: 1099511627776,
+            cached_bytes: 0,
+            buffers_bytes: 0,
+            swap_total_bytes: 0,
+            swap_used_bytes: 0,
+            swap_free_bytes: 0,
+            utilization: 0.0,
         };
 
         Ok(self.build_nvidia_template(&gpus, &cpu, &memory))

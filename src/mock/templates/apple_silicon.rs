@@ -14,10 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::mock::constants::*;
-use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics, PlatformType};
-use all_smi::traits::mock_generator::{MockConfig, MockData, MockError, MockGenerator, MockPlatform, MockResult};
-use std::collections::HashMap;
+use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics};
+use all_smi::traits::mock_generator::{MockConfig, MockData, MockGenerator, MockPlatform, MockResult};
 
 /// Apple Silicon GPU mock generator
 pub struct AppleSiliconMockGenerator {
@@ -138,7 +136,7 @@ impl AppleSiliconMockGenerator {
         }
     }
 
-    fn add_apple_system_metrics(&self, template: &mut String, cpu: &CpuMetrics, memory: &MemoryMetrics) {
+    fn add_apple_system_metrics(&self, template: &mut String, _cpu: &CpuMetrics, memory: &MemoryMetrics) {
         // CPU metrics with efficiency and performance cores
         template.push_str("# HELP all_smi_cpu_utilization CPU utilization percentage\n");
         template.push_str("# TYPE all_smi_cpu_utilization gauge\n");
@@ -279,14 +277,39 @@ impl MockGenerator for AppleSiliconMockGenerator {
             .collect();
 
         // Generate CPU and memory metrics
+        use rand::{rng, Rng};
+        let mut rng = rng();
         let cpu = CpuMetrics {
-            utilization: rand::rng().random_range(10.0..90.0),
-            cores: 16, // M3 Max: 12P + 4E
+            model: "Apple M3 Max".to_string(),
+            utilization: rng.random_range(10.0..90.0),
+            socket_count: 1,
+            core_count: 16, // M3 Max: 12P + 4E
+            thread_count: 16,
+            frequency_mhz: 3500,
+            temperature_celsius: Some(50),
+            power_consumption_watts: Some(60.0),
+            socket_utilizations: vec![rng.random_range(10.0..90.0)],
+            p_core_count: Some(12),
+            e_core_count: Some(4),
+            gpu_core_count: Some(40),
+            p_core_utilization: Some(rng.random_range(10.0..90.0)),
+            e_core_utilization: Some(rng.random_range(10.0..90.0)),
+            p_cluster_frequency_mhz: Some(3500),
+            e_cluster_frequency_mhz: Some(2000),
+            per_core_utilization: vec![],
         };
         
         let memory = MemoryMetrics {
-            used_bytes: rand::rng().random_range(10_000_000_000..60_000_000_000),
             total_bytes: 68_719_476_736, // 64GB unified memory
+            used_bytes: rng.random_range(10_000_000_000..60_000_000_000),
+            available_bytes: rng.random_range(8_000_000_000..58_000_000_000),
+            free_bytes: rng.random_range(5_000_000_000..50_000_000_000),
+            cached_bytes: rng.random_range(1_000_000_000..10_000_000_000),
+            buffers_bytes: rng.random_range(100_000_000..1_000_000_000),
+            swap_total_bytes: 0,
+            swap_used_bytes: 0,
+            swap_free_bytes: 0,
+            utilization: rng.random_range(10.0..90.0),
         };
 
         // Build and render template
@@ -306,8 +329,8 @@ impl MockGenerator for AppleSiliconMockGenerator {
         
         // Generate sample metrics for template
         let gpus: Vec<GpuMetrics> = (0..config.device_count.min(1))
-            .map(|_| GpuMetrics {
-                uuid: format!("APPLE-{:08x}", rand::rng().random::<u32>()),
+            .map(|i| GpuMetrics {
+                uuid: format!("APPLE-{:08x}", i as u32),
                 utilization: 0.0,
                 memory_used_bytes: 0,
                 memory_total_bytes: 68_719_476_736,
@@ -320,13 +343,36 @@ impl MockGenerator for AppleSiliconMockGenerator {
             .collect();
 
         let cpu = CpuMetrics {
+            model: "Apple M3 Max".to_string(),
             utilization: 0.0,
-            cores: 16,
+            socket_count: 1,
+            core_count: 16,
+            thread_count: 16,
+            frequency_mhz: 3500,
+            temperature_celsius: Some(50),
+            power_consumption_watts: Some(60.0),
+            socket_utilizations: vec![0.0],
+            p_core_count: Some(12),
+            e_core_count: Some(4),
+            gpu_core_count: Some(40),
+            p_core_utilization: Some(0.0),
+            e_core_utilization: Some(0.0),
+            p_cluster_frequency_mhz: Some(3500),
+            e_cluster_frequency_mhz: Some(2000),
+            per_core_utilization: vec![],
         };
         
         let memory = MemoryMetrics {
-            used_bytes: 0,
             total_bytes: 68_719_476_736,
+            used_bytes: 0,
+            available_bytes: 68_719_476_736,
+            free_bytes: 68_719_476_736,
+            cached_bytes: 0,
+            buffers_bytes: 0,
+            swap_total_bytes: 0,
+            swap_used_bytes: 0,
+            swap_free_bytes: 0,
+            utilization: 0.0,
         };
 
         Ok(self.build_apple_template(&gpus, &cpu, &memory))

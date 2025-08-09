@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::mock::constants::{PLACEHOLDER_DISK_AVAIL, PLACEHOLDER_DISK_TOTAL};
 use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics, PlatformType};
 use crate::mock::templates::{
     apple_silicon::AppleSiliconMockGenerator,
@@ -146,10 +147,19 @@ pub fn render_response(
         _ => template.to_string(),
     };
 
+    // Render CPU and memory metrics for platforms that don't handle them
+    if response.contains("{{CPU_UTIL}}") {
+        response = response
+            .replace("{{CPU_UTIL}}", &format!("{:.2}", cpu.utilization))
+            .replace("{{CPU_CORES}}", &cpu.core_count.to_string())
+            .replace("{{MEM_USED}}", &memory.used_bytes.to_string())
+            .replace("{{MEM_TOTAL}}", &memory.total_bytes.to_string());
+    }
+
     // Render disk metrics (common for all platforms)
     response = response
-        .replace("{{DISK_TOTAL}}", &disk_total_bytes.to_string())
-        .replace("{{DISK_AVAIL}}", &disk_available_bytes.to_string());
+        .replace(PLACEHOLDER_DISK_TOTAL, &disk_total_bytes.to_string())
+        .replace(PLACEHOLDER_DISK_AVAIL, &disk_available_bytes.to_string());
 
     // Calculate and render disk utilization
     let disk_used = disk_total_bytes - disk_available_bytes;
@@ -162,10 +172,11 @@ pub fn render_response(
 
     // Default I/O values if not already replaced
     if response.contains("{{DISK_READ}}") {
-        response = response.replace("{{DISK_READ}}", "0");
-    }
-    if response.contains("{{DISK_WRITE}}") {
-        response = response.replace("{{DISK_WRITE}}", "0");
+        use rand::{rng, Rng};
+        let mut rng = rng();
+        response = response
+            .replace("{{DISK_READ}}", &rng.random_range(0..100_000_000).to_string())
+            .replace("{{DISK_WRITE}}", &rng.random_range(0..50_000_000).to_string());
     }
 
     response
