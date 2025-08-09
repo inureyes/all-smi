@@ -12,32 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::utils::run_command_fast_fail;
-use std::process::Command;
+use crate::device::common::execute_command_default;
 
 pub fn has_nvidia() -> bool {
     // On macOS, use system_profiler to check for NVIDIA devices
     if std::env::consts::OS == "macos" {
         // First check system_profiler for NVIDIA PCI devices
-        if let Ok(output) = Command::new("system_profiler")
-            .arg("SPPCIDataType")
-            .output()
-        {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Ok(output) = execute_command_default("system_profiler", &["SPPCIDataType"]) {
+            if output.status == 0 {
                 // Look for NVIDIA in the output - could be in Type field or device name
-                if output_str.contains("NVIDIA") {
+                if output.stdout.contains("NVIDIA") {
                     return true;
                 }
             }
         }
 
         // Fallback to nvidia-smi check
-        if let Ok(output) = run_command_fast_fail("nvidia-smi", &["-L"]) {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Ok(output) = execute_command_default("nvidia-smi", &["-L"]) {
+            if output.status == 0 {
                 // nvidia-smi -L outputs lines like "GPU 0: NVIDIA GeForce..."
-                return output_str
+                return output
+                    .stdout
                     .lines()
                     .any(|line| line.trim().starts_with("GPU"));
             }
@@ -46,11 +41,10 @@ pub fn has_nvidia() -> bool {
     }
 
     // On Linux, first try lspci to check for NVIDIA VGA/3D controllers
-    if let Ok(output) = run_command_fast_fail("lspci", &[]) {
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
+    if let Ok(output) = execute_command_default("lspci", &[]) {
+        if output.status == 0 {
             // Look for NVIDIA VGA or 3D controllers
-            for line in output_str.lines() {
+            for line in output.stdout.lines() {
                 if (line.contains("VGA") || line.contains("3D")) && line.contains("NVIDIA") {
                     return true;
                 }
@@ -59,13 +53,12 @@ pub fn has_nvidia() -> bool {
     }
 
     // Fallback: Check if nvidia-smi can actually list GPUs
-    if let Ok(output) = Command::new("nvidia-smi").args(["-L"]).output() {
+    if let Ok(output) = execute_command_default("nvidia-smi", &["-L"]) {
         // Check both exit status and output content
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
+        if output.status == 0 {
             // nvidia-smi -L outputs lines like "GPU 0: NVIDIA GeForce..."
             // Make sure we have actual GPU lines, not just an empty output
-            let has_gpu = output_str.lines().any(|line| {
+            let has_gpu = output.stdout.lines().any(|line| {
                 let trimmed = line.trim();
                 trimmed.starts_with("GPU") && trimmed.contains(":")
             });
@@ -75,9 +68,8 @@ pub fn has_nvidia() -> bool {
         }
 
         // Also check stderr for "No devices were found" message
-        let stderr_str = String::from_utf8_lossy(&output.stderr);
-        if stderr_str.contains("No devices were found")
-            || stderr_str.contains("Failed to initialize NVML")
+        if output.stderr.contains("No devices were found")
+            || output.stderr.contains("Failed to initialize NVML")
         {
             return false;
         }
@@ -98,13 +90,10 @@ pub fn is_apple_silicon() -> bool {
         return false;
     }
 
-    let output = Command::new("uname")
-        .arg("-m")
-        .output()
-        .expect("Failed to execute uname command");
+    let output =
+        execute_command_default("uname", &["-m"]).expect("Failed to execute uname command");
 
-    let architecture = String::from_utf8_lossy(&output.stdout);
-    architecture.trim() == "arm64"
+    output.stdout.trim() == "arm64"
 }
 
 pub fn has_furiosa() -> bool {
@@ -139,24 +128,17 @@ pub fn has_tenstorrent() -> bool {
 
     // On macOS, use system_profiler
     if std::env::consts::OS == "macos" {
-        if let Ok(output) = Command::new("system_profiler")
-            .arg("SPPCIDataType")
-            .output()
-        {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                if output_str.contains("Tenstorrent") {
-                    return true;
-                }
+        if let Ok(output) = execute_command_default("system_profiler", &["SPPCIDataType"]) {
+            if output.status == 0 && output.stdout.contains("Tenstorrent") {
+                return true;
             }
         }
     } else {
         // On Linux, try lspci to check for Tenstorrent devices
-        if let Ok(output) = Command::new("lspci").output() {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Ok(output) = execute_command_default("lspci", &[]) {
+            if output.status == 0 {
                 // Look for Tenstorrent devices
-                if output_str.contains("Tenstorrent") {
+                if output.stdout.contains("Tenstorrent") {
                     return true;
                 }
             }
@@ -164,14 +146,10 @@ pub fn has_tenstorrent() -> bool {
     }
 
     // Last resort: check if tt-smi can actually list devices
-    if let Ok(output) = Command::new("tt-smi")
-        .args(["-s", "--snapshot_no_tty"])
-        .output()
-    {
-        if output.status.success() {
+    if let Ok(output) = execute_command_default("tt-smi", &["-s", "--snapshot_no_tty"]) {
+        if output.status == 0 {
             // Check if output contains device_info
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            return output_str.contains("device_info");
+            return output.stdout.contains("device_info");
         }
     }
 
@@ -186,24 +164,19 @@ pub fn has_rebellions() -> bool {
 
     // On macOS, use system_profiler
     if std::env::consts::OS == "macos" {
-        if let Ok(output) = Command::new("system_profiler")
-            .arg("SPPCIDataType")
-            .output()
-        {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                if output_str.contains("Rebellions") || output_str.contains("RBLN") {
-                    return true;
-                }
+        if let Ok(output) = execute_command_default("system_profiler", &["SPPCIDataType"]) {
+            if output.status == 0
+                && (output.stdout.contains("Rebellions") || output.stdout.contains("RBLN"))
+            {
+                return true;
             }
         }
     } else {
         // On Linux, try lspci to check for Rebellions devices
-        if let Ok(output) = Command::new("lspci").output() {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Ok(output) = execute_command_default("lspci", &[]) {
+            if output.status == 0 {
                 // Look for Rebellions devices - vendor ID 1f3f
-                if output_str.contains("1f3f:") || output_str.contains("Rebellions") {
+                if output.stdout.contains("1f3f:") || output.stdout.contains("Rebellions") {
                     return true;
                 }
             }
@@ -219,11 +192,10 @@ pub fn has_rebellions() -> bool {
         "/usr/local/bin/rbln-smi",
         "/usr/bin/rbln-smi",
     ] {
-        if let Ok(output) = Command::new(cmd).args(["-j"]).output() {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Ok(output) = execute_command_default(cmd, &["-j"]) {
+            if output.status == 0 {
                 // Check if output contains device information
-                if output_str.contains("\"devices\"") && output_str.contains("\"uuid\"") {
+                if output.stdout.contains("\"devices\"") && output.stdout.contains("\"uuid\"") {
                     return true;
                 }
             }

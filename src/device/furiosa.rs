@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::device::common::execute_command_default;
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::process::Command;
 
 // Import furiosa-smi-rs if available on Linux
 #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
@@ -227,14 +227,10 @@ impl FuriosaReader {
 
     /// Get NPU status including utilization
     fn get_npu_status(&self) -> Option<Vec<FuriosaSmiStatusJson>> {
-        match Command::new("furiosa-smi")
-            .args(["status", "--format", "json"])
-            .output()
-        {
+        match execute_command_default("furiosa-smi", &["status", "--format", "json"]) {
             Ok(output) => {
-                if output.status.success() {
-                    let output_str = String::from_utf8_lossy(&output.stdout);
-                    match serde_json::from_str::<Vec<FuriosaSmiStatusJson>>(&output_str) {
+                if output.status == 0 {
+                    match serde_json::from_str::<Vec<FuriosaSmiStatusJson>>(&output.stdout) {
                         Ok(status) => Some(status),
                         Err(e) => {
                             eprintln!("Failed to parse furiosa-smi status JSON: {e}");
@@ -242,10 +238,7 @@ impl FuriosaReader {
                         }
                     }
                 } else {
-                    eprintln!(
-                        "furiosa-smi status failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
+                    eprintln!("furiosa-smi status failed: {}", output.stderr);
                     None
                 }
             }
@@ -533,23 +526,16 @@ impl FuriosaReader {
         }
 
         // Then get info data
-        match Command::new("furiosa-smi")
-            .args(["info", "--format", "json"])
-            .output()
-        {
+        match execute_command_default("furiosa-smi", &["info", "--format", "json"]) {
             Ok(output) => {
-                if output.status.success() {
-                    let output_str = String::from_utf8_lossy(&output.stdout);
+                if output.status == 0 {
                     self.parse_furiosa_smi_info_json(
-                        &output_str,
+                        &output.stdout,
                         status_data.as_ref(),
                         &device_memory_usage,
                     )
                 } else {
-                    eprintln!(
-                        "furiosa-smi info failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
+                    eprintln!("furiosa-smi info failed: {}", output.stderr);
                     vec![]
                 }
             }
@@ -698,19 +684,12 @@ impl FuriosaReader {
 
     /// Get processes using Furiosa NPUs via furiosa-smi
     fn get_furiosa_processes_via_furiosa_smi(&self) -> Vec<ProcessInfo> {
-        match Command::new("furiosa-smi")
-            .args(["ps", "--format", "json"])
-            .output()
-        {
+        match execute_command_default("furiosa-smi", &["ps", "--format", "json"]) {
             Ok(output) => {
-                if output.status.success() {
-                    let output_str = String::from_utf8_lossy(&output.stdout);
-                    self.parse_furiosa_smi_ps_json(&output_str)
+                if output.status == 0 {
+                    self.parse_furiosa_smi_ps_json(&output.stdout)
                 } else {
-                    eprintln!(
-                        "furiosa-smi ps failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    );
+                    eprintln!("furiosa-smi ps failed: {}", output.stderr);
                     vec![]
                 }
             }

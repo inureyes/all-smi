@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::device::common::execute_command_default;
 use crate::device::{container_utils, GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
@@ -19,7 +20,6 @@ use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 /// PCI information for Rebellions device
@@ -109,10 +109,8 @@ static COMMAND_PATH: Lazy<Option<PathBuf>> = Lazy::new(|| {
 
     // Check if commands are available in PATH
     for cmd in &["rbln-stat", "rbln-smi"] {
-        if Command::new("which")
-            .arg(cmd)
-            .output()
-            .map(|output| output.status.success())
+        if execute_command_default("which", &[cmd])
+            .map(|output| output.status == 0)
             .unwrap_or(false)
         {
             return Some(PathBuf::from(cmd));
@@ -184,26 +182,26 @@ impl RebellionsReader {
             .and_then(|n| n.to_str())
             .unwrap_or("rbln-stat/rbln-smi");
 
-        let output = Command::new(self.command_path.as_ref())
-            .arg("-j")
-            .output()
-            .map_err(|e| {
-                let error = format!("Failed to execute {cmd_name}: {e}");
-                self.set_error(error.clone());
-                error
-            })?;
+        let command_path = self.command_path.to_str().ok_or_else(|| {
+            let error = "Invalid command path".to_string();
+            self.set_error(error.clone());
+            error
+        })?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let error = format!("{cmd_name} failed: {stderr}");
+        let output = execute_command_default(command_path, &["-j"]).map_err(|e| {
+            let error = format!("Failed to execute {cmd_name}: {e}");
+            self.set_error(error.clone());
+            error
+        })?;
+
+        if output.status != 0 {
+            let error = format!("{cmd_name} failed: {}", output.stderr);
             self.set_error(error.clone());
             return Err(error);
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-
         // Parse JSON response
-        serde_json::from_str(&stdout).map_err(|e| {
+        serde_json::from_str(&output.stdout).map_err(|e| {
             let error = format!("Failed to parse {cmd_name} JSON: {e}");
             self.set_error(error.clone());
             error

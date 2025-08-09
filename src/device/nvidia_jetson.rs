@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::device::common::{execute_command_default, parse_csv_line};
 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::{get_hostname, hz_to_mhz, millicelsius_to_celsius};
 use chrono::Local;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::process::Command;
 use sysinfo::System;
 
 pub struct NvidiaJetsonGpuReader;
@@ -66,11 +66,10 @@ impl GpuReader for NvidiaJetsonGpuReader {
         let mut detail = HashMap::new();
 
         // Try to get CUDA version from nvidia-smi if available
-        if let Ok(output) = Command::new("nvidia-smi").output() {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Ok(output) = execute_command_default("nvidia-smi", &[]) {
+            if output.status == 0 {
                 // Parse CUDA version from header
-                for line in output_str.lines() {
+                for line in output.stdout.lines() {
                     if line.contains("CUDA Version:") {
                         if let Some(version_part) = line.split("CUDA Version:").nth(1) {
                             let cuda_version = version_part
@@ -164,20 +163,19 @@ impl NvidiaJetsonGpuReader {
 
         // Jetson doesn't have a direct way to query GPU processes
         // We can try nvidia-smi if available (on newer Jetson models)
-        if let Ok(output) = Command::new("nvidia-smi")
-            .args([
+        if let Ok(output) = execute_command_default(
+            "nvidia-smi",
+            &[
                 "--query-compute-apps=pid,used_memory",
                 "--format=csv,noheader,nounits",
-            ])
-            .output()
-        {
-            if output.status.success() {
-                let output_str = String::from_utf8_lossy(&output.stdout);
-                for line in output_str.lines() {
-                    let parts: Vec<&str> = line.split(',').collect();
+            ],
+        ) {
+            if output.status == 0 {
+                for line in output.stdout.lines() {
+                    let parts = parse_csv_line(line);
                     if parts.len() >= 2 {
-                        if let Ok(pid) = parts[0].trim().parse::<u32>() {
-                            if let Ok(used_memory_mb) = parts[1].trim().parse::<u64>() {
+                        if let Ok(pid) = parts[0].parse::<u32>() {
+                            if let Ok(used_memory_mb) = parts[1].parse::<u64>() {
                                 gpu_pids.insert(pid);
 
                                 gpu_processes.push(ProcessInfo {
@@ -264,9 +262,9 @@ impl NvidiaJetsonGpuReader {
 
 fn get_memory_info() -> (u64, u64) {
     // Try to get GPU memory from tegrastats
-    if let Ok(output) = Command::new("tegrastats").arg("--once").output() {
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
+    if let Ok(output) = execute_command_default("tegrastats", &["--once"]) {
+        if output.status == 0 {
+            let output_str = &output.stdout;
             // Parse memory info from tegrastats output
             // Format: RAM 2298/3964MB (lfb 25x4MB) SWAP 0/1982MB (cached 0MB)
             if let Some(ram_part) = output_str.split("RAM ").nth(1) {
