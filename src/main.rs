@@ -97,8 +97,8 @@ async fn main() {
             // Initialize PowerMetricsManager in background after getting sudo
             #[cfg(target_os = "macos")]
             if is_apple_silicon() {
-                // Use specified interval or default to 1 second for local mode
-                let interval = args.interval.unwrap_or(1);
+                // Use specified interval or default to 2 seconds for local mode
+                let interval = args.interval.unwrap_or(2);
                 // Spawn initialization in background to avoid blocking startup
                 std::thread::spawn(move || {
                     if let Err(e) = initialize_powermetrics_manager(interval) {
@@ -148,9 +148,9 @@ async fn main() {
                 // Initialize PowerMetricsManager in background after getting sudo
                 #[cfg(target_os = "macos")]
                 if is_apple_silicon() {
-                    // Default to 1 second for local mode
+                    // Default to 2 seconds for local mode
                     std::thread::spawn(|| {
-                        if let Err(e) = initialize_powermetrics_manager(1) {
+                        if let Err(e) = initialize_powermetrics_manager(2) {
                             eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
                         } else {
                             POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
