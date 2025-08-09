@@ -34,7 +34,7 @@ Read the guide below and check the box when you have completed each step.
   - [x] Implement common JSON parsing utilities
   - [x] Implement generic parsing functions
 - [x] Migrate one device (nvidia.rs) to use common modules
-- [ ] Test: `cargo test --test device_tests`
+- [x] Test: `cargo test --test device_tests`
 - [ ] Verify NVIDIA GPU operation with mock server
 
 ### 1.2 Create Parsing Macros and Utilities
