@@ -11,6 +11,7 @@ pub fn parse_number<T: FromStr>(s: &str) -> Option<T> {
 
 /// Convert a floating-point quantity with a unit into bytes.
 /// Supported units (case-insensitive): B, KB, KiB, MB, MiB, GB, GiB, TB, TiB
+#[allow(dead_code)]
 pub fn to_bytes(value: f64, unit: &str) -> Option<u64> {
     let mul = match unit.trim().to_ascii_uppercase().as_str() {
         "B" => 1.0,

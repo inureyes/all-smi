@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use crate::parsing::common::sanitize_label_value;
 use chrono::Local;
 use regex::Regex;
 
@@ -45,12 +46,8 @@ impl MetricsParser {
         let mut host_instance_name: Option<String> = None;
 
         for line in text.lines() {
-            if let Some(cap) = re.captures(line.trim()) {
-                let metric_name = &cap[1];
-                let labels_str = &cap[2];
-                let value = cap[3].parse::<f64>().unwrap_or(0.0);
-
-                let labels = self.parse_labels(labels_str);
+            if let Some((metric_name, labels_str, value)) = parse_prometheus!(line, re) {
+                let labels = self.parse_labels(&labels_str);
 
                 // Extract instance name from the first metric that has it
                 if host_instance_name.is_none() {
@@ -64,13 +61,13 @@ impl MetricsParser {
                     || metric_name.starts_with("npu_")
                     || metric_name == "ane_utilization"
                 {
-                    self.process_gpu_metrics(&mut gpu_info_map, metric_name, &labels, value, host);
+                    self.process_gpu_metrics(&mut gpu_info_map, &metric_name, &labels, value, host);
                 } else if metric_name.starts_with("cpu_") {
-                    self.process_cpu_metrics(&mut cpu_info_map, metric_name, &labels, value, host);
+                    self.process_cpu_metrics(&mut cpu_info_map, &metric_name, &labels, value, host);
                 } else if metric_name.starts_with("memory_") {
                     self.process_memory_metrics(
                         &mut memory_info_map,
-                        metric_name,
+                        &metric_name,
                         &labels,
                         value,
                         host,
@@ -78,7 +75,7 @@ impl MetricsParser {
                 } else if metric_name.starts_with("storage_") || metric_name.starts_with("disk_") {
                     self.process_storage_metrics(
                         &mut storage_info_map,
-                        metric_name,
+                        &metric_name,
                         &labels,
                         value,
                         host,
@@ -111,8 +108,8 @@ impl MetricsParser {
         for label in labels_str.split(',') {
             let label_parts: Vec<&str> = label.split('=').collect();
             if label_parts.len() == 2 {
-                let key = label_parts[0].trim().to_string();
-                let value = label_parts[1].replace('"', "").to_string();
+                let key = sanitize_label_value(label_parts[0]);
+                let value = sanitize_label_value(label_parts[1]);
                 labels.insert(key, value);
             }
         }

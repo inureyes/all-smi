@@ -51,7 +51,7 @@ Read the guide below and check the box when you have completed each step.
 - [x] Replace some functions in powermetrics_parser.rs with macros
   - [x] Select 5 parsing functions to apply macros
   - [x] Verify existing tests still pass
-- [ ] Replace some functions in other parsers with macros
+- [x] Replace some functions in other parsers with macros
 - [x] Test: `cargo test --lib parsing`
 
 ### 1.3 Define Base Traits
