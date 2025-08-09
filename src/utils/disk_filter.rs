@@ -30,6 +30,7 @@ impl DiskFilter {
         Self::add_macos_exclusions(&mut excluded_prefixes, &mut excluded_exact);
         Self::add_linux_exclusions(&mut excluded_prefixes, &mut excluded_exact);
         Self::add_common_exclusions(&mut excluded_prefixes, &mut excluded_exact);
+        Self::add_backendai_exclusions(&mut excluded_prefixes, &mut excluded_exact);
 
         // Docker-specific file mounts to exclude
         let mut docker_file_mounts = HashSet::new();
@@ -120,6 +121,14 @@ impl DiskFilter {
         exact.insert("/mnt");
         exact.insert("/root");
         exact.insert("/srv");
+    }
+
+    fn add_backendai_exclusions(
+        prefixes: &mut HashSet<&'static str>,
+        _exact: &mut HashSet<&'static str>,
+    ) {
+        // macOS system volumes
+        prefixes.insert("/opt/backend.ai/");
     }
 
     fn add_common_exclusions(
