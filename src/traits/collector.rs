@@ -34,12 +34,12 @@ pub enum CollectorError {
 impl std::fmt::Display for CollectorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ConnectionError(msg) => write!(f, "Failed to connect to remote host: {}", msg),
-            Self::CollectionError(msg) => write!(f, "Failed to collect data: {}", msg),
-            Self::ParseError(msg) => write!(f, "Failed to parse data: {}", msg),
+            Self::ConnectionError(msg) => write!(f, "Failed to connect to remote host: {msg}"),
+            Self::CollectionError(msg) => write!(f, "Failed to collect data: {msg}"),
+            Self::ParseError(msg) => write!(f, "Failed to parse data: {msg}"),
             Self::Timeout => write!(f, "Timeout while collecting data"),
-            Self::Io(err) => write!(f, "IO error: {}", err),
-            Self::Other(msg) => write!(f, "Other error: {}", msg),
+            Self::Io(err) => write!(f, "IO error: {err}"),
+            Self::Other(msg) => write!(f, "Other error: {msg}"),
         }
     }
 }
@@ -152,7 +152,7 @@ pub trait CachedCollector: DataCollector {
 /// Trait for aggregating data from multiple collectors
 pub trait AggregatedCollector: Send + Sync {
     type Collector: DataCollector;
-    
+
     /// Add a collector to the aggregator
     async fn add_collector(&mut self, collector_id: String);
 

@@ -31,12 +31,12 @@ pub enum MockError {
 impl std::fmt::Display for MockError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TemplateError(msg) => write!(f, "Template rendering failed: {}", msg),
-            Self::ConfigError(msg) => write!(f, "Invalid configuration: {}", msg),
-            Self::UnsupportedPlatform(msg) => write!(f, "Unsupported platform: {}", msg),
-            Self::RandomError(msg) => write!(f, "Random generation failed: {}", msg),
-            Self::Io(err) => write!(f, "IO error: {}", err),
-            Self::Other(msg) => write!(f, "Other error: {}", msg),
+            Self::TemplateError(msg) => write!(f, "Template rendering failed: {msg}"),
+            Self::ConfigError(msg) => write!(f, "Invalid configuration: {msg}"),
+            Self::UnsupportedPlatform(msg) => write!(f, "Unsupported platform: {msg}"),
+            Self::RandomError(msg) => write!(f, "Random generation failed: {msg}"),
+            Self::Io(err) => write!(f, "IO error: {err}"),
+            Self::Other(msg) => write!(f, "Other error: {msg}"),
         }
     }
 }
@@ -66,28 +66,28 @@ pub enum MockPlatform {
 pub struct MockConfig {
     /// Platform to simulate
     pub platform: MockPlatform,
-    
+
     /// Number of devices to simulate
     pub device_count: usize,
-    
+
     /// Node identifier
     pub node_name: String,
-    
+
     /// Port number for this mock instance
     pub port: u16,
-    
+
     /// Whether to include disk metrics
     pub include_disk_metrics: bool,
-    
+
     /// Custom GPU name override
     pub gpu_name: Option<String>,
-    
+
     /// Update interval for dynamic values
     pub update_interval: std::time::Duration,
-    
+
     /// Random seed for reproducible data
     pub seed: Option<u64>,
-    
+
     /// Additional platform-specific configuration
     pub extra_config: HashMap<String, String>,
 }
@@ -113,13 +113,13 @@ impl Default for MockConfig {
 pub struct MockData {
     /// The generated response body
     pub response: String,
-    
+
     /// Content type for the response
     pub content_type: String,
-    
+
     /// Timestamp when data was generated
     pub timestamp: chrono::DateTime<chrono::Utc>,
-    
+
     /// Platform that generated this data
     pub platform: MockPlatform,
 }
@@ -128,16 +128,16 @@ pub struct MockData {
 pub trait MockGenerator: Send + Sync {
     /// Generate mock data based on configuration
     fn generate(&self, config: &MockConfig) -> MockResult<MockData>;
-    
+
     /// Generate a template response (static structure)
     fn generate_template(&self, config: &MockConfig) -> MockResult<String>;
-    
+
     /// Render dynamic values into the template
     fn render(&self, template: &str, config: &MockConfig) -> MockResult<String>;
-    
+
     /// Get the platform this generator supports
     fn platform(&self) -> MockPlatform;
-    
+
     /// Validate configuration for this generator
     fn validate_config(&self, config: &MockConfig) -> MockResult<()> {
         if config.platform != self.platform() {
@@ -149,12 +149,13 @@ pub trait MockGenerator: Send + Sync {
         }
         Ok(())
     }
-    
+
     /// Get default configuration for this platform
     fn default_config(&self) -> MockConfig {
-        let mut config = MockConfig::default();
-        config.platform = self.platform();
-        config
+        MockConfig {
+            platform: self.platform(),
+            ..MockConfig::default()
+        }
     }
 }
 
@@ -162,13 +163,13 @@ pub trait MockGenerator: Send + Sync {
 pub trait DynamicMockGenerator: MockGenerator {
     /// Update dynamic values (utilization, temperature, etc.)
     fn update_values(&mut self) -> MockResult<()>;
-    
+
     /// Get current dynamic values
     fn get_current_values(&self) -> HashMap<String, f64>;
-    
+
     /// Set a specific dynamic value
     fn set_value(&mut self, key: &str, value: f64) -> MockResult<()>;
-    
+
     /// Reset all dynamic values to defaults
     fn reset_values(&mut self);
 }
@@ -177,13 +178,13 @@ pub trait DynamicMockGenerator: MockGenerator {
 pub trait ProcessMockGenerator: MockGenerator {
     /// Add a mock process
     fn add_process(&mut self, pid: u32, name: String, memory_mb: u64) -> MockResult<()>;
-    
+
     /// Remove a mock process
     fn remove_process(&mut self, pid: u32) -> MockResult<()>;
-    
+
     /// Clear all mock processes
     fn clear_processes(&mut self);
-    
+
     /// Get current mock processes
     fn get_processes(&self) -> Vec<MockProcess>;
 }
@@ -202,13 +203,13 @@ pub struct MockProcess {
 pub trait MockGeneratorFactory {
     /// Create a generator for the specified platform
     fn create(&self, platform: MockPlatform) -> MockResult<Box<dyn MockGenerator>>;
-    
+
     /// Create a dynamic generator for the specified platform
     fn create_dynamic(&self, platform: MockPlatform) -> MockResult<Box<dyn DynamicMockGenerator>>;
-    
+
     /// Get list of supported platforms
     fn supported_platforms(&self) -> Vec<MockPlatform>;
-    
+
     /// Check if a platform is supported
     fn is_supported(&self, platform: &MockPlatform) -> bool {
         self.supported_platforms().contains(platform)
@@ -218,16 +219,16 @@ pub trait MockGeneratorFactory {
 /// Builder for creating mock generators
 pub trait MockGeneratorBuilder {
     type Generator: MockGenerator;
-    
+
     /// Build the generator
     fn build(self) -> MockResult<Self::Generator>;
-    
+
     /// Set the platform
     fn with_platform(self, platform: MockPlatform) -> Self;
-    
+
     /// Set the configuration
     fn with_config(self, config: MockConfig) -> Self;
-    
+
     /// Set the random seed
     fn with_seed(self, seed: u64) -> Self;
 }
@@ -236,16 +237,16 @@ pub trait MockGeneratorBuilder {
 pub trait TemplateEngine: Send + Sync {
     /// Render a template with the given context
     fn render(&self, template: &str, context: &HashMap<String, String>) -> MockResult<String>;
-    
+
     /// Load a template from a string
     fn load_template(&mut self, name: &str, template: &str) -> MockResult<()>;
-    
+
     /// Check if a template exists
     fn has_template(&self, name: &str) -> bool;
-    
+
     /// Get list of loaded templates
     fn list_templates(&self) -> Vec<String>;
-    
+
     /// Clear all loaded templates
     fn clear_templates(&mut self);
 }
@@ -254,25 +255,25 @@ pub trait TemplateEngine: Send + Sync {
 pub trait ValueGenerator: Send + Sync {
     /// Generate a random float in range [min, max]
     fn generate_float(&mut self, min: f64, max: f64) -> f64;
-    
+
     /// Generate a random integer in range [min, max]
     fn generate_int(&mut self, min: i64, max: i64) -> i64;
-    
+
     /// Generate a random boolean with given probability
     fn generate_bool(&mut self, probability: f64) -> bool;
-    
+
     /// Generate a random string of given length
     fn generate_string(&mut self, length: usize) -> String;
-    
+
     /// Generate realistic GPU utilization value
     fn generate_gpu_utilization(&mut self) -> f64;
-    
+
     /// Generate realistic temperature value
     fn generate_temperature(&mut self, base: f64, variance: f64) -> f64;
-    
+
     /// Generate realistic memory usage
     fn generate_memory_usage(&mut self, total: u64) -> u64;
-    
+
     /// Reset the generator (for deterministic generators)
     fn reset(&mut self);
 }

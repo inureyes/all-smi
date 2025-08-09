@@ -32,11 +32,11 @@ pub enum ExporterError {
 impl std::fmt::Display for ExporterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SerializationError(msg) => write!(f, "Failed to serialize metrics: {}", msg),
-            Self::FormatError(msg) => write!(f, "Invalid metric format: {}", msg),
-            Self::UnsupportedFormat(msg) => write!(f, "Unsupported export format: {}", msg),
-            Self::Io(err) => write!(f, "IO error: {}", err),
-            Self::Other(msg) => write!(f, "Other error: {}", msg),
+            Self::SerializationError(msg) => write!(f, "Failed to serialize metrics: {msg}"),
+            Self::FormatError(msg) => write!(f, "Invalid metric format: {msg}"),
+            Self::UnsupportedFormat(msg) => write!(f, "Unsupported export format: {msg}"),
+            Self::Io(err) => write!(f, "IO error: {err}"),
+            Self::Other(msg) => write!(f, "Other error: {msg}"),
         }
     }
 }
@@ -236,6 +236,10 @@ pub trait ExporterBuilder {
     fn with_prefix(self, prefix: String) -> Self;
 }
 
+/// Type alias for boxed composite exporter
+pub type BoxedCompositeExporter<G, C, M, S> =
+    Box<dyn CompositeExporter<GpuInfo = G, CpuInfo = C, MemoryInfo = M, StorageInfo = S>>;
+
 /// Factory for creating exporters
 pub trait ExporterFactory {
     type GpuInfo;
@@ -247,16 +251,23 @@ pub trait ExporterFactory {
     fn create(&self, format: ExportFormat) -> ExporterResult<Box<dyn MetricsExporter>>;
 
     /// Create a GPU metrics exporter
-    fn create_gpu_exporter(&self, format: ExportFormat) -> ExporterResult<Box<dyn GpuMetricsExporter<Self::GpuInfo>>>;
+    fn create_gpu_exporter(
+        &self,
+        format: ExportFormat,
+    ) -> ExporterResult<Box<dyn GpuMetricsExporter<Self::GpuInfo>>>;
 
     /// Create a CPU metrics exporter
-    fn create_cpu_exporter(&self, format: ExportFormat) -> ExporterResult<Box<dyn CpuMetricsExporter<Self::CpuInfo>>>;
+    fn create_cpu_exporter(
+        &self,
+        format: ExportFormat,
+    ) -> ExporterResult<Box<dyn CpuMetricsExporter<Self::CpuInfo>>>;
 
     /// Create a composite exporter
-    fn create_composite(&self, format: ExportFormat) -> ExporterResult<Box<dyn CompositeExporter<
-        GpuInfo = Self::GpuInfo,
-        CpuInfo = Self::CpuInfo,
-        MemoryInfo = Self::MemoryInfo,
-        StorageInfo = Self::StorageInfo,
-    >>>;
+    #[allow(clippy::type_complexity)]
+    fn create_composite(
+        &self,
+        format: ExportFormat,
+    ) -> ExporterResult<
+        BoxedCompositeExporter<Self::GpuInfo, Self::CpuInfo, Self::MemoryInfo, Self::StorageInfo>,
+    >;
 }

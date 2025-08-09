@@ -31,9 +31,10 @@ pub use collector::{
 };
 
 pub use exporter::{
-    CompositeExporter, CpuMetricsExporter, ExportFormat, ExporterBuilder, ExporterError,
-    ExporterFactory, ExporterResult, GpuMetricsExporter, MemoryMetricsExporter, MetricCollection,
-    MetricMetadata, MetricType, MetricValue, MetricsExporter, StorageMetricsExporter,
+    BoxedCompositeExporter, CompositeExporter, CpuMetricsExporter, ExportFormat, ExporterBuilder,
+    ExporterError, ExporterFactory, ExporterResult, GpuMetricsExporter, MemoryMetricsExporter,
+    MetricCollection, MetricMetadata, MetricType, MetricValue, MetricsExporter,
+    StorageMetricsExporter,
 };
 
 pub use mock_generator::{
@@ -43,6 +44,5 @@ pub use mock_generator::{
 };
 
 pub use renderer::{
-    CpuRenderer, DeviceRenderer, GpuRenderer, MemoryRenderer, MultiDeviceRenderer,
-    StorageRenderer,
+    CpuRenderer, DeviceRenderer, GpuRenderer, MemoryRenderer, MultiDeviceRenderer, StorageRenderer,
 };
