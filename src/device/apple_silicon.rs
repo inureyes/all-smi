@@ -16,7 +16,7 @@ use crate::device::powermetrics_manager::get_powermetrics_manager;
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use std::collections::{HashMap, HashSet};
 #[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
@@ -31,9 +31,9 @@ static CACHED_GPU_INFO: Lazy<Mutex<Option<(String, Option<String>, Option<u32>)>
     Lazy::new(|| Mutex::new(None));
 
 pub struct AppleSiliconGpuReader {
-    name: Option<String>,
-    driver_version: Option<String>,
-    gpu_core_count: Option<u32>,
+    name: OnceCell<String>,
+    driver_version: OnceCell<Option<String>>,
+    gpu_core_count: OnceCell<Option<u32>>,
     initialized: AtomicBool,
 }
 
@@ -47,9 +47,9 @@ impl AppleSiliconGpuReader {
     pub fn new() -> Self {
         // Don't fetch GPU info during initialization - defer it to first use
         AppleSiliconGpuReader {
-            name: None,
-            driver_version: None,
-            gpu_core_count: None,
+            name: OnceCell::new(),
+            driver_version: OnceCell::new(),
+            gpu_core_count: OnceCell::new(),
             initialized: AtomicBool::new(false),
         }
     }
@@ -63,14 +63,10 @@ impl AppleSiliconGpuReader {
         let mut cache = CACHED_GPU_INFO.lock().unwrap();
 
         if let Some((name, driver_version, gpu_core_count)) = cache.as_ref() {
-            // Use cached values - we need to use unsafe to mutate through shared reference
-            // This is safe because we're in a single-threaded context for this cell
-            unsafe {
-                let self_mut = self as *const _ as *mut AppleSiliconGpuReader;
-                (*self_mut).name = Some(name.clone());
-                (*self_mut).driver_version = driver_version.clone();
-                (*self_mut).gpu_core_count = *gpu_core_count;
-            }
+            // Use cached values - safe initialization via OnceCell
+            let _ = self.name.set(name.clone());
+            let _ = self.driver_version.set(driver_version.clone());
+            let _ = self.gpu_core_count.set(*gpu_core_count);
             self.initialized.store(true, Ordering::Release);
             return;
         }
@@ -82,13 +78,10 @@ impl AppleSiliconGpuReader {
         // Store in cache for future use
         *cache = Some((name.clone(), driver_version.clone(), gpu_core_count));
 
-        // Update self
-        unsafe {
-            let self_mut = self as *const _ as *mut AppleSiliconGpuReader;
-            (*self_mut).name = Some(name);
-            (*self_mut).driver_version = driver_version;
-            (*self_mut).gpu_core_count = gpu_core_count;
-        }
+        // Update self - safe initialization via OnceCell
+        let _ = self.name.set(name);
+        let _ = self.driver_version.set(driver_version);
+        let _ = self.gpu_core_count.set(gpu_core_count);
         self.initialized.store(true, Ordering::Release);
     }
 
@@ -168,7 +161,8 @@ impl GpuReader for AppleSiliconGpuReader {
         detail.insert(
             "Driver Version".to_string(),
             self.driver_version
-                .clone()
+                .get()
+                .and_then(|v| v.clone())
                 .unwrap_or_else(|| "Unknown".to_string()),
         );
         detail.insert("GPU Type".to_string(), "Integrated".to_string());
@@ -182,7 +176,8 @@ impl GpuReader for AppleSiliconGpuReader {
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             name: self
                 .name
-                .clone()
+                .get()
+                .cloned()
                 .unwrap_or_else(|| "Apple Silicon GPU".to_string()),
             device_type: "GPU".to_string(),
             host_id: get_hostname(), // For local mode, host_id is just the hostname
@@ -196,7 +191,7 @@ impl GpuReader for AppleSiliconGpuReader {
             total_memory: 0, // Using unified memory
             frequency: metrics.frequency.unwrap_or(0),
             power_consumption: metrics.power_consumption.unwrap_or(0.0),
-            gpu_core_count: self.gpu_core_count,
+            gpu_core_count: self.gpu_core_count.get().copied().flatten(),
             detail,
         }]
     }
