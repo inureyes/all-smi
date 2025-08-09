@@ -1,7 +1,4 @@
-//! Mock server module for all-smi
-//!
-//! This module provides a high-performance mock server that simulates
-//! realistic GPU clusters with multiple nodes, each containing multiple GPUs.
+//! Platform-specific mock template generators
 
 // Copyright 2025 Lablup Inc. and Jeongkyu Shin
 //
@@ -17,17 +14,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod args;
-pub mod constants;
-pub mod generator;
-pub mod metrics;
-pub mod node;
-pub mod server;
-pub mod template_engine;
-pub mod templates;
+pub mod apple_silicon;
+pub mod common;
+pub mod disk;
+pub mod furiosa;
+pub mod jetson;
+pub mod nvidia;
+pub mod rebellions;
+pub mod tenstorrent;
 
-// Keep the old template module temporarily for compatibility
-pub mod template;
-
-pub use args::Args;
-pub use server::start_servers;
+// Re-export commonly used items
+pub use apple_silicon::AppleSiliconMockGenerator;
+pub use furiosa::FuriosaMockGenerator;
+pub use jetson::JetsonMockGenerator;
+pub use nvidia::NvidiaMockGenerator;
+pub use rebellions::RebellionsMockGenerator;
+pub use tenstorrent::TenstorrentMockGenerator;
