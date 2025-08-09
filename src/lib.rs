@@ -16,6 +16,7 @@
 pub mod device;
 #[macro_use]
 pub mod parsing;
+pub mod traits;
 pub mod utils;
 
 // Re-export just the config module from common for library users
