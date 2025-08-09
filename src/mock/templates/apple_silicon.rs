@@ -15,7 +15,9 @@
 // limitations under the License.
 
 use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics};
-use all_smi::traits::mock_generator::{MockConfig, MockData, MockGenerator, MockPlatform, MockResult};
+use all_smi::traits::mock_generator::{
+    MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
+};
 
 /// Apple Silicon GPU mock generator
 pub struct AppleSiliconMockGenerator {
@@ -39,19 +41,19 @@ impl AppleSiliconMockGenerator {
         memory: &MemoryMetrics,
     ) -> String {
         let mut template = String::with_capacity(3072);
-        
+
         // Basic GPU metrics
         self.add_gpu_metrics(&mut template, gpus);
-        
+
         // Apple-specific: ANE metrics
         self.add_ane_metrics(&mut template, gpus);
-        
+
         // Apple-specific: Thermal pressure metrics
         self.add_thermal_metrics(&mut template, gpus);
-        
+
         // Apple-specific: System metrics with efficiency cores
         self.add_apple_system_metrics(&mut template, cpu, memory);
-        
+
         template
     }
 
@@ -59,9 +61,18 @@ impl AppleSiliconMockGenerator {
         let gpu_metrics = [
             ("all_smi_gpu_utilization", "GPU utilization percentage"),
             ("all_smi_gpu_memory_used_bytes", "GPU memory used in bytes"),
-            ("all_smi_gpu_memory_total_bytes", "GPU memory total in bytes"),
-            ("all_smi_gpu_temperature_celsius", "GPU temperature in celsius"),
-            ("all_smi_gpu_power_consumption_watts", "GPU power consumption in watts"),
+            (
+                "all_smi_gpu_memory_total_bytes",
+                "GPU memory total in bytes",
+            ),
+            (
+                "all_smi_gpu_temperature_celsius",
+                "GPU temperature in celsius",
+            ),
+            (
+                "all_smi_gpu_power_consumption_watts",
+                "GPU power consumption in watts",
+            ),
             ("all_smi_gpu_frequency_mhz", "GPU frequency in MHz"),
         ];
 
@@ -94,7 +105,7 @@ impl AppleSiliconMockGenerator {
         // ANE utilization in milliwatts
         template.push_str("# HELP all_smi_ane_utilization ANE utilization in mW\n");
         template.push_str("# TYPE all_smi_ane_utilization gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
@@ -108,7 +119,7 @@ impl AppleSiliconMockGenerator {
         // ANE power in watts
         template.push_str("# HELP all_smi_ane_power_watts ANE power consumption in watts\n");
         template.push_str("# TYPE all_smi_ane_power_watts gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
@@ -124,7 +135,7 @@ impl AppleSiliconMockGenerator {
         // Thermal pressure level
         template.push_str("# HELP all_smi_thermal_pressure_level Thermal pressure level (nominal/fair/serious/critical)\n");
         template.push_str("# TYPE all_smi_thermal_pressure_level gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", level=\"{{{{THERMAL_LEVEL_{i}}}}}\"",
@@ -136,7 +147,12 @@ impl AppleSiliconMockGenerator {
         }
     }
 
-    fn add_apple_system_metrics(&self, template: &mut String, _cpu: &CpuMetrics, memory: &MemoryMetrics) {
+    fn add_apple_system_metrics(
+        &self,
+        template: &mut String,
+        _cpu: &CpuMetrics,
+        memory: &MemoryMetrics,
+    ) {
         // CPU metrics with efficiency and performance cores
         template.push_str("# HELP all_smi_cpu_utilization CPU utilization percentage\n");
         template.push_str("# TYPE all_smi_cpu_utilization gauge\n");
@@ -156,7 +172,7 @@ impl AppleSiliconMockGenerator {
         // CPU core counts
         template.push_str("# HELP all_smi_cpu_cores Number of CPU cores\n");
         template.push_str("# TYPE all_smi_cpu_cores gauge\n");
-        
+
         // M3 Max has 12 performance + 4 efficiency = 16 total cores
         let p_cores = 12;
         let e_cores = 4;
@@ -170,7 +186,8 @@ impl AppleSiliconMockGenerator {
         ));
         template.push_str(&format!(
             "all_smi_cpu_cores{{instance=\"{}\"}} {}\n",
-            self.instance_name, p_cores + e_cores
+            self.instance_name,
+            p_cores + e_cores
         ));
 
         // Memory metrics (unified memory)
@@ -210,17 +227,38 @@ impl AppleSiliconMockGenerator {
         // Replace GPU metrics
         for (i, gpu) in gpus.iter().enumerate() {
             response = response
-                .replace(&format!("{{{{UTIL_{i}}}}}"), &format!("{:.2}", gpu.utilization))
-                .replace(&format!("{{{{MEM_USED_{i}}}}}"), &gpu.memory_used_bytes.to_string())
-                .replace(&format!("{{{{MEM_TOTAL_{i}}}}}"), &gpu.memory_total_bytes.to_string())
-                .replace(&format!("{{{{TEMP_{i}}}}}"), &gpu.temperature_celsius.to_string())
-                .replace(&format!("{{{{POWER_{i}}}}}"), &format!("{:.3}", gpu.power_consumption_watts))
+                .replace(
+                    &format!("{{{{UTIL_{i}}}}}"),
+                    &format!("{:.2}", gpu.utilization),
+                )
+                .replace(
+                    &format!("{{{{MEM_USED_{i}}}}}"),
+                    &gpu.memory_used_bytes.to_string(),
+                )
+                .replace(
+                    &format!("{{{{MEM_TOTAL_{i}}}}}"),
+                    &gpu.memory_total_bytes.to_string(),
+                )
+                .replace(
+                    &format!("{{{{TEMP_{i}}}}}"),
+                    &gpu.temperature_celsius.to_string(),
+                )
+                .replace(
+                    &format!("{{{{POWER_{i}}}}}"),
+                    &format!("{:.3}", gpu.power_consumption_watts),
+                )
                 .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
 
             // ANE metrics
             response = response
-                .replace(&format!("{{{{ANE_{i}}}}}"), &format!("{:.1}", gpu.ane_utilization_watts * 1000.0))
-                .replace(&format!("{{{{ANE_WATTS_{i}}}}}"), &format!("{:.3}", gpu.ane_utilization_watts));
+                .replace(
+                    &format!("{{{{ANE_{i}}}}}"),
+                    &format!("{:.1}", gpu.ane_utilization_watts * 1000.0),
+                )
+                .replace(
+                    &format!("{{{{ANE_WATTS_{i}}}}}"),
+                    &format!("{:.3}", gpu.ane_utilization_watts),
+                );
 
             // Thermal pressure
             let (thermal_level, thermal_value) = match gpu.temperature_celsius {
@@ -231,13 +269,16 @@ impl AppleSiliconMockGenerator {
             };
             response = response
                 .replace(&format!("{{{{THERMAL_LEVEL_{i}}}}}"), thermal_level)
-                .replace(&format!("{{{{THERMAL_VALUE_{i}}}}}"), &thermal_value.to_string());
+                .replace(
+                    &format!("{{{{THERMAL_VALUE_{i}}}}}"),
+                    &thermal_value.to_string(),
+                );
         }
 
         // Replace CPU metrics with efficiency/performance core split
         let e_util = cpu.utilization * 0.3; // Efficiency cores handle ~30% of load
         let p_util = cpu.utilization * 0.7; // Performance cores handle ~70% of load
-        
+
         response = response
             .replace("{{CPU_E_UTIL}}", &format!("{:.2}", e_util))
             .replace("{{CPU_P_UTIL}}", &format!("{:.2}", p_util))
@@ -255,13 +296,13 @@ impl AppleSiliconMockGenerator {
 impl MockGenerator for AppleSiliconMockGenerator {
     fn generate(&self, config: &MockConfig) -> MockResult<MockData> {
         self.validate_config(config)?;
-        
+
         // Generate initial GPU metrics (typically 1 for Apple Silicon)
         let gpus: Vec<GpuMetrics> = (0..config.device_count.min(1))
             .map(|_| {
                 use rand::{rng, Rng};
                 let mut rng = rng();
-                
+
                 GpuMetrics {
                     uuid: format!("APPLE-{:08x}", rng.random::<u32>()),
                     utilization: rng.random_range(0.0..100.0),
@@ -298,7 +339,7 @@ impl MockGenerator for AppleSiliconMockGenerator {
             e_cluster_frequency_mhz: Some(2000),
             per_core_utilization: vec![],
         };
-        
+
         let memory = MemoryMetrics {
             total_bytes: 68_719_476_736, // 64GB unified memory
             used_bytes: rng.random_range(10_000_000_000..60_000_000_000),
@@ -326,7 +367,7 @@ impl MockGenerator for AppleSiliconMockGenerator {
 
     fn generate_template(&self, config: &MockConfig) -> MockResult<String> {
         self.validate_config(config)?;
-        
+
         // Generate sample metrics for template
         let gpus: Vec<GpuMetrics> = (0..config.device_count.min(1))
             .map(|i| GpuMetrics {
@@ -361,7 +402,7 @@ impl MockGenerator for AppleSiliconMockGenerator {
             e_cluster_frequency_mhz: Some(2000),
             per_core_utilization: vec![],
         };
-        
+
         let memory = MemoryMetrics {
             total_bytes: 68_719_476_736,
             used_bytes: 0,
@@ -380,7 +421,7 @@ impl MockGenerator for AppleSiliconMockGenerator {
 
     fn render(&self, template: &str, config: &MockConfig) -> MockResult<String> {
         self.validate_config(config)?;
-        
+
         // This would use actual dynamic values in production
         Ok(template.to_string())
     }

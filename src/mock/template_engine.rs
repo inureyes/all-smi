@@ -17,11 +17,8 @@
 use crate::mock::constants::{PLACEHOLDER_DISK_AVAIL, PLACEHOLDER_DISK_TOTAL};
 use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics, PlatformType};
 use crate::mock::templates::{
-    apple_silicon::AppleSiliconMockGenerator,
-    furiosa::FuriosaMockGenerator,
-    jetson::JetsonMockGenerator,
-    nvidia::NvidiaMockGenerator,
-    rebellions::RebellionsMockGenerator,
+    apple_silicon::AppleSiliconMockGenerator, furiosa::FuriosaMockGenerator,
+    jetson::JetsonMockGenerator, nvidia::NvidiaMockGenerator, rebellions::RebellionsMockGenerator,
     tenstorrent::TenstorrentMockGenerator,
 };
 use all_smi::traits::mock_generator::{MockConfig, MockGenerator, MockPlatform};
@@ -46,62 +43,73 @@ pub fn build_response_template(
 
     // Create appropriate generator
     let generator = create_generator(platform, gpu_name.to_string(), instance_name.to_string());
-    
+
     // Build template using the generator
     match platform {
         PlatformType::Nvidia => {
-            let gen = NvidiaMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
+            let gen =
+                NvidiaMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
             let mut template = gen.build_nvidia_template(gpus, cpu, memory);
-            
+
             // Add disk metrics
             crate::mock::templates::disk::add_disk_metrics(&mut template, instance_name);
             template
         }
         PlatformType::Apple => {
-            let gen = AppleSiliconMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
+            let gen = AppleSiliconMockGenerator::new(
+                Some(gpu_name.to_string()),
+                instance_name.to_string(),
+            );
             let mut template = gen.build_apple_template(gpus, cpu, memory);
-            
+
             // Add disk metrics
             crate::mock::templates::disk::add_disk_metrics(&mut template, instance_name);
             template
         }
         PlatformType::Jetson => {
-            let gen = JetsonMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
+            let gen =
+                JetsonMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
             let mut template = gen.build_jetson_template(gpus);
-            
+
             // Add disk metrics
             crate::mock::templates::disk::add_disk_metrics(&mut template, instance_name);
             template
         }
         PlatformType::Tenstorrent => {
-            let gen = TenstorrentMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
+            let gen = TenstorrentMockGenerator::new(
+                Some(gpu_name.to_string()),
+                instance_name.to_string(),
+            );
             let mut template = gen.build_tenstorrent_template(gpus);
-            
+
             // Add disk metrics
             crate::mock::templates::disk::add_disk_metrics(&mut template, instance_name);
             template
         }
         PlatformType::Rebellions => {
-            let gen = RebellionsMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
+            let gen =
+                RebellionsMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
             let mut template = gen.build_rebellions_template(gpus);
-            
+
             // Add disk metrics
             crate::mock::templates::disk::add_disk_metrics(&mut template, instance_name);
             template
         }
         PlatformType::Furiosa => {
-            let gen = FuriosaMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
+            let gen =
+                FuriosaMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
             let mut template = gen.build_furiosa_template(gpus);
-            
+
             // Add disk metrics
             crate::mock::templates::disk::add_disk_metrics(&mut template, instance_name);
             template
         }
         _ => {
             // Default to NVIDIA for unsupported platforms
-            let gen = NvidiaMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
+            let gen =
+                NvidiaMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
             let mut template = gen.build_nvidia_template(gpus, cpu, memory);
-            
+
             // Add disk metrics
             crate::mock::templates::disk::add_disk_metrics(&mut template, instance_name);
             template
@@ -175,8 +183,14 @@ pub fn render_response(
         use rand::{rng, Rng};
         let mut rng = rng();
         response = response
-            .replace("{{DISK_READ}}", &rng.random_range(0..100_000_000).to_string())
-            .replace("{{DISK_WRITE}}", &rng.random_range(0..50_000_000).to_string());
+            .replace(
+                "{{DISK_READ}}",
+                &rng.random_range(0..100_000_000).to_string(),
+            )
+            .replace(
+                "{{DISK_WRITE}}",
+                &rng.random_range(0..50_000_000).to_string(),
+            );
     }
 
     response
@@ -190,10 +204,17 @@ fn create_generator(
 ) -> Box<dyn MockGenerator> {
     match platform {
         PlatformType::Nvidia => Box::new(NvidiaMockGenerator::new(Some(gpu_name), instance_name)),
-        PlatformType::Apple => Box::new(AppleSiliconMockGenerator::new(Some(gpu_name), instance_name)),
+        PlatformType::Apple => Box::new(AppleSiliconMockGenerator::new(
+            Some(gpu_name),
+            instance_name,
+        )),
         PlatformType::Jetson => Box::new(JetsonMockGenerator::new(Some(gpu_name), instance_name)),
-        PlatformType::Tenstorrent => Box::new(TenstorrentMockGenerator::new(Some(gpu_name), instance_name)),
-        PlatformType::Rebellions => Box::new(RebellionsMockGenerator::new(Some(gpu_name), instance_name)),
+        PlatformType::Tenstorrent => {
+            Box::new(TenstorrentMockGenerator::new(Some(gpu_name), instance_name))
+        }
+        PlatformType::Rebellions => {
+            Box::new(RebellionsMockGenerator::new(Some(gpu_name), instance_name))
+        }
         PlatformType::Furiosa => Box::new(FuriosaMockGenerator::new(Some(gpu_name), instance_name)),
         _ => Box::new(NvidiaMockGenerator::new(Some(gpu_name), instance_name)),
     }

@@ -16,7 +16,9 @@
 
 use crate::mock::constants::*;
 use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics, PlatformType};
-use all_smi::traits::mock_generator::{MockConfig, MockData, MockError, MockGenerator, MockPlatform, MockResult};
+use all_smi::traits::mock_generator::{
+    MockConfig, MockData, MockError, MockGenerator, MockPlatform, MockResult,
+};
 use std::collections::HashMap;
 
 /// NVIDIA GPU mock generator
@@ -41,22 +43,22 @@ impl NvidiaMockGenerator {
         memory: &MemoryMetrics,
     ) -> String {
         let mut template = String::with_capacity(4096);
-        
+
         // Basic GPU metrics
         self.add_gpu_metrics(&mut template, gpus);
-        
+
         // NVIDIA-specific: P-state metrics
         self.add_pstate_metrics(&mut template, gpus);
-        
+
         // NVIDIA-specific: Process metrics
         self.add_process_metrics(&mut template, gpus);
-        
+
         // NVIDIA-specific: Driver metrics
         self.add_driver_metrics(&mut template);
-        
+
         // CPU and memory metrics
         self.add_system_metrics(&mut template, cpu, memory);
-        
+
         template
     }
 
@@ -64,9 +66,18 @@ impl NvidiaMockGenerator {
         let gpu_metrics = [
             ("all_smi_gpu_utilization", "GPU utilization percentage"),
             ("all_smi_gpu_memory_used_bytes", "GPU memory used in bytes"),
-            ("all_smi_gpu_memory_total_bytes", "GPU memory total in bytes"),
-            ("all_smi_gpu_temperature_celsius", "GPU temperature in celsius"),
-            ("all_smi_gpu_power_consumption_watts", "GPU power consumption in watts"),
+            (
+                "all_smi_gpu_memory_total_bytes",
+                "GPU memory total in bytes",
+            ),
+            (
+                "all_smi_gpu_temperature_celsius",
+                "GPU temperature in celsius",
+            ),
+            (
+                "all_smi_gpu_power_consumption_watts",
+                "GPU power consumption in watts",
+            ),
             ("all_smi_gpu_frequency_mhz", "GPU frequency in MHz"),
         ];
 
@@ -98,7 +109,7 @@ impl NvidiaMockGenerator {
     fn add_pstate_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {
         template.push_str("# HELP all_smi_gpu_pstate GPU performance state\n");
         template.push_str("# TYPE all_smi_gpu_pstate gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
@@ -114,7 +125,7 @@ impl NvidiaMockGenerator {
         // Process count
         template.push_str("# HELP all_smi_gpu_process_count Number of processes running on GPU\n");
         template.push_str("# TYPE all_smi_gpu_process_count gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
@@ -128,7 +139,7 @@ impl NvidiaMockGenerator {
         // Process utilization
         template.push_str("# HELP all_smi_gpu_process_utilization Process GPU utilization\n");
         template.push_str("# TYPE all_smi_gpu_process_utilization gauge\n");
-        
+
         // Add placeholders for multiple processes per GPU
         for (gpu_idx, gpu) in gpus.iter().enumerate() {
             for proc_idx in 0..MAX_PROCESSES_PER_GPU {
@@ -146,7 +157,7 @@ impl NvidiaMockGenerator {
         // Process memory usage
         template.push_str("# HELP all_smi_gpu_process_memory_bytes Process GPU memory usage\n");
         template.push_str("# TYPE all_smi_gpu_process_memory_bytes gauge\n");
-        
+
         for (gpu_idx, gpu) in gpus.iter().enumerate() {
             for proc_idx in 0..MAX_PROCESSES_PER_GPU {
                 let labels = format!(
@@ -216,22 +227,37 @@ impl NvidiaMockGenerator {
         // Replace GPU metrics
         for (i, gpu) in gpus.iter().enumerate() {
             response = response
-                .replace(&format!("{{{{UTIL_{i}}}}}"), &format!("{:.2}", gpu.utilization))
-                .replace(&format!("{{{{MEM_USED_{i}}}}}"), &gpu.memory_used_bytes.to_string())
-                .replace(&format!("{{{{MEM_TOTAL_{i}}}}}"), &gpu.memory_total_bytes.to_string())
-                .replace(&format!("{{{{TEMP_{i}}}}}"), &gpu.temperature_celsius.to_string())
-                .replace(&format!("{{{{POWER_{i}}}}}"), &format!("{:.3}", gpu.power_consumption_watts))
+                .replace(
+                    &format!("{{{{UTIL_{i}}}}}"),
+                    &format!("{:.2}", gpu.utilization),
+                )
+                .replace(
+                    &format!("{{{{MEM_USED_{i}}}}}"),
+                    &gpu.memory_used_bytes.to_string(),
+                )
+                .replace(
+                    &format!("{{{{MEM_TOTAL_{i}}}}}"),
+                    &gpu.memory_total_bytes.to_string(),
+                )
+                .replace(
+                    &format!("{{{{TEMP_{i}}}}}"),
+                    &gpu.temperature_celsius.to_string(),
+                )
+                .replace(
+                    &format!("{{{{POWER_{i}}}}}"),
+                    &format!("{:.3}", gpu.power_consumption_watts),
+                )
                 .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
 
             // Replace P-state based on utilization
             let pstate = if gpu.utilization > 80.0 {
-                0  // P0 - Maximum performance
+                0 // P0 - Maximum performance
             } else if gpu.utilization > 50.0 {
-                2  // P2 - Balanced
+                2 // P2 - Balanced
             } else if gpu.utilization > 20.0 {
-                5  // P5 - Auto
+                5 // P5 - Auto
             } else if gpu.utilization > 0.0 {
-                8  // P8 - Adaptive
+                8 // P8 - Adaptive
             } else {
                 12 // P12 - Idle
             };
@@ -239,7 +265,7 @@ impl NvidiaMockGenerator {
 
             // Process metrics (simplified for now - no actual processes)
             response = response.replace(&format!("{{{{PROC_COUNT_{i}}}}}"), "0");
-            
+
             for proc_idx in 0..MAX_PROCESSES_PER_GPU {
                 response = response
                     .replace(&format!("{{{{PID_{i}_{proc_idx}}}}}"), "0")
@@ -261,13 +287,13 @@ impl NvidiaMockGenerator {
 impl MockGenerator for NvidiaMockGenerator {
     fn generate(&self, config: &MockConfig) -> MockResult<MockData> {
         self.validate_config(config)?;
-        
+
         // Generate initial GPU metrics
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|_| {
                 use rand::{rng, Rng};
                 let mut rng = rng();
-                
+
                 GpuMetrics {
                     uuid: crate::mock::metrics::gpu::generate_uuid(),
                     utilization: rng.random_range(0.0..100.0),
@@ -304,7 +330,7 @@ impl MockGenerator for NvidiaMockGenerator {
             e_cluster_frequency_mhz: None,
             per_core_utilization: vec![],
         };
-        
+
         let memory = MemoryMetrics {
             total_bytes: 1099511627776, // 1TB
             used_bytes: rng.random_range(10_000_000_000..500_000_000_000),
@@ -332,7 +358,7 @@ impl MockGenerator for NvidiaMockGenerator {
 
     fn generate_template(&self, config: &MockConfig) -> MockResult<String> {
         self.validate_config(config)?;
-        
+
         // Generate sample metrics for template
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|i| GpuMetrics {
@@ -367,7 +393,7 @@ impl MockGenerator for NvidiaMockGenerator {
             e_cluster_frequency_mhz: None,
             per_core_utilization: vec![],
         };
-        
+
         let memory = MemoryMetrics {
             total_bytes: 1099511627776,
             used_bytes: 0,
@@ -386,7 +412,7 @@ impl MockGenerator for NvidiaMockGenerator {
 
     fn render(&self, template: &str, config: &MockConfig) -> MockResult<String> {
         self.validate_config(config)?;
-        
+
         // This would use actual dynamic values in production
         Ok(template.to_string())
     }

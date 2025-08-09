@@ -15,7 +15,9 @@
 // limitations under the License.
 
 use crate::mock::metrics::GpuMetrics;
-use all_smi::traits::mock_generator::{MockConfig, MockData, MockGenerator, MockPlatform, MockResult};
+use all_smi::traits::mock_generator::{
+    MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
+};
 
 /// Jetson GPU mock generator
 pub struct JetsonMockGenerator {
@@ -33,16 +35,21 @@ impl JetsonMockGenerator {
 
     pub fn build_jetson_template(&self, gpus: &[GpuMetrics]) -> String {
         let mut template = String::with_capacity(3072);
-        
+
         // Basic GPU metrics
-        super::common::add_basic_gpu_metrics(&mut template, &self.gpu_name, &self.instance_name, gpus);
-        
+        super::common::add_basic_gpu_metrics(
+            &mut template,
+            &self.gpu_name,
+            &self.instance_name,
+            gpus,
+        );
+
         // Jetson-specific: DLA metrics
         self.add_dla_metrics(&mut template, gpus);
-        
+
         // Jetson-specific: System metrics with ARM CPU
         self.add_jetson_system_metrics(&mut template);
-        
+
         template
     }
 
@@ -58,7 +65,7 @@ impl JetsonMockGenerator {
         template.push_str("# HELP all_smi_cpu_cores Number of CPU cores\n");
         template.push_str("# TYPE all_smi_cpu_cores gauge\n");
         template.push_str(&format!(
-            "all_smi_cpu_cores{{instance=\"{}\"}} 12\n",  // Jetson AGX Orin: 12 cores
+            "all_smi_cpu_cores{{instance=\"{}\"}} 12\n", // Jetson AGX Orin: 12 cores
             self.instance_name
         ));
 
@@ -81,7 +88,7 @@ impl JetsonMockGenerator {
         template.push_str("# HELP all_smi_memory_total_bytes System memory total in bytes\n");
         template.push_str("# TYPE all_smi_memory_total_bytes gauge\n");
         template.push_str(&format!(
-            "all_smi_memory_total_bytes{{instance=\"{}\"}} 34359738368\n",  // 32GB
+            "all_smi_memory_total_bytes{{instance=\"{}\"}} 34359738368\n", // 32GB
             self.instance_name
         ));
     }
@@ -90,9 +97,10 @@ impl JetsonMockGenerator {
         // DLA utilization (Deep Learning Accelerator)
         template.push_str("# HELP all_smi_dla_utilization DLA utilization percentage\n");
         template.push_str("# TYPE all_smi_dla_utilization gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
-            for dla_idx in 0..2 {  // Jetson has 2 DLA cores
+            for dla_idx in 0..2 {
+                // Jetson has 2 DLA cores
                 let labels = format!(
                     "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", dla=\"{dla_idx}\"",
                     self.gpu_name, self.instance_name, gpu.uuid
@@ -106,7 +114,7 @@ impl JetsonMockGenerator {
         // DLA frequency
         template.push_str("# HELP all_smi_dla_frequency_mhz DLA frequency in MHz\n");
         template.push_str("# TYPE all_smi_dla_frequency_mhz gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             for dla_idx in 0..2 {
                 let labels = format!(
@@ -122,10 +130,10 @@ impl JetsonMockGenerator {
 
     pub fn render_jetson_response(&self, template: &str, gpus: &[GpuMetrics]) -> String {
         let mut response = template.to_string();
-        
+
         // Render basic GPU metrics
         response = super::common::render_basic_gpu_metrics(response, gpus);
-        
+
         // Render DLA metrics
         use rand::{rng, Rng};
         let mut rng = rng();
@@ -133,20 +141,33 @@ impl JetsonMockGenerator {
             for dla_idx in 0..2 {
                 let dla_util = rng.random_range(0.0..100.0);
                 let dla_freq = rng.random_range(600..1400);
-                
+
                 response = response
-                    .replace(&format!("{{{{DLA_{i}_{dla_idx}}}}}"), &format!("{:.2}", dla_util))
-                    .replace(&format!("{{{{DLA_FREQ_{i}_{dla_idx}}}}}"), &dla_freq.to_string());
+                    .replace(
+                        &format!("{{{{DLA_{i}_{dla_idx}}}}}"),
+                        &format!("{:.2}", dla_util),
+                    )
+                    .replace(
+                        &format!("{{{{DLA_FREQ_{i}_{dla_idx}}}}}"),
+                        &dla_freq.to_string(),
+                    );
             }
         }
-        
+
         // Render Jetson-specific system metrics
         // Note: CPU cores are hardcoded in template, only need to render dynamic values
         response = response
-            .replace("{{CPU_UTIL}}", &format!("{:.2}", rng.random_range(10.0..70.0))) // ARM CPUs typically run cooler
+            .replace(
+                "{{CPU_UTIL}}",
+                &format!("{:.2}", rng.random_range(10.0..70.0)),
+            ) // ARM CPUs typically run cooler
             .replace("{{CPU_FREQ}}", &rng.random_range(1200..2200).to_string()) // ARM frequency range
-            .replace("{{MEM_USED}}", &rng.random_range(2_000_000_000u64..30_000_000_000u64).to_string());
-        
+            .replace(
+                "{{MEM_USED}}",
+                &rng.random_range(2_000_000_000u64..30_000_000_000u64)
+                    .to_string(),
+            );
+
         response
     }
 }
@@ -154,7 +175,7 @@ impl JetsonMockGenerator {
 impl MockGenerator for JetsonMockGenerator {
     fn generate(&self, config: &MockConfig) -> MockResult<MockData> {
         self.validate_config(config)?;
-        
+
         let gpus = super::common::generate_gpu_metrics(config.device_count, 32_000_000_000); // 32GB
         let template = self.build_jetson_template(&gpus);
         let response = self.render_jetson_response(&template, &gpus);

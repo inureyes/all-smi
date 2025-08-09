@@ -15,7 +15,9 @@
 // limitations under the License.
 
 use crate::mock::metrics::GpuMetrics;
-use all_smi::traits::mock_generator::{MockConfig, MockData, MockGenerator, MockPlatform, MockResult};
+use all_smi::traits::mock_generator::{
+    MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
+};
 use rand::{rng, Rng};
 
 /// Furiosa NPU mock generator
@@ -34,25 +36,25 @@ impl FuriosaMockGenerator {
 
     pub fn build_furiosa_template(&self, gpus: &[GpuMetrics]) -> String {
         let mut template = String::with_capacity(4096);
-        
+
         // Basic GPU metrics (with Furiosa-specific labeling)
         self.add_furiosa_gpu_metrics(&mut template, gpus);
-        
+
         // Furiosa-specific: ANE metrics (always 0 for Furiosa)
         self.add_ane_metrics(&mut template, gpus);
-        
+
         // Furiosa-specific: NPU engine metrics
         self.add_npu_engine_metrics(&mut template, gpus);
-        
+
         // Furiosa-specific: NPU status metrics
         self.add_npu_status_metrics(&mut template, gpus);
-        
+
         // System metrics
         super::common::add_system_metrics(&mut template, &self.instance_name);
-        
+
         // Driver info
         self.add_driver_metrics(&mut template);
-        
+
         template
     }
 
@@ -60,9 +62,18 @@ impl FuriosaMockGenerator {
         let gpu_metrics = [
             ("all_smi_gpu_utilization", "GPU utilization percentage"),
             ("all_smi_gpu_memory_used_bytes", "GPU memory used in bytes"),
-            ("all_smi_gpu_memory_total_bytes", "GPU memory total in bytes"),
-            ("all_smi_gpu_temperature_celsius", "GPU temperature in celsius"),
-            ("all_smi_gpu_power_consumption_watts", "GPU power consumption in watts"),
+            (
+                "all_smi_gpu_memory_total_bytes",
+                "GPU memory total in bytes",
+            ),
+            (
+                "all_smi_gpu_temperature_celsius",
+                "GPU temperature in celsius",
+            ),
+            (
+                "all_smi_gpu_power_consumption_watts",
+                "GPU power consumption in watts",
+            ),
             ("all_smi_gpu_frequency_mhz", "GPU frequency in MHz"),
         ];
 
@@ -96,27 +107,27 @@ impl FuriosaMockGenerator {
         // ANE metrics (Furiosa always returns 0)
         template.push_str("# HELP all_smi_ane_utilization ANE utilization in mW\n");
         template.push_str("# TYPE all_smi_ane_utilization gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\"",
                 self.gpu_name, gpu.uuid
             );
             template.push_str(&format!(
-                "all_smi_ane_utilization{{{labels}}} 0\n"  // Always 0 for Furiosa
+                "all_smi_ane_utilization{{{labels}}} 0\n" // Always 0 for Furiosa
             ));
         }
 
         template.push_str("# HELP all_smi_ane_power_watts ANE power consumption in watts\n");
         template.push_str("# TYPE all_smi_ane_power_watts gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\"",
                 self.gpu_name, gpu.uuid
             );
             template.push_str(&format!(
-                "all_smi_ane_power_watts{{{labels}}} 0\n"  // Always 0 for Furiosa
+                "all_smi_ane_power_watts{{{labels}}} 0\n" // Always 0 for Furiosa
             ));
         }
     }
@@ -125,7 +136,7 @@ impl FuriosaMockGenerator {
         // NPU computation engine utilization
         template.push_str("# HELP all_smi_npu_computation_utilization NPU computation engine utilization percentage\n");
         template.push_str("# TYPE all_smi_npu_computation_utilization gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\"",
@@ -137,9 +148,11 @@ impl FuriosaMockGenerator {
         }
 
         // NPU copy engine utilization
-        template.push_str("# HELP all_smi_npu_copy_utilization NPU copy engine utilization percentage\n");
+        template.push_str(
+            "# HELP all_smi_npu_copy_utilization NPU copy engine utilization percentage\n",
+        );
         template.push_str("# TYPE all_smi_npu_copy_utilization gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\"",
@@ -155,7 +168,7 @@ impl FuriosaMockGenerator {
         // NPU status (idle/running)
         template.push_str("# HELP all_smi_npu_status NPU status (0=idle, 1=running)\n");
         template.push_str("# TYPE all_smi_npu_status gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\"",
@@ -169,14 +182,14 @@ impl FuriosaMockGenerator {
         // NPU error count
         template.push_str("# HELP all_smi_npu_error_count NPU error count\n");
         template.push_str("# TYPE all_smi_npu_error_count counter\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"npu{i}\", uuid=\"{}\", index=\"{i}\"",
                 self.gpu_name, gpu.uuid
             );
             template.push_str(&format!(
-                "all_smi_npu_error_count{{{labels}}} 0\n"  // Always 0 for mock
+                "all_smi_npu_error_count{{{labels}}} 0\n" // Always 0 for mock
             ));
         }
     }
@@ -193,10 +206,10 @@ impl FuriosaMockGenerator {
     pub fn render_furiosa_response(&self, template: &str, gpus: &[GpuMetrics]) -> String {
         let mut response = template.to_string();
         let mut rng = rng();
-        
+
         // Render basic GPU metrics
         response = super::common::render_basic_gpu_metrics(response, gpus);
-        
+
         // Render Furiosa-specific metrics
         for (i, gpu) in gpus.iter().enumerate() {
             // NPU engine metrics
@@ -210,19 +223,26 @@ impl FuriosaMockGenerator {
             } else {
                 0.0
             };
-            
+
             response = response
-                .replace(&format!("{{{{NPU_COMP_{i}}}}}"), &format!("{:.2}", npu_comp))
-                .replace(&format!("{{{{NPU_COPY_{i}}}}}"), &format!("{:.2}", npu_copy));
-            
+                .replace(
+                    &format!("{{{{NPU_COMP_{i}}}}}"),
+                    &format!("{:.2}", npu_comp),
+                )
+                .replace(
+                    &format!("{{{{NPU_COPY_{i}}}}}"),
+                    &format!("{:.2}", npu_copy),
+                );
+
             // NPU status (based on utilization)
             let npu_status = if gpu.utilization > 0.0 { 1 } else { 0 };
-            response = response.replace(&format!("{{{{NPU_STATUS_{i}}}}}"), &npu_status.to_string());
+            response =
+                response.replace(&format!("{{{{NPU_STATUS_{i}}}}}"), &npu_status.to_string());
         }
-        
+
         // Render system metrics
         response = super::common::render_system_metrics(response);
-        
+
         response
     }
 }
@@ -230,7 +250,7 @@ impl FuriosaMockGenerator {
 impl MockGenerator for FuriosaMockGenerator {
     fn generate(&self, config: &MockConfig) -> MockResult<MockData> {
         self.validate_config(config)?;
-        
+
         // Furiosa RNGD has 64GB memory
         let gpus = super::common::generate_gpu_metrics(config.device_count, 64_000_000_000);
         let template = self.build_furiosa_template(&gpus);

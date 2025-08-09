@@ -21,7 +21,7 @@ use rand::{rng, Rng};
 pub fn add_disk_metrics(template: &mut String, instance_name: &str) {
     template.push_str("# HELP all_smi_disk_total_bytes Total disk space in bytes\n");
     template.push_str("# TYPE all_smi_disk_total_bytes gauge\n");
-    
+
     let disk_labels = format!("instance=\"{instance_name}\", mount_point=\"/\", index=\"0\"");
     template.push_str(&format!(
         "all_smi_disk_total_bytes{{{disk_labels}}} {PLACEHOLDER_DISK_TOTAL}\n"
@@ -57,23 +57,23 @@ pub fn add_disk_metrics(template: &mut String, instance_name: &str) {
 /// Render disk metrics with dynamic values
 pub fn render_disk_metrics(response: String) -> String {
     let mut rng = rng();
-    
+
     // Random disk size: 1TB, 4TB, or 12TB
     let disk_total = match rng.random_range(0..3) {
-        0 => 1_099_511_627_776u64,   // 1TB
-        1 => 4_398_046_511_104u64,   // 4TB
-        _ => 13_194_139_533_312u64,  // 12TB
+        0 => 1_099_511_627_776u64,  // 1TB
+        1 => 4_398_046_511_104u64,  // 4TB
+        _ => 13_194_139_533_312u64, // 12TB
     };
-    
+
     // Available disk space (20-80% of total)
     let disk_avail = (disk_total as f64 * rng.random_range(0.2..0.8)) as u64;
     let disk_used = disk_total - disk_avail;
     let disk_util = (disk_used as f64 / disk_total as f64) * 100.0;
-    
+
     // I/O rates (in bytes/sec)
-    let disk_read = rng.random_range(0..100_000_000);  // 0-100 MB/s
-    let disk_write = rng.random_range(0..50_000_000);  // 0-50 MB/s
-    
+    let disk_read = rng.random_range(0..100_000_000); // 0-100 MB/s
+    let disk_write = rng.random_range(0..50_000_000); // 0-50 MB/s
+
     response
         .replace("{{DISK_TOTAL}}", &disk_total.to_string())
         .replace("{{DISK_AVAIL}}", &disk_avail.to_string())

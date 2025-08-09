@@ -15,7 +15,9 @@
 // limitations under the License.
 
 use crate::mock::metrics::GpuMetrics;
-use all_smi::traits::mock_generator::{MockConfig, MockData, MockGenerator, MockPlatform, MockResult};
+use all_smi::traits::mock_generator::{
+    MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
+};
 use rand::{rng, Rng};
 
 /// Rebellions NPU mock generator
@@ -34,22 +36,27 @@ impl RebellionsMockGenerator {
 
     pub fn build_rebellions_template(&self, gpus: &[GpuMetrics]) -> String {
         let mut template = String::with_capacity(3072);
-        
+
         // Basic GPU metrics
-        super::common::add_basic_gpu_metrics(&mut template, &self.gpu_name, &self.instance_name, gpus);
-        
+        super::common::add_basic_gpu_metrics(
+            &mut template,
+            &self.gpu_name,
+            &self.instance_name,
+            gpus,
+        );
+
         // Rebellions-specific: NPU metrics
         self.add_npu_metrics(&mut template, gpus);
-        
+
         // Rebellions-specific: Core status metrics
         self.add_core_metrics(&mut template, gpus);
-        
+
         // System metrics
         super::common::add_system_metrics(&mut template, &self.instance_name);
-        
+
         // Driver info
         self.add_driver_metrics(&mut template);
-        
+
         template
     }
 
@@ -57,7 +64,7 @@ impl RebellionsMockGenerator {
         // NPU core utilization
         template.push_str("# HELP all_smi_npu_core_utilization NPU core utilization percentage\n");
         template.push_str("# TYPE all_smi_npu_core_utilization gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
@@ -71,7 +78,7 @@ impl RebellionsMockGenerator {
         // NPU memory bandwidth utilization
         template.push_str("# HELP all_smi_npu_memory_bandwidth_percent NPU memory bandwidth utilization percentage\n");
         template.push_str("# TYPE all_smi_npu_memory_bandwidth_percent gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
@@ -87,7 +94,7 @@ impl RebellionsMockGenerator {
         // Core active status
         template.push_str("# HELP all_smi_npu_cores_active Number of active NPU cores\n");
         template.push_str("# TYPE all_smi_npu_cores_active gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
@@ -101,14 +108,14 @@ impl RebellionsMockGenerator {
         // Core total count
         template.push_str("# HELP all_smi_npu_cores_total Total number of NPU cores\n");
         template.push_str("# TYPE all_smi_npu_cores_total gauge\n");
-        
+
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
                 self.gpu_name, self.instance_name, gpu.uuid
             );
             template.push_str(&format!(
-                "all_smi_npu_cores_total{{{labels}}} 16\n"  // ATOM has 16 cores
+                "all_smi_npu_cores_total{{{labels}}} 16\n" // ATOM has 16 cores
             ));
         }
     }
@@ -125,23 +132,26 @@ impl RebellionsMockGenerator {
     pub fn render_rebellions_response(&self, template: &str, gpus: &[GpuMetrics]) -> String {
         let mut response = template.to_string();
         let mut rng = rng();
-        
+
         // Render basic GPU metrics
         response = super::common::render_basic_gpu_metrics(response, gpus);
-        
+
         // Render Rebellions-specific metrics
         for (i, gpu) in gpus.iter().enumerate() {
             // NPU core utilization (can differ slightly from GPU utilization)
             let npu_util = (gpu.utilization + rng.random_range(-5.0..5.0)).clamp(0.0, 100.0);
-            response = response.replace(&format!("{{{{NPU_UTIL_{i}}}}}"), &format!("{:.2}", npu_util));
-            
+            response = response.replace(
+                &format!("{{{{NPU_UTIL_{i}}}}}"),
+                &format!("{:.2}", npu_util),
+            );
+
             // Memory bandwidth utilization
             let mem_bw = rng.random_range(20.0..95.0);
             response = response.replace(&format!("{{{{NPU_BW_{i}}}}}"), &format!("{:.2}", mem_bw));
-            
+
             // Active cores (based on utilization)
             let cores_active = if gpu.utilization > 80.0 {
-                16  // All cores active
+                16 // All cores active
             } else if gpu.utilization > 50.0 {
                 12
             } else if gpu.utilization > 20.0 {
@@ -151,12 +161,15 @@ impl RebellionsMockGenerator {
             } else {
                 0
             };
-            response = response.replace(&format!("{{{{CORES_ACTIVE_{i}}}}}"), &cores_active.to_string());
+            response = response.replace(
+                &format!("{{{{CORES_ACTIVE_{i}}}}}"),
+                &cores_active.to_string(),
+            );
         }
-        
+
         // Render system metrics
         response = super::common::render_system_metrics(response);
-        
+
         response
     }
 }
@@ -164,7 +177,7 @@ impl RebellionsMockGenerator {
 impl MockGenerator for RebellionsMockGenerator {
     fn generate(&self, config: &MockConfig) -> MockResult<MockData> {
         self.validate_config(config)?;
-        
+
         let gpus = super::common::generate_gpu_metrics(config.device_count, 24_000_000_000); // 24GB
         let template = self.build_rebellions_template(&gpus);
         let response = self.render_rebellions_response(&template, &gpus);

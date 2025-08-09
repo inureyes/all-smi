@@ -27,9 +27,18 @@ pub fn add_basic_gpu_metrics(
     let gpu_metrics = [
         ("all_smi_gpu_utilization", "GPU utilization percentage"),
         ("all_smi_gpu_memory_used_bytes", "GPU memory used in bytes"),
-        ("all_smi_gpu_memory_total_bytes", "GPU memory total in bytes"),
-        ("all_smi_gpu_temperature_celsius", "GPU temperature in celsius"),
-        ("all_smi_gpu_power_consumption_watts", "GPU power consumption in watts"),
+        (
+            "all_smi_gpu_memory_total_bytes",
+            "GPU memory total in bytes",
+        ),
+        (
+            "all_smi_gpu_temperature_celsius",
+            "GPU temperature in celsius",
+        ),
+        (
+            "all_smi_gpu_power_consumption_watts",
+            "GPU power consumption in watts",
+        ),
         ("all_smi_gpu_frequency_mhz", "GPU frequency in MHz"),
     ];
 
@@ -91,11 +100,26 @@ pub fn add_system_metrics(template: &mut String, instance_name: &str) {
 pub fn render_basic_gpu_metrics(mut response: String, gpus: &[GpuMetrics]) -> String {
     for (i, gpu) in gpus.iter().enumerate() {
         response = response
-            .replace(&format!("{{{{UTIL_{i}}}}}"), &format!("{:.2}", gpu.utilization))
-            .replace(&format!("{{{{MEM_USED_{i}}}}}"), &gpu.memory_used_bytes.to_string())
-            .replace(&format!("{{{{MEM_TOTAL_{i}}}}}"), &gpu.memory_total_bytes.to_string())
-            .replace(&format!("{{{{TEMP_{i}}}}}"), &gpu.temperature_celsius.to_string())
-            .replace(&format!("{{{{POWER_{i}}}}}"), &format!("{:.3}", gpu.power_consumption_watts))
+            .replace(
+                &format!("{{{{UTIL_{i}}}}}"),
+                &format!("{:.2}", gpu.utilization),
+            )
+            .replace(
+                &format!("{{{{MEM_USED_{i}}}}}"),
+                &gpu.memory_used_bytes.to_string(),
+            )
+            .replace(
+                &format!("{{{{MEM_TOTAL_{i}}}}}"),
+                &gpu.memory_total_bytes.to_string(),
+            )
+            .replace(
+                &format!("{{{{TEMP_{i}}}}}"),
+                &gpu.temperature_celsius.to_string(),
+            )
+            .replace(
+                &format!("{{{{POWER_{i}}}}}"),
+                &format!("{:.3}", gpu.power_consumption_watts),
+            )
             .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
     }
     response
@@ -105,13 +129,20 @@ pub fn render_basic_gpu_metrics(mut response: String, gpus: &[GpuMetrics]) -> St
 pub fn render_system_metrics(mut response: String) -> String {
     use rand::{rng, Rng};
     let mut rng = rng();
-    
+
     response = response
-        .replace("{{CPU_UTIL}}", &format!("{:.2}", rng.random_range(10.0..90.0)))
+        .replace(
+            "{{CPU_UTIL}}",
+            &format!("{:.2}", rng.random_range(10.0..90.0)),
+        )
         .replace("{{CPU_CORES}}", "128")
-        .replace("{{MEM_USED}}", &rng.random_range(10_000_000_000u64..500_000_000_000u64).to_string())
-        .replace("{{MEM_TOTAL}}", "1099511627776");  // 1TB
-    
+        .replace(
+            "{{MEM_USED}}",
+            &rng.random_range(10_000_000_000u64..500_000_000_000u64)
+                .to_string(),
+        )
+        .replace("{{MEM_TOTAL}}", "1099511627776"); // 1TB
+
     response
 }
 
