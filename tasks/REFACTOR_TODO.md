@@ -108,38 +108,38 @@ Read the guide below and check the box when you have completed each step.
 - [x] Integration test: Verify mock server runs with all platform types
 
 ### 2.2 Split UI Device Renderers
-- [ ] Create `src/ui/renderers/` directory
-- [ ] Backup: `cp src/ui/device_renderers.rs src/ui/device_renderers.rs.backup`
-- [ ] Create `src/ui/renderers/widgets/` directory
-- [ ] Create `src/ui/renderers/widgets/tables.rs`
-  - [ ] Extract common table rendering functions
-  - [ ] Move `render_info_table()` function
-  - [ ] Define table style constants
-- [ ] Create `src/ui/renderers/widgets/gauges.rs`
-  - [ ] Extract common gauge rendering functions
-  - [ ] Move `render_gauge()` function
-  - [ ] Define gauge style constants
-- [ ] Create `src/ui/renderers/gpu_renderer.rs`
-  - [ ] Move GPU-related rendering functions only (~300 lines)
-  - [ ] Implement `GpuRenderer` struct
-  - [ ] Implement DeviceRenderer trait
-  - [ ] Remove GPU section from existing file
-  - [ ] Test: Verify GPU tab works in TUI view mode
-- [ ] Create `src/ui/renderers/cpu_renderer.rs`
-  - [ ] Move CPU-related rendering functions (~250 lines)
-  - [ ] Implement `CpuRenderer` struct
-  - [ ] Test: Verify CPU tab works in TUI view mode
-- [ ] Create `src/ui/renderers/memory_renderer.rs`
-  - [ ] Move Memory-related rendering functions (~200 lines)
-  - [ ] Test: Verify Memory tab works in TUI view mode
-- [ ] Create `src/ui/renderers/storage_renderer.rs`
-  - [ ] Move Storage-related rendering functions (~150 lines)
-  - [ ] Test: Verify Storage tab works in TUI view mode
-- [ ] Create `src/ui/renderers/mod.rs`
-  - [ ] Define public interface
-  - [ ] Renderer factory functions
-- [ ] Remove existing `device_renderers.rs`
-- [ ] Integration test: Verify all tab switching and rendering
+- [x] Create `src/ui/renderers/` directory
+- [x] Backup: `cp src/ui/device_renderers.rs src/ui/device_renderers.rs.backup`
+- [x] Create `src/ui/renderers/widgets/` directory
+- [x] Create `src/ui/renderers/widgets/tables.rs`
+  - [x] Extract common table rendering functions
+  - [x] Move `render_info_table()` function
+  - [x] Define table style constants
+- [x] Create `src/ui/renderers/widgets/gauges.rs`
+  - [x] Extract common gauge rendering functions
+  - [x] Move `render_gauge()` function
+  - [x] Define gauge style constants
+- [x] Create `src/ui/renderers/gpu_renderer.rs`
+  - [x] Move GPU-related rendering functions only (~300 lines)
+  - [x] Implement `GpuRenderer` struct
+  - [x] Implement DeviceRenderer trait
+  - [x] Remove GPU section from existing file
+  - [x] Test: Verify GPU tab works in TUI view mode
+- [x] Create `src/ui/renderers/cpu_renderer.rs`
+  - [x] Move CPU-related rendering functions (~250 lines)
+  - [x] Implement `CpuRenderer` struct
+  - [x] Test: Verify CPU tab works in TUI view mode
+- [x] Create `src/ui/renderers/memory_renderer.rs`
+  - [x] Move Memory-related rendering functions (~200 lines)
+  - [x] Test: Verify Memory tab works in TUI view mode
+- [x] Create `src/ui/renderers/storage_renderer.rs`
+  - [x] Move Storage-related rendering functions (~150 lines)
+  - [x] Test: Verify Storage tab works in TUI view mode
+- [x] Create `src/ui/renderers/mod.rs`
+  - [x] Define public interface
+  - [x] Renderer factory functions
+- [x] Remove existing `device_renderers.rs`
+- [x] Integration test: Verify all tab switching and rendering
 
 ### 2.3 Split PowerMetrics Manager
 - [ ] Create `src/device/powermetrics/` directory

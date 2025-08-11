@@ -12,9 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Re-export all the renderer functions from their respective modules
-pub use crate::ui::chrome::{print_function_keys, print_loading_indicator};
-pub use crate::ui::process_renderer::print_process_info;
-pub use crate::ui::renderers::{
-    print_cpu_info, print_gpu_info, print_memory_info, print_storage_info,
-};
+pub mod gauges;
+pub mod tables;
+
+// Re-export commonly used items
+#[allow(unused_imports)]
+pub use gauges::get_utilization_block;
+
+// Re-export for future use
+#[allow(unused_imports)]
+pub use gauges::render_gauge;
+#[allow(unused_imports)]
+pub use tables::{close_bordered_box, render_bordered_box, render_info_table, TableRow};
