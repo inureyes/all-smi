@@ -88,35 +88,35 @@ impl UiLoop {
             {
                 use std::time::Duration;
 
-                // Only check if we haven't shown both notifications yet
-                // and enough time has passed since last check (500ms)
-                if !self.powermetrics_notified
-                    && self.last_powermetrics_check.elapsed() >= Duration::from_millis(500)
-                {
-                    use crate::device::powermetrics::{
-                        get_powermetrics_manager, has_powermetrics_data,
-                    };
+                // Early exit: skip all checks if both notifications have been shown
+                if !(self.powermetrics_notified && self.powermetrics_pending_notified) {
+                    // Only check if enough time has passed since last check (500ms)
+                    if self.last_powermetrics_check.elapsed() >= Duration::from_millis(500) {
+                        use crate::device::powermetrics::{
+                            get_powermetrics_manager, has_powermetrics_data,
+                        };
 
-                    // Update last check time
-                    self.last_powermetrics_check = std::time::Instant::now();
+                        // Update last check time
+                        self.last_powermetrics_check = std::time::Instant::now();
 
-                    // Show pending notification if manager exists but data not ready
-                    if !self.powermetrics_pending_notified
-                        && get_powermetrics_manager().is_some()
-                        && !has_powermetrics_data()
-                    {
-                        let mut state = self.app_state.lock().await;
-                        let _ = state
-                            .notifications
-                            .info("Initializing PowerMetrics...".to_string());
-                        self.powermetrics_pending_notified = true;
-                    }
+                        // Show pending notification if manager exists but data not ready
+                        if !self.powermetrics_pending_notified
+                            && get_powermetrics_manager().is_some()
+                            && !has_powermetrics_data()
+                        {
+                            let mut state = self.app_state.lock().await;
+                            let _ = state
+                                .notifications
+                                .info("Initializing PowerMetrics...".to_string());
+                            self.powermetrics_pending_notified = true;
+                        }
 
-                    // Show success notification when data is ready
-                    if !self.powermetrics_notified && has_powermetrics_data() {
-                        let mut state = self.app_state.lock().await;
-                        let _ = state.notifications.status("PowerMetrics ready".to_string());
-                        self.powermetrics_notified = true;
+                        // Show success notification when data is ready
+                        if !self.powermetrics_notified && has_powermetrics_data() {
+                            let mut state = self.app_state.lock().await;
+                            let _ = state.notifications.status("PowerMetrics ready".to_string());
+                            self.powermetrics_notified = true;
+                        }
                     }
                 }
             }
