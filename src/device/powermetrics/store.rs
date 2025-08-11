@@ -23,9 +23,6 @@ pub struct MetricsStore {
     data_buffer: Arc<Mutex<VecDeque<String>>>,
     /// Cache of the last parsed data
     last_data: Arc<Mutex<Option<PowerMetricsData>>>,
-    /// Maximum number of sections to store
-    #[allow(dead_code)]
-    capacity: usize,
 }
 
 impl MetricsStore {
@@ -34,15 +31,14 @@ impl MetricsStore {
         Self {
             data_buffer: Arc::new(Mutex::new(VecDeque::with_capacity(capacity))),
             last_data: Arc::new(Mutex::new(None)),
-            capacity,
         }
     }
 
-    /// Add a new section to the buffer
-    #[allow(dead_code)]
-    pub fn add_section(&self, section: String) {
+    /// Add a new section to the buffer (used in tests)
+    #[cfg(test)]
+    pub fn add_section(&self, section: String, capacity: usize) {
         let mut buffer = self.data_buffer.lock().unwrap();
-        if buffer.len() >= self.capacity {
+        if buffer.len() >= capacity {
             buffer.pop_front(); // Remove oldest
         }
         buffer.push_back(section);
@@ -208,16 +204,17 @@ mod tests {
 
     #[test]
     fn test_buffer_overflow_protection() {
-        let store = MetricsStore::new(5);
+        let capacity = 5;
+        let store = MetricsStore::new(capacity);
 
         // Add more sections than capacity
         for i in 0..10 {
-            store.add_section(format!("Section {i}"));
+            store.add_section(format!("Section {i}"), capacity);
         }
 
         // Verify buffer size is maintained at limit
         let buffer = store.data_buffer.lock().unwrap();
-        assert_eq!(buffer.len(), 5);
+        assert_eq!(buffer.len(), capacity);
         assert!(buffer.back().unwrap().contains("Section 9"));
         assert!(buffer.front().unwrap().contains("Section 5"));
     }
@@ -227,7 +224,8 @@ mod tests {
         use std::thread;
         use std::time::Duration;
 
-        let store = Arc::new(MetricsStore::new(100));
+        let capacity = 100;
+        let store = Arc::new(MetricsStore::new(capacity));
         let mut handles = vec![];
 
         // Spawn multiple threads accessing the buffer
@@ -235,7 +233,7 @@ mod tests {
             let store_clone = store.clone();
             let handle = thread::spawn(move || {
                 for j in 0..20 {
-                    store_clone.add_section(format!("Thread {i} - Item {j}"));
+                    store_clone.add_section(format!("Thread {i} - Item {j}"), capacity);
                     thread::sleep(Duration::from_micros(100));
                 }
             });
@@ -249,6 +247,6 @@ mod tests {
 
         // Verify all items were added
         let buffer = store.data_buffer.lock().unwrap();
-        assert_eq!(buffer.len(), 100); // 5 threads * 20 items
+        assert_eq!(buffer.len(), capacity); // 5 threads * 20 items
     }
 }

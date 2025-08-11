@@ -28,10 +28,9 @@ mod store;
 
 // Re-export public types and functions
 pub use manager::{
-    get_powermetrics_manager, initialize_powermetrics_manager, shutdown_powermetrics_manager,
+    get_powermetrics_manager, has_powermetrics_data, initialize_powermetrics_manager,
+    shutdown_powermetrics_manager,
 };
-
-// Compatibility re-exports for existing code already included above
 
 #[cfg(test)]
 mod tests {

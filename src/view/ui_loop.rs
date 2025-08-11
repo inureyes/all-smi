@@ -50,6 +50,10 @@ pub struct UiLoop {
     previous_show_per_core_cpu: bool,
     last_render_time: std::time::Instant,
     resize_occurred: bool,
+    #[cfg(target_os = "macos")]
+    powermetrics_notified: bool,
+    #[cfg(target_os = "macos")]
+    powermetrics_pending_notified: bool,
 }
 
 impl UiLoop {
@@ -66,11 +70,41 @@ impl UiLoop {
             previous_show_per_core_cpu: false,
             last_render_time: std::time::Instant::now(),
             resize_occurred: false,
+            #[cfg(target_os = "macos")]
+            powermetrics_notified: false,
+            #[cfg(target_os = "macos")]
+            powermetrics_pending_notified: false,
         })
     }
 
     pub async fn run(&mut self, args: &ViewArgs) -> Result<(), Box<dyn std::error::Error>> {
         loop {
+            // Check PowerMetrics initialization on macOS
+            #[cfg(target_os = "macos")]
+            {
+                use crate::device::powermetrics::{
+                    get_powermetrics_manager, has_powermetrics_data,
+                };
+
+                // Show pending notification if manager exists but data not ready
+                if !self.powermetrics_pending_notified
+                    && get_powermetrics_manager().is_some()
+                    && !has_powermetrics_data()
+                {
+                    let mut state = self.app_state.lock().await;
+                    let _ = state
+                        .notifications
+                        .info("Initializing PowerMetrics...".to_string());
+                    self.powermetrics_pending_notified = true;
+                }
+
+                // Show success notification when data is ready
+                if !self.powermetrics_notified && has_powermetrics_data() {
+                    let mut state = self.app_state.lock().await;
+                    let _ = state.notifications.status("PowerMetrics ready".to_string());
+                    self.powermetrics_notified = true;
+                }
+            }
             // Handle events with timeout
             if let Ok(has_event) =
                 event::poll(Duration::from_millis(AppConfig::EVENT_POLL_TIMEOUT_MS))

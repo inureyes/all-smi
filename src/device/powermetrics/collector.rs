@@ -13,8 +13,6 @@
 // limitations under the License.
 
 use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 
 use super::config::PowerMetricsConfig;
 use super::process::ProcessManager;
@@ -59,17 +57,17 @@ impl DataCollector {
         self.store.get_process_info()
     }
 
-    /// Check if collection is running
-    #[allow(dead_code)]
-    pub fn is_running(&self) -> bool {
+    /// Check if collection is running (test use only)
+    #[cfg(test)]
+    pub(super) fn is_running(&self) -> bool {
         self.process_manager.is_running()
     }
 
-    /// Wait for initial data to be available
-    #[allow(dead_code)]
-    pub fn wait_for_initial_data(
+    /// Wait for initial data to be available (test use only)
+    #[cfg(test)]
+    pub(super) fn wait_for_initial_data(
         &self,
-        timeout: Duration,
+        timeout: std::time::Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let start = std::time::Instant::now();
 
@@ -77,7 +75,7 @@ impl DataCollector {
             if self.get_latest_data().is_ok() {
                 return Ok(());
             }
-            thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
         Err("Timeout waiting for initial powermetrics data".into())
@@ -93,11 +91,12 @@ impl Drop for DataCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::config::AppConfig;
 
     #[test]
     fn test_collector_creation() {
         let config = PowerMetricsConfig::default();
-        let store = Arc::new(MetricsStore::new(120));
+        let store = Arc::new(MetricsStore::new(AppConfig::POWERMETRICS_BUFFER_CAPACITY));
         let collector = DataCollector::new(config, store);
 
         // Verify collector is created but not running
@@ -107,11 +106,11 @@ mod tests {
     #[test]
     fn test_wait_for_initial_data_timeout() {
         let config = PowerMetricsConfig::default();
-        let store = Arc::new(MetricsStore::new(120));
+        let store = Arc::new(MetricsStore::new(AppConfig::POWERMETRICS_BUFFER_CAPACITY));
         let collector = DataCollector::new(config, store);
 
         // Should timeout since we haven't started collection
-        let result = collector.wait_for_initial_data(Duration::from_millis(100));
+        let result = collector.wait_for_initial_data(std::time::Duration::from_millis(100));
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Timeout"));
     }

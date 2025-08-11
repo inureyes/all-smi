@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use super::config::{PowerMetricsConfig, ReaderCommand};
 use super::store::MetricsStore;
+use crate::common::config::AppConfig;
 
 #[cfg(unix)]
 use libc;
@@ -128,7 +129,8 @@ impl ProcessManager {
                 // If we have a complete section, store it
                 if in_section && !current_section.is_empty() {
                     let mut buffer = data_buffer.lock().unwrap();
-                    if buffer.len() >= buffer.capacity() {
+                    // Keep maximum sections as defined in config
+                    if buffer.len() >= AppConfig::POWERMETRICS_BUFFER_CAPACITY {
                         buffer.pop_front(); // Remove oldest
                     }
                     buffer.push_back(current_section.clone());
@@ -330,9 +332,9 @@ impl ProcessManager {
         Self::kill_existing_powermetrics_processes();
     }
 
-    /// Check if the process is running
-    #[allow(dead_code)]
-    pub fn is_running(&self) -> bool {
+    /// Check if the process is running (test use only)
+    #[cfg(test)]
+    pub(super) fn is_running(&self) -> bool {
         *self.is_running.lock().unwrap()
     }
 }

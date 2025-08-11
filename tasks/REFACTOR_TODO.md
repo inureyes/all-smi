@@ -141,13 +141,14 @@ Read the guide below and check the box when you have completed each step.
 - [x] Remove existing `device_renderers.rs`
 - [x] Integration test: Verify all tab switching and rendering
 
-### 2.3 Split PowerMetrics Manager
+### 2.3 Split PowerMetrics Manager ✅
 - [x] Create `src/device/powermetrics/` directory
 - [x] Backup: `cp src/device/powermetrics_manager.rs src/device/powermetrics_manager.rs.backup`
 - [x] Create `src/device/powermetrics/config.rs`
   - [x] Move configuration constants
   - [x] Define `PowerMetricsConfig` struct
   - [x] Implement defaults
+  - [x] Migrate to use centralized AppConfig constants
 - [x] Create `src/device/powermetrics/store.rs`
   - [x] Extract `MetricsStore` struct (~300 lines)
   - [x] Move circular buffer logic
@@ -166,11 +167,15 @@ Read the guide below and check the box when you have completed each step.
   - [x] Refactored `PowerMetricsManager` (~300 lines)
   - [x] Maintain existing singleton pattern but use modules internally
   - [x] Maintain public API (backward compatibility)
+  - [x] Add initialization state tracking for UI notifications
 - [x] Create `src/device/powermetrics/mod.rs`
   - [x] Define public interface
   - [x] Setup re-exports
 - [x] Remove existing `powermetrics_manager.rs`
 - [x] Test: `cargo test` passes
+- [x] Dead code cleanup - removed unused public APIs
+- [x] UI notifications for PowerMetrics initialization
+- [x] Centralized configuration management via common/config.rs
 - [ ] Test: Verify actual view mode execution on macOS
 
 ---

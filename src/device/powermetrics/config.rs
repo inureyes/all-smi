@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::common::config::AppConfig;
+
 /// Configuration for the PowerMetrics system
 #[derive(Debug, Clone)]
 pub struct PowerMetricsConfig {
@@ -32,8 +34,8 @@ pub struct PowerMetricsConfig {
 impl Default for PowerMetricsConfig {
     fn default() -> Self {
         Self {
-            interval_ms: 1000,    // 1 second default
-            buffer_capacity: 120, // 2 minutes of data at 1 second intervals
+            interval_ms: AppConfig::POWERMETRICS_DEFAULT_INTERVAL_MS,
+            buffer_capacity: AppConfig::POWERMETRICS_BUFFER_CAPACITY,
             nice_value: 10,
             samplers: vec![
                 "cpu_power".to_string(),

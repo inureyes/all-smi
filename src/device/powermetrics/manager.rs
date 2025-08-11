@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use once_cell::sync::Lazy;
 
@@ -25,6 +25,9 @@ use crate::device::powermetrics_parser::PowerMetricsData;
 /// Global singleton for PowerMetricsManager
 static POWERMETRICS_MANAGER: Lazy<Mutex<Option<Arc<PowerMetricsManager>>>> =
     Lazy::new(|| Mutex::new(None));
+
+/// Track if first data has been received
+static FIRST_DATA_RECEIVED: AtomicBool = AtomicBool::new(false);
 
 /// Manages a long-running powermetrics process with in-memory circular buffer
 pub struct PowerMetricsManager {
@@ -49,19 +52,19 @@ impl PowerMetricsManager {
     /// Get the latest powermetrics data from the circular buffer
     fn get_latest_data_internal(&self) -> Result<PowerMetricsData, Box<dyn std::error::Error>> {
         let collector = self.collector.lock().unwrap();
-        collector.get_latest_data()
+        let result = collector.get_latest_data();
+
+        // Track first successful data retrieval
+        if result.is_ok() && !FIRST_DATA_RECEIVED.load(Ordering::Relaxed) {
+            FIRST_DATA_RECEIVED.store(true, Ordering::Relaxed);
+        }
+
+        result
     }
 
     /// Get latest data as Result (public API for backward compatibility)
     pub fn get_latest_data_result(&self) -> Result<PowerMetricsData, Box<dyn std::error::Error>> {
         self.get_latest_data_internal()
-    }
-
-    /// Get latest data as Option (for test compatibility)
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub fn get_latest_data(&self) -> Option<PowerMetricsData> {
-        self.get_latest_data_result().ok()
     }
 
     /// Get process information from the latest powermetrics data
@@ -98,42 +101,17 @@ pub fn shutdown_powermetrics_manager() {
             *manager_guard = None;
         }
 
+        // Reset first data flag
+        FIRST_DATA_RECEIVED.store(false, Ordering::Relaxed);
+
         // The manager will be dropped when the last Arc reference is dropped
         // The Drop implementation in DataCollector will handle cleanup
     }
 }
 
-/// Public API for getting the latest PowerMetrics data
-#[allow(dead_code)]
-pub fn get_latest_powermetrics_data() -> Result<PowerMetricsData, Box<dyn std::error::Error>> {
-    if let Some(manager) = get_powermetrics_manager() {
-        manager.get_latest_data_internal()
-    } else {
-        Err("PowerMetrics manager not initialized".into())
-    }
-}
-
-/// Public API for getting process information
-#[allow(dead_code)]
-pub fn get_powermetrics_process_info() -> Vec<(String, u32, f64)> {
-    if let Some(manager) = get_powermetrics_manager() {
-        manager.get_process_info()
-    } else {
-        Vec::new()
-    }
-}
-
-/// Wait for the initial powermetrics data to be available
-#[allow(dead_code)]
-pub fn wait_for_initial_powermetrics_data(
-    timeout: Duration,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(manager) = get_powermetrics_manager() {
-        let collector = manager.collector.lock().unwrap();
-        collector.wait_for_initial_data(timeout)
-    } else {
-        Err("PowerMetrics manager not initialized".into())
-    }
+/// Check if PowerMetrics has received its first data
+pub fn has_powermetrics_data() -> bool {
+    FIRST_DATA_RECEIVED.load(Ordering::Relaxed)
 }
 
 #[cfg(test)]
@@ -145,24 +123,8 @@ mod tests {
         // Ensure manager is not initialized
         shutdown_powermetrics_manager();
 
-        // Should return error when not initialized
-        let result = get_latest_powermetrics_data();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not initialized"));
-
-        // Process info should return empty when not initialized
-        let processes = get_powermetrics_process_info();
-        assert!(processes.is_empty());
-    }
-
-    #[test]
-    fn test_wait_for_initial_data_not_initialized() {
-        // Ensure manager is not initialized
-        shutdown_powermetrics_manager();
-
-        // Should return error when not initialized
-        let result = wait_for_initial_powermetrics_data(Duration::from_millis(100));
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not initialized"));
+        // Manager should be None when not initialized
+        let manager = get_powermetrics_manager();
+        assert!(manager.is_none());
     }
 }
