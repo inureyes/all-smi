@@ -305,6 +305,22 @@ make test
 
 For development documentation including building from source, testing with mock servers, architecture details, and technology stack information, see [DEVELOPERS.md](DEVELOPERS.md).
 
+## Testing
+
+For comprehensive testing documentation including unit tests, integration tests, and shell script tests, see [TESTING.md](TESTING.md).
+
+### Quick Test Commands
+```bash
+# Run all unit tests (no sudo required)
+cargo test
+
+# Run tests including those requiring sudo (macOS only)
+sudo cargo test -- --include-ignored
+
+# Run shell script tests for containers and real-world scenarios
+cd tests && make all
+```
+
 ## Contributing
 
 Contributions are welcome! Areas for contribution include:

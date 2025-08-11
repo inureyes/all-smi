@@ -187,6 +187,7 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
+    #[ignore] // Run with: sudo cargo test -- --ignored
     fn test_ensure_sudo_permissions_macos() {
         ensure_sudo_permissions();
     }
@@ -198,6 +199,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "macos", ignore)] // Run with: sudo cargo test -- --ignored
     fn test_ensure_sudo_permissions_with_fallback_returns_bool() {
         let _result = ensure_sudo_permissions_with_fallback();
         // Function should execute without panicking and return a boolean
@@ -206,6 +208,8 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn test_has_sudo_privileges_on_macos() {
+        // This test just checks if the function runs without error
+        // It doesn't require sudo itself
         let _result = has_sudo_privileges();
         // Function should execute without panicking and return a boolean
     }

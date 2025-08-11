@@ -17,6 +17,7 @@ pub mod disk_filter;
 pub mod profiling;
 pub mod runtime_environment;
 pub mod system;
+pub mod test_helpers;
 pub mod units;
 
 pub use command_timeout::run_command_fast_fail;
