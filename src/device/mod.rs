@@ -42,7 +42,7 @@ pub mod memory_macos;
 
 // Powermetrics parser for Apple Silicon
 #[cfg(target_os = "macos")]
-pub mod powermetrics_manager;
+pub mod powermetrics;
 #[cfg(target_os = "macos")]
 pub mod powermetrics_parser;
 

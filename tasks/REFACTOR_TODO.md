@@ -142,35 +142,35 @@ Read the guide below and check the box when you have completed each step.
 - [x] Integration test: Verify all tab switching and rendering
 
 ### 2.3 Split PowerMetrics Manager
-- [ ] Create `src/device/powermetrics/` directory
-- [ ] Backup: `cp src/device/powermetrics_manager.rs src/device/powermetrics_manager.rs.backup`
-- [ ] Create `src/device/powermetrics/config.rs`
-  - [ ] Move configuration constants
-  - [ ] Define `PowerMetricsConfig` struct
-  - [ ] Implement defaults
-- [ ] Create `src/device/powermetrics/store.rs`
-  - [ ] Extract `MetricsStore` struct (~300 lines)
-  - [ ] Move circular buffer logic
-  - [ ] Implement data storage/retrieval methods
-  - [ ] Write unit tests
-- [ ] Create `src/device/powermetrics/process.rs`
-  - [ ] Extract process management logic (~400 lines)
-  - [ ] Implement `ProcessManager` struct
-  - [ ] Process start/stop/restart logic
-  - [ ] Write unit tests
-- [ ] Create `src/device/powermetrics/collector.rs`
-  - [ ] Background collection task logic (~200 lines)
-  - [ ] Implement `DataCollector` struct
-  - [ ] Parsing and storage integration
-- [ ] Create `src/device/powermetrics/manager.rs`
-  - [ ] Refactored `PowerMetricsManager` (~300 lines)
-  - [ ] Maintain existing singleton pattern but use modules internally
-  - [ ] Maintain public API (backward compatibility)
-- [ ] Create `src/device/powermetrics/mod.rs`
-  - [ ] Define public interface
-  - [ ] Setup re-exports
-- [ ] Remove existing `powermetrics_manager.rs`
-- [ ] Test: `sudo cargo test` on macOS
+- [x] Create `src/device/powermetrics/` directory
+- [x] Backup: `cp src/device/powermetrics_manager.rs src/device/powermetrics_manager.rs.backup`
+- [x] Create `src/device/powermetrics/config.rs`
+  - [x] Move configuration constants
+  - [x] Define `PowerMetricsConfig` struct
+  - [x] Implement defaults
+- [x] Create `src/device/powermetrics/store.rs`
+  - [x] Extract `MetricsStore` struct (~300 lines)
+  - [x] Move circular buffer logic
+  - [x] Implement data storage/retrieval methods
+  - [x] Write unit tests
+- [x] Create `src/device/powermetrics/process.rs`
+  - [x] Extract process management logic (~400 lines)
+  - [x] Implement `ProcessManager` struct
+  - [x] Process start/stop/restart logic
+  - [x] Write unit tests
+- [x] Create `src/device/powermetrics/collector.rs`
+  - [x] Background collection task logic (~200 lines)
+  - [x] Implement `DataCollector` struct
+  - [x] Parsing and storage integration
+- [x] Create `src/device/powermetrics/manager.rs`
+  - [x] Refactored `PowerMetricsManager` (~300 lines)
+  - [x] Maintain existing singleton pattern but use modules internally
+  - [x] Maintain public API (backward compatibility)
+- [x] Create `src/device/powermetrics/mod.rs`
+  - [x] Define public interface
+  - [x] Setup re-exports
+- [x] Remove existing `powermetrics_manager.rs`
+- [x] Test: `cargo test` passes
 - [ ] Test: Verify actual view mode execution on macOS
 
 ---

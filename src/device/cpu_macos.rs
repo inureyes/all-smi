@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::device::powermetrics_manager::get_powermetrics_manager;
+use crate::device::powermetrics::get_powermetrics_manager;
 use crate::device::{
     AppleSiliconCpuInfo, CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader,
     CpuSocketInfo,

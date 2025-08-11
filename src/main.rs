@@ -35,9 +35,7 @@ use utils::{ensure_sudo_permissions, ensure_sudo_permissions_with_fallback, Runt
 #[cfg(target_os = "macos")]
 use device::is_apple_silicon;
 #[cfg(target_os = "macos")]
-use device::powermetrics_manager::{
-    initialize_powermetrics_manager, shutdown_powermetrics_manager,
-};
+use device::powermetrics::{initialize_powermetrics_manager, shutdown_powermetrics_manager};
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -179,7 +177,7 @@ fn setup_panic_handler() {
     std::panic::set_hook(Box::new(move |panic_info| {
         // Clean up PowerMetricsManager before panicking
         if POWERMETRICS_INITIALIZED.load(Ordering::Relaxed) {
-            device::powermetrics_manager::shutdown_powermetrics_manager();
+            device::powermetrics::shutdown_powermetrics_manager();
         }
         default_panic(panic_info);
     }));
