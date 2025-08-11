@@ -90,3 +90,65 @@ pub const TABLE_LABEL_COLOR: Color = Color::Yellow;
 pub const TABLE_VALUE_COLOR: Color = Color::White;
 #[allow(dead_code)]
 pub const TABLE_BORDER_COLOR: Color = Color::Cyan;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_table_row_creation() {
+        let row = TableRow::new("Label", "Value");
+        assert_eq!(row.label, "Label");
+        assert_eq!(row.value, "Value");
+        assert_eq!(row.label_color, Color::Yellow);
+        assert_eq!(row.value_color, Color::White);
+    }
+
+    #[test]
+    fn test_table_row_with_colors() {
+        let row = TableRow::new("Label", "Value").with_colors(Color::Red, Color::Blue);
+        assert_eq!(row.label_color, Color::Red);
+        assert_eq!(row.value_color, Color::Blue);
+    }
+
+    #[test]
+    fn test_render_info_table() {
+        let mut buffer = Cursor::new(Vec::new());
+        let rows = vec![
+            TableRow::new("CPU:", "Intel i7"),
+            TableRow::new("RAM:", "16GB"),
+        ];
+
+        render_info_table(&mut buffer, &rows);
+
+        let output = String::from_utf8(buffer.into_inner()).unwrap();
+        assert!(output.contains("CPU:"));
+        assert!(output.contains("Intel i7"));
+        assert!(output.contains("RAM:"));
+        assert!(output.contains("16GB"));
+    }
+
+    #[test]
+    fn test_render_bordered_box() {
+        let mut buffer = Cursor::new(Vec::new());
+        render_bordered_box(&mut buffer, "Title", 20, Color::Cyan);
+
+        let output = String::from_utf8(buffer.into_inner()).unwrap();
+        assert!(output.contains("╭"));
+        assert!(output.contains("Title"));
+        assert!(output.contains("╮"));
+        assert!(output.contains("─"));
+    }
+
+    #[test]
+    fn test_close_bordered_box() {
+        let mut buffer = Cursor::new(Vec::new());
+        close_bordered_box(&mut buffer, 20, Color::Cyan);
+
+        let output = String::from_utf8(buffer.into_inner()).unwrap();
+        assert!(output.contains("╰"));
+        assert!(output.contains("╯"));
+        assert!(output.contains("─"));
+    }
+}

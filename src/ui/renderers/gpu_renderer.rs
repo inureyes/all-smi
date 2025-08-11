@@ -32,7 +32,7 @@ impl GpuRenderer {
 }
 
 /// Helper function to format hostname with scrolling
-fn format_hostname_with_scroll(hostname: &str, scroll_offset: usize) -> String {
+pub(crate) fn format_hostname_with_scroll(hostname: &str, scroll_offset: usize) -> String {
     if hostname.len() > 9 {
         let scroll_len = hostname.len() + 3;
         let start_pos = scroll_offset % scroll_len;
@@ -251,4 +251,40 @@ pub fn print_gpu_info<W: Write>(
 
     print_colored_text(stdout, &" ".repeat(right_padding), Color::White, None, None); // dynamic right padding
     queue!(stdout, Print("\r\n")).unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_hostname_with_scroll() {
+        // Test short hostname (no scrolling needed)
+        assert_eq!(format_hostname_with_scroll("host", 0), "host     ");
+        assert_eq!(format_hostname_with_scroll("host", 5), "host     ");
+
+        // Test exact 9 characters
+        assert_eq!(format_hostname_with_scroll("localhost", 0), "localhost");
+
+        // Test long hostname with scrolling
+        let long_hostname = "very-long-hostname";
+        assert_eq!(format_hostname_with_scroll(long_hostname, 0).len(), 9);
+        assert_eq!(format_hostname_with_scroll(long_hostname, 0), "very-long");
+        assert_eq!(format_hostname_with_scroll(long_hostname, 5), "long-host");
+        assert_eq!(format_hostname_with_scroll(long_hostname, 10), "hostname ");
+
+        // Test scrolling wraps around
+        let scroll_len = long_hostname.len() + 3;
+        assert_eq!(
+            format_hostname_with_scroll(long_hostname, scroll_len),
+            format_hostname_with_scroll(long_hostname, 0)
+        );
+    }
+
+    #[test]
+    fn test_gpu_renderer_new() {
+        let renderer = GpuRenderer::new();
+        // Just verify it can be created
+        let _ = renderer;
+    }
 }

@@ -58,3 +58,67 @@ pub const GAUGE_MEDIUM_COLOR: Color = Color::Yellow;
 pub const GAUGE_LOW_COLOR: Color = Color::Green;
 #[allow(dead_code)]
 pub const GAUGE_MINIMAL_COLOR: Color = Color::Blue;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_utilization_block() {
+        // Test high utilization
+        let (block, color) = get_utilization_block(95.0);
+        assert_eq!(block, "█");
+        assert_eq!(color, Color::Red);
+
+        let (block, color) = get_utilization_block(85.0);
+        assert_eq!(block, "▇");
+        assert_eq!(color, Color::Magenta);
+
+        // Test medium utilization
+        let (block, color) = get_utilization_block(75.0);
+        assert_eq!(block, "▆");
+        assert_eq!(color, Color::Yellow);
+
+        let (block, color) = get_utilization_block(55.0);
+        assert_eq!(block, "▄");
+        assert_eq!(color, Color::Green);
+
+        // Test low utilization
+        let (block, color) = get_utilization_block(35.0);
+        assert_eq!(block, "▂");
+        assert_eq!(color, Color::Cyan);
+
+        let (block, color) = get_utilization_block(15.0);
+        assert_eq!(block, "▁");
+        assert_eq!(color, Color::Blue);
+
+        // Test minimal utilization
+        let (block, color) = get_utilization_block(5.0);
+        assert_eq!(block, "▁");
+        assert_eq!(color, Color::DarkGrey);
+
+        let (block, color) = get_utilization_block(0.0);
+        assert_eq!(block, "▁");
+        assert_eq!(color, Color::DarkGrey);
+    }
+
+    #[test]
+    fn test_render_gauge() {
+        use std::io::Cursor;
+
+        let mut buffer = Cursor::new(Vec::new());
+        render_gauge(
+            &mut buffer,
+            "Test",
+            50.0,
+            100.0,
+            20,
+            Color::Blue,
+            Some("50%".to_string()),
+        );
+
+        // Just verify it doesn't panic
+        let output = String::from_utf8(buffer.into_inner()).unwrap();
+        assert!(output.contains("Test"));
+    }
+}
