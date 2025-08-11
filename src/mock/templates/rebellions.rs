@@ -140,14 +140,12 @@ impl RebellionsMockGenerator {
         for (i, gpu) in gpus.iter().enumerate() {
             // NPU core utilization (can differ slightly from GPU utilization)
             let npu_util = (gpu.utilization + rng.random_range(-5.0..5.0)).clamp(0.0, 100.0);
-            response = response.replace(
-                &format!("{{{{NPU_UTIL_{i}}}}}"),
-                &format!("{:.2}", npu_util),
-            );
+            response =
+                response.replace(&format!("{{{{NPU_UTIL_{i}}}}}"), &format!("{npu_util:.2}"));
 
             // Memory bandwidth utilization
             let mem_bw = rng.random_range(20.0..95.0);
-            response = response.replace(&format!("{{{{NPU_BW_{i}}}}}"), &format!("{:.2}", mem_bw));
+            response = response.replace(&format!("{{{{NPU_BW_{i}}}}}"), &format!("{mem_bw:.2}"));
 
             // Active cores (based on utilization)
             let cores_active = if gpu.utilization > 80.0 {

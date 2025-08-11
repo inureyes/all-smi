@@ -55,6 +55,7 @@ pub fn add_disk_metrics(template: &mut String, instance_name: &str) {
 }
 
 /// Render disk metrics with dynamic values
+#[allow(dead_code)]
 pub fn render_disk_metrics(response: String) -> String {
     let mut rng = rng();
 
@@ -77,12 +78,13 @@ pub fn render_disk_metrics(response: String) -> String {
     response
         .replace("{{DISK_TOTAL}}", &disk_total.to_string())
         .replace("{{DISK_AVAIL}}", &disk_avail.to_string())
-        .replace("{{DISK_UTIL}}", &format!("{:.2}", disk_util))
+        .replace("{{DISK_UTIL}}", &format!("{disk_util:.2}"))
         .replace("{{DISK_READ}}", &disk_read.to_string())
         .replace("{{DISK_WRITE}}", &disk_write.to_string())
 }
 
 /// Generate disk metrics for a specific size
+#[allow(dead_code)]
 pub fn generate_disk_metrics_with_size(total_bytes: u64) -> (u64, u64) {
     let mut rng = rng();
     let available_bytes = (total_bytes as f64 * rng.random_range(0.2..0.8)) as u64;

@@ -104,8 +104,8 @@ Read the guide below and check the box when you have completed each step.
 - [x] Create `src/mock/template_engine.rs`
   - [x] Implement common template rendering logic
   - [x] Platform-specific MockGenerator selection logic
-- [ ] Remove existing `template.rs` file
-- [ ] Integration test: Verify mock server runs with all platform types
+- [x] Remove existing `template.rs` file
+- [x] Integration test: Verify mock server runs with all platform types
 
 ### 2.2 Split UI Device Renderers
 - [ ] Create `src/ui/renderers/` directory

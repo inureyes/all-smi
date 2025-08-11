@@ -145,7 +145,7 @@ impl JetsonMockGenerator {
                 response = response
                     .replace(
                         &format!("{{{{DLA_{i}_{dla_idx}}}}}"),
-                        &format!("{:.2}", dla_util),
+                        &format!("{dla_util:.2}"),
                     )
                     .replace(
                         &format!("{{{{DLA_FREQ_{i}_{dla_idx}}}}}"),

@@ -33,7 +33,7 @@ pub fn build_response_template(
     platform: &PlatformType,
 ) -> String {
     // Convert PlatformType to MockConfig
-    let config = MockConfig {
+    let _config = MockConfig {
         platform: platform_type_to_mock_platform(platform),
         device_count: gpus.len(),
         node_name: instance_name.to_string(),
@@ -42,7 +42,7 @@ pub fn build_response_template(
     };
 
     // Create appropriate generator
-    let generator = create_generator(platform, gpu_name.to_string(), instance_name.to_string());
+    let _generator = create_generator(platform, gpu_name.to_string(), instance_name.to_string());
 
     // Build template using the generator
     match platform {
@@ -176,7 +176,7 @@ pub fn render_response(
     } else {
         0.0
     };
-    response = response.replace("{{DISK_UTIL}}", &format!("{:.2}", disk_util));
+    response = response.replace("{{DISK_UTIL}}", &format!("{disk_util:.2}"));
 
     // Default I/O values if not already replaced
     if response.contains("{{DISK_READ}}") {

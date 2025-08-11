@@ -28,22 +28,37 @@ pub const DISK_SIZE_4TB: u64 = 4 * 1024 * 1024 * 1024 * 1024;
 pub const DISK_SIZE_12TB: u64 = 12 * 1024 * 1024 * 1024 * 1024;
 
 // CPU placeholders
+#[allow(dead_code)]
 pub const PLACEHOLDER_CPU_UTIL: &str = "{{CPU_UTIL}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_CPU_SOCKET0_UTIL: &str = "{{CPU_SOCKET0_UTIL}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_CPU_SOCKET1_UTIL: &str = "{{CPU_SOCKET1_UTIL}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_CPU_P_CORE_UTIL: &str = "{{CPU_P_CORE_UTIL}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_CPU_E_CORE_UTIL: &str = "{{CPU_E_CORE_UTIL}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_CPU_TEMP: &str = "{{CPU_TEMP}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_CPU_POWER: &str = "{{CPU_POWER}}";
 
 // System memory placeholders
+#[allow(dead_code)]
 pub const PLACEHOLDER_SYS_MEMORY_USED: &str = "{{SYS_MEMORY_USED}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_SYS_MEMORY_AVAILABLE: &str = "{{SYS_MEMORY_AVAILABLE}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_SYS_MEMORY_FREE: &str = "{{SYS_MEMORY_FREE}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_SYS_MEMORY_UTIL: &str = "{{SYS_MEMORY_UTIL}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_SYS_SWAP_USED: &str = "{{SYS_SWAP_USED}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_SYS_SWAP_FREE: &str = "{{SYS_SWAP_FREE}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_SYS_MEMORY_BUFFERS: &str = "{{SYS_MEMORY_BUFFERS}}";
+#[allow(dead_code)]
 pub const PLACEHOLDER_SYS_MEMORY_CACHED: &str = "{{SYS_MEMORY_CACHED}}";
 
 // Disk placeholders

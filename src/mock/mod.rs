@@ -26,8 +26,5 @@ pub mod server;
 pub mod template_engine;
 pub mod templates;
 
-// Keep the old template module temporarily for compatibility
-pub mod template;
-
 pub use args::Args;
 pub use server::start_servers;

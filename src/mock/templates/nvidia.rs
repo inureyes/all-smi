@@ -14,12 +14,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::mock::constants::*;
-use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics, PlatformType};
+use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics};
 use all_smi::traits::mock_generator::{
-    MockConfig, MockData, MockError, MockGenerator, MockPlatform, MockResult,
+    MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
 };
-use std::collections::HashMap;
 
 /// NVIDIA GPU mock generator
 pub struct NvidiaMockGenerator {

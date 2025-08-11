@@ -130,7 +130,7 @@ impl TenstorrentMockGenerator {
                     "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
                     self.gpu_name, self.instance_name, gpu.uuid
                 );
-                let placeholder = format!("{{{{{}_{}}}}}", clock_name.to_uppercase(), i);
+                let placeholder = format!("{{{{{}_{i}}}}}", clock_name.to_uppercase());
                 template.push_str(&format!(
                     "all_smi_{clock_name}_mhz{{{labels}}} {placeholder}\n"
                 ));
@@ -188,10 +188,8 @@ impl TenstorrentMockGenerator {
         for (i, gpu) in gpus.iter().enumerate() {
             // SoC utilization (similar to GPU utilization but can differ)
             let soc_util = (gpu.utilization + rng.random_range(-10.0..10.0)).clamp(0.0, 100.0);
-            response = response.replace(
-                &format!("{{{{SOC_UTIL_{i}}}}}"),
-                &format!("{:.2}", soc_util),
-            );
+            response =
+                response.replace(&format!("{{{{SOC_UTIL_{i}}}}}"), &format!("{soc_util:.2}"));
 
             // Temperature sensors (variations from main temp)
             let asic_temp = gpu.temperature_celsius;

@@ -170,7 +170,7 @@ pub fn generate_gpu_metrics(count: usize, memory_total: u64) -> Vec<GpuMetrics> 
 pub fn generate_empty_gpu_metrics(count: usize, memory_total: u64) -> Vec<GpuMetrics> {
     (0..count)
         .map(|i| GpuMetrics {
-            uuid: format!("GPU-{:08x}", i),
+            uuid: format!("GPU-{i:08x}"),
             utilization: 0.0,
             memory_used_bytes: 0,
             memory_total_bytes: memory_total,

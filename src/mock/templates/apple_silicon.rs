@@ -280,14 +280,14 @@ impl AppleSiliconMockGenerator {
         let p_util = cpu.utilization * 0.7; // Performance cores handle ~70% of load
 
         response = response
-            .replace("{{CPU_E_UTIL}}", &format!("{:.2}", e_util))
-            .replace("{{CPU_P_UTIL}}", &format!("{:.2}", p_util))
+            .replace("{{CPU_E_UTIL}}", &format!("{e_util:.2}"))
+            .replace("{{CPU_P_UTIL}}", &format!("{p_util:.2}"))
             .replace("{{CPU_UTIL}}", &format!("{:.2}", cpu.utilization))
             .replace("{{MEM_USED}}", &memory.used_bytes.to_string());
 
         // Memory pressure (based on usage percentage)
         let mem_pressure = (memory.used_bytes as f64 / memory.total_bytes as f64) * 100.0;
-        response = response.replace("{{MEM_PRESSURE}}", &format!("{:.2}", mem_pressure));
+        response = response.replace("{{MEM_PRESSURE}}", &format!("{mem_pressure:.2}"));
 
         response
     }

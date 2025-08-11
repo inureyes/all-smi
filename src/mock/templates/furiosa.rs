@@ -225,14 +225,8 @@ impl FuriosaMockGenerator {
             };
 
             response = response
-                .replace(
-                    &format!("{{{{NPU_COMP_{i}}}}}"),
-                    &format!("{:.2}", npu_comp),
-                )
-                .replace(
-                    &format!("{{{{NPU_COPY_{i}}}}}"),
-                    &format!("{:.2}", npu_copy),
-                );
+                .replace(&format!("{{{{NPU_COMP_{i}}}}}"), &format!("{npu_comp:.2}"))
+                .replace(&format!("{{{{NPU_COPY_{i}}}}}"), &format!("{npu_copy:.2}"));
 
             // NPU status (based on utilization)
             let npu_status = if gpu.utilization > 0.0 { 1 } else { 0 };
