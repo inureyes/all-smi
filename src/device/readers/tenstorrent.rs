@@ -35,14 +35,14 @@ pub enum CollectionMethod {
 
 /// Configuration for Tenstorrent reader
 pub struct TenstorrentConfig {
-    /// Primary method to use for collecting metrics
-    pub primary_method: CollectionMethod,
+    /// Primary method to use for collecting metrics (reserved for future use)
+    pub _primary_method: CollectionMethod,
 }
 
 impl Default for TenstorrentConfig {
     fn default() -> Self {
         Self {
-            primary_method: CollectionMethod::DeviceFile,
+            _primary_method: CollectionMethod::DeviceFile,
         }
     }
 }
@@ -81,7 +81,7 @@ struct CachedChipInfo {
 static INITIALIZED_CHIPS: Lazy<Mutex<Option<Vec<CachedChipInfo>>>> = Lazy::new(|| Mutex::new(None));
 
 pub struct TenstorrentReader {
-    config: TenstorrentConfig,
+    _config: TenstorrentConfig,
 }
 
 impl Default for TenstorrentReader {
@@ -93,12 +93,13 @@ impl Default for TenstorrentReader {
 impl TenstorrentReader {
     pub fn new() -> Self {
         Self {
-            config: TenstorrentConfig::default(),
+            _config: TenstorrentConfig::default(),
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_config(config: TenstorrentConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     /// Get or initialize chips with caching
@@ -146,6 +147,7 @@ impl TenstorrentReader {
     }
 
     /// Invalidate cache to force re-detection on next access
+    #[allow(dead_code)]
     pub fn invalidate_cache() {
         let mut chips_guard = INITIALIZED_CHIPS.lock().unwrap();
         *chips_guard = None;
@@ -218,6 +220,7 @@ fn clear_tenstorrent_status() {
 }
 
 /// Get a user-friendly message about Tenstorrent status
+#[allow(dead_code)]
 pub fn get_tenstorrent_status_message() -> Option<String> {
     TENSTORRENT_STATUS.lock().ok()?.clone()
 }
@@ -386,6 +389,12 @@ fn build_device_details(
     }
     if let Some(ref gen) = static_info.pcie_link_gen {
         detail.insert("PCIe Link Gen".to_string(), gen.clone());
+    }
+    if let Some(ref ddr_fw) = static_info.ddr_fw_version {
+        detail.insert("DDR Firmware".to_string(), ddr_fw.clone());
+    }
+    if let Some(ref spi_fw) = static_info.spibootrom_fw_version {
+        detail.insert("SPI Bootrom Firmware".to_string(), spi_fw.clone());
     }
 
     // Dynamic telemetry

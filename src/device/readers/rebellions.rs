@@ -80,9 +80,11 @@ struct RblnContext {
     memory: String,
 }
 
+/// Type alias for the cached command information
+type CommandCache = Arc<Mutex<Option<(String, PathBuf)>>>;
+
 /// Cache for rebellions command path
-static RBLN_COMMAND_CACHE: Lazy<Arc<Mutex<Option<(String, PathBuf)>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(None)));
+static RBLN_COMMAND_CACHE: Lazy<CommandCache> = Lazy::new(|| Arc::new(Mutex::new(None)));
 
 pub struct RebellionsNpuReader;
 
@@ -154,7 +156,7 @@ impl RebellionsNpuReader {
 
     /// Get NPU info using rbln-stat or rbln-smi
     fn get_npu_info_internal(&self) -> Vec<GpuInfo> {
-        let (command, path) = match Self::get_rebellions_command() {
+        let (_command, path) = match Self::get_rebellions_command() {
             Some(cmd) => cmd,
             None => return Vec::new(),
         };

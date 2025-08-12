@@ -82,11 +82,13 @@ fn set_nvml_status(error: NvmlError) {
 }
 
 // Get global NVML status
+#[allow(dead_code)]
 pub fn get_nvml_status() -> Option<String> {
     NVML_STATUS.lock().ok()?.clone()
 }
 
 /// Get a user-friendly message about NVML status
+#[allow(dead_code)]
 pub fn get_nvml_status_message() -> Option<String> {
     // Only return the stored status, don't try to initialize NVML here
     if let Ok(status) = NVML_STATUS.lock() {
