@@ -67,6 +67,7 @@ pub fn is_running_in_container() -> bool {
 }
 
 /// Check if a process is running in a container by examining its namespace
+#[allow(dead_code)]
 pub fn is_containerized_process(pid: u32) -> bool {
     // Check if the process has a different PID namespace than init (PID 1)
     if let (Ok(init_ns), Ok(proc_ns)) = (
@@ -360,6 +361,7 @@ pub fn build_pid_mapping_cache() -> HashMap<u32, u32> {
 }
 
 /// Format process name with container indicator if applicable
+#[allow(dead_code)]
 pub fn format_process_name_with_container_info(process_name: String, pid: u32) -> String {
     if is_running_in_container() {
         // We're in a container, indicate this in the process name
