@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use crate::device::{
-    nvidia_jetson,
     platform_detection::{
         get_os_type, has_furiosa, has_nvidia, has_rebellions, has_tenstorrent, is_jetson,
     },
-    readers::{furiosa, nvidia, rebellions, tenstorrent},
+    readers::{furiosa, nvidia, nvidia_jetson, rebellions, tenstorrent},
     traits::{CpuReader, GpuReader, MemoryReader},
 };
 

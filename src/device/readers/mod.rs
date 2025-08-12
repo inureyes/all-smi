@@ -16,5 +16,6 @@
 
 pub mod furiosa;
 pub mod nvidia;
+pub mod nvidia_jetson;
 pub mod rebellions;
 pub mod tenstorrent;

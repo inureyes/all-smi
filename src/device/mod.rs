@@ -14,7 +14,6 @@
 
 #[cfg(target_os = "macos")]
 pub mod apple_silicon;
-pub mod nvidia_jetson;
 
 // Re-export status functions for UI
 pub use readers::nvidia::get_nvml_status_message;
