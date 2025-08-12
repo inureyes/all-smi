@@ -53,6 +53,7 @@ pub mod platform_detection;
 pub mod process_list;
 pub mod process_utils;
 pub mod reader_factory;
+pub mod readers;
 pub mod traits;
 pub mod types;
 
