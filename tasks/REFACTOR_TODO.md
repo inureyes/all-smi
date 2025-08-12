@@ -81,24 +81,24 @@ Read the guide below and check the box when you have completed each step.
   - [x] Move NVIDIA-related templates only (~200 lines)
   - [x] Implement `NvidiaMockGenerator`
   - [x] Remove NVIDIA section from existing template.rs
-  - [ ] Test: Run mock server in NVIDIA mode to verify operation
+  - [x] Test: Run mock server in NVIDIA mode to verify operation
 - [x] Create `src/mock/templates/apple_silicon.rs`
   - [x] Move Apple Silicon templates (~150 lines)
   - [x] Implement `AppleSiliconMockGenerator`
   - [x] Remove Apple Silicon section from existing template.rs
-  - [ ] Test: Run mock server in Apple mode to verify operation
+  - [x] Test: Run mock server in Apple mode to verify operation
 - [x] Create `src/mock/templates/jetson.rs`
   - [x] Move Jetson templates (~180 lines)
-  - [ ] Test: Run mock server in Jetson mode
+  - [x] Test: Run mock server in Jetson mode
 - [x] Create `src/mock/templates/tenstorrent.rs`
   - [x] Move Tenstorrent templates (~220 lines)
-  - [ ] Test: Run mock server in Tenstorrent mode
+  - [x] Test: Run mock server in Tenstorrent mode
 - [x] Create `src/mock/templates/rebellions.rs`
   - [x] Move Rebellions templates (~160 lines)
-  - [ ] Test: Run mock server in Rebellions mode
+  - [x] Test: Run mock server in Rebellions mode
 - [x] Create `src/mock/templates/furiosa.rs`
   - [x] Move Furiosa templates (~180 lines)
-  - [ ] Test: Run mock server in Furiosa mode
+  - [x] Test: Run mock server in Furiosa mode
 - [x] Create `src/mock/templates/disk.rs`
   - [x] Move disk metrics templates (~100 lines)
 - [x] Create `src/mock/template_engine.rs`
