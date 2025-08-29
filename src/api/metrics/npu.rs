@@ -45,7 +45,7 @@ impl<'a> NpuMetricExporter<'a> {
             ];
             builder
                 .help("all_smi_npu_firmware_info", "NPU firmware version")
-                .type_("all_smi_npu_firmware_info", "info")
+                .type_("all_smi_npu_firmware_info", "gauge")
                 .metric("all_smi_npu_firmware_info", &fw_labels, 1);
         }
     }
@@ -77,7 +77,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_rebellions_firmware_info",
                     "Rebellions NPU firmware version",
                 )
-                .type_("all_smi_rebellions_firmware_info", "info")
+                .type_("all_smi_rebellions_firmware_info", "gauge")
                 .metric("all_smi_rebellions_firmware_info", &fw_labels, 1);
         }
 
@@ -89,7 +89,7 @@ impl<'a> NpuMetricExporter<'a> {
             ];
             builder
                 .help("all_smi_rebellions_kmd_info", "Rebellions KMD version")
-                .type_("all_smi_rebellions_kmd_info", "info")
+                .type_("all_smi_rebellions_kmd_info", "gauge")
                 .metric("all_smi_rebellions_kmd_info", &kmd_labels, 1);
         }
 
@@ -118,7 +118,7 @@ impl<'a> NpuMetricExporter<'a> {
                         "all_smi_rebellions_device_info",
                         "Rebellions device information",
                     )
-                    .type_("all_smi_rebellions_device_info", "info")
+                    .type_("all_smi_rebellions_device_info", "gauge")
                     .metric("all_smi_rebellions_device_info", &device_labels, 1);
             }
         }
@@ -137,7 +137,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_rebellions_pstate_info",
                     "Current performance state",
                 )
-                .type_("all_smi_rebellions_pstate_info", "info")
+                .type_("all_smi_rebellions_pstate_info", "gauge")
                 .metric("all_smi_rebellions_pstate_info", &pstate_labels, 1);
         }
 
@@ -210,7 +210,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_arc_firmware_info",
                     "ARC firmware version",
                 )
-                .type_("all_smi_tenstorrent_arc_firmware_info", "info")
+                .type_("all_smi_tenstorrent_arc_firmware_info", "gauge")
                 .metric("all_smi_tenstorrent_arc_firmware_info", &fw_labels, 1);
         }
 
@@ -228,7 +228,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_eth_firmware_info",
                     "Ethernet firmware version",
                 )
-                .type_("all_smi_tenstorrent_eth_firmware_info", "info")
+                .type_("all_smi_tenstorrent_eth_firmware_info", "gauge")
                 .metric("all_smi_tenstorrent_eth_firmware_info", &fw_labels, 1);
         }
 
@@ -246,7 +246,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_firmware_date_info",
                     "Firmware build date",
                 )
-                .type_("all_smi_tenstorrent_firmware_date_info", "info")
+                .type_("all_smi_tenstorrent_firmware_date_info", "gauge")
                 .metric("all_smi_tenstorrent_firmware_date_info", &fw_labels, 1);
         }
 
@@ -264,7 +264,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_ddr_firmware_info",
                     "DDR firmware version",
                 )
-                .type_("all_smi_tenstorrent_ddr_firmware_info", "info")
+                .type_("all_smi_tenstorrent_ddr_firmware_info", "gauge")
                 .metric("all_smi_tenstorrent_ddr_firmware_info", &fw_labels, 1);
         }
 
@@ -282,7 +282,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_spibootrom_firmware_info",
                     "SPI Boot ROM firmware version",
                 )
-                .type_("all_smi_tenstorrent_spibootrom_firmware_info", "info")
+                .type_("all_smi_tenstorrent_spibootrom_firmware_info", "gauge")
                 .metric(
                     "all_smi_tenstorrent_spibootrom_firmware_info",
                     &fw_labels,
@@ -590,7 +590,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_pcie_status_info",
                     "PCIe status register value",
                 )
-                .type_("all_smi_tenstorrent_pcie_status_info", "info")
+                .type_("all_smi_tenstorrent_pcie_status_info", "gauge")
                 .metric("all_smi_tenstorrent_pcie_status_info", &status_labels, 1);
         }
 
@@ -609,7 +609,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_eth_status_info",
                     "Ethernet status register value",
                 )
-                .type_("all_smi_tenstorrent_eth_status_info", "info")
+                .type_("all_smi_tenstorrent_eth_status_info", "gauge")
                 .metric("all_smi_tenstorrent_eth_status_info", &status_labels, 1);
         }
 
@@ -627,7 +627,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_eth_status_info",
                     "Ethernet status register value",
                 )
-                .type_("all_smi_tenstorrent_eth_status_info", "info")
+                .type_("all_smi_tenstorrent_eth_status_info", "gauge")
                 .metric("all_smi_tenstorrent_eth_status_info", &status_labels, 1);
         }
 
@@ -762,7 +762,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_board_info",
                     "Tenstorrent board information",
                 )
-                .type_("all_smi_tenstorrent_board_info", "info")
+                .type_("all_smi_tenstorrent_board_info", "gauge")
                 .metric("all_smi_tenstorrent_board_info", &board_labels, 1);
         }
 
@@ -780,7 +780,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_collection_method_info",
                     "Data collection method used",
                 )
-                .type_("all_smi_tenstorrent_collection_method_info", "info")
+                .type_("all_smi_tenstorrent_collection_method_info", "gauge")
                 .metric(
                     "all_smi_tenstorrent_collection_method_info",
                     &method_labels,
@@ -816,7 +816,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_pcie_address_info",
                     "PCIe address information",
                 )
-                .type_("all_smi_tenstorrent_pcie_address_info", "info")
+                .type_("all_smi_tenstorrent_pcie_address_info", "gauge")
                 .metric("all_smi_tenstorrent_pcie_address_info", &pcie_labels, 1);
         }
 
@@ -836,7 +836,7 @@ impl<'a> NpuMetricExporter<'a> {
                         "all_smi_tenstorrent_pcie_device_info",
                         "PCIe device identification",
                     )
-                    .type_("all_smi_tenstorrent_pcie_device_info", "info")
+                    .type_("all_smi_tenstorrent_pcie_device_info", "gauge")
                     .metric("all_smi_tenstorrent_pcie_device_info", &pcie_labels, 1);
             }
         }
@@ -881,7 +881,7 @@ impl<'a> NpuMetricExporter<'a> {
                     "all_smi_tenstorrent_dram_info",
                     "DRAM configuration information",
                 )
-                .type_("all_smi_tenstorrent_dram_info", "info")
+                .type_("all_smi_tenstorrent_dram_info", "gauge")
                 .metric("all_smi_tenstorrent_dram_info", &dram_labels, 1);
         }
     }

@@ -149,7 +149,7 @@ impl<'a> GpuMetricExporter<'a> {
             ];
             builder
                 .help("all_smi_thermal_pressure_info", "Thermal pressure level")
-                .type_("all_smi_thermal_pressure_info", "info")
+                .type_("all_smi_thermal_pressure_info", "gauge")
                 .metric("all_smi_thermal_pressure_info", &thermal_labels, 1);
         }
     }
@@ -175,7 +175,7 @@ impl<'a> GpuMetricExporter<'a> {
 
         builder
             .help("all_smi_gpu_info", "GPU/NPU device information")
-            .type_("all_smi_gpu_info", "info");
+            .type_("all_smi_gpu_info", "gauge");
 
         // Build dynamic labels by combining base and detail labels
         let mut all_labels = Vec::new();

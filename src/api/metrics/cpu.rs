@@ -44,7 +44,7 @@ impl<'a> CpuMetricExporter<'a> {
 
         builder
             .help("all_smi_cpu_info", "CPU device information")
-            .type_("all_smi_cpu_info", "info")
+            .type_("all_smi_cpu_info", "gauge")
             .metric("all_smi_cpu_info", &cpu_info_labels, 1);
 
         // CPU utilization
