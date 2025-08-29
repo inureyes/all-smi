@@ -78,7 +78,10 @@ async fn main() {
 
     match cli.command {
         Some(Commands::Api(args)) => {
+            #[cfg(target_os = "macos")]
             let has_sudo = ensure_sudo_permissions_for_api();
+            #[cfg(not(target_os = "macos"))]
+            let _has_sudo = ensure_sudo_permissions_for_api();
 
             // Initialize PowerMetricsManager if we have sudo
             #[cfg(target_os = "macos")]
