@@ -64,7 +64,7 @@ impl<'a> NpuMetricExporter<'a> {
         ];
 
         // Rebellions firmware info
-        if let Some(fw_version) = info.detail.get("Firmware Version") {
+        if let Some(fw_version) = info.detail.get("firmware_version") {
             let fw_labels = [
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
@@ -82,7 +82,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
 
         // KMD version
-        if let Some(kmd_version) = info.detail.get("KMD Version") {
+        if let Some(kmd_version) = info.detail.get("kmd_version") {
             let kmd_labels = [
                 ("instance", info.instance.as_str()),
                 ("version", kmd_version.as_str()),
@@ -94,8 +94,8 @@ impl<'a> NpuMetricExporter<'a> {
         }
 
         // Device info
-        if let Some(_device_name) = info.detail.get("Device Name") {
-            if let Some(sid) = info.detail.get("Serial ID") {
+        if let Some(_device_name) = info.detail.get("device_name") {
+            if let Some(sid) = info.detail.get("serial_id") {
                 let model_type = if info.name.contains("ATOM Max") {
                     "ATOM-Max"
                 } else if info.name.contains("ATOM+") {
@@ -124,7 +124,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
 
         // Performance state
-        if let Some(pstate) = info.detail.get("Performance State") {
+        if let Some(pstate) = info.detail.get("performance_state") {
             let pstate_labels = [
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
@@ -142,7 +142,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
 
         // Device status
-        if let Some(status) = info.detail.get("Status") {
+        if let Some(status) = info.detail.get("status") {
             let status_value = if status == "normal" { 1.0 } else { 0.0 };
             let status_labels = [
                 ("npu", info.name.as_str()),

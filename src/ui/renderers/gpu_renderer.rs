@@ -113,7 +113,7 @@ pub fn print_gpu_info<W: Write>(
 
     // For Apple Silicon, display thermal pressure level instead of numeric temperature
     let temp_display = if info.name.contains("Apple") || info.name.contains("Metal") {
-        if let Some(thermal_level) = info.detail.get("Thermal Pressure") {
+        if let Some(thermal_level) = info.detail.get("thermal_pressure") {
             format!("{thermal_level:>7}")
         } else {
             format!("{:>7}", "Unknown")

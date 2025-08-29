@@ -77,7 +77,7 @@ impl GpuReader for NvidiaJetsonGpuReader {
                                 .next()
                                 .unwrap_or("Unknown")
                                 .to_string();
-                            detail.insert("CUDA Version".to_string(), cuda_version);
+                            detail.insert("cuda_version".to_string(), cuda_version);
                         }
                         break;
                     }
@@ -93,18 +93,18 @@ impl GpuReader for NvidiaJetsonGpuReader {
                 .and_then(|line| line.split('=').nth(1))
                 .map(|v| v.trim().to_string())
                 .unwrap_or_else(|| "Unknown".to_string());
-            detail.insert("JetPack Version".to_string(), version);
+            detail.insert("jetpack_version".to_string(), version);
         }
 
         // Get L4T version
         if let Ok(l4t) = fs::read_to_string("/etc/nv_tegra_release") {
             if let Some(version) = l4t.split_whitespace().nth(1) {
-                detail.insert("L4T Version".to_string(), version.to_string());
+                detail.insert("l4t_version".to_string(), version.to_string());
             }
         }
 
-        detail.insert("GPU Type".to_string(), "Integrated".to_string());
-        detail.insert("Architecture".to_string(), "Tegra".to_string());
+        detail.insert("gpu_type".to_string(), "Integrated".to_string());
+        detail.insert("architecture".to_string(), "Tegra".to_string());
 
         let info = GpuInfo {
             uuid: "JetsonGPU".to_string(),

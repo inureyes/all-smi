@@ -273,20 +273,20 @@ impl GpuReader for RebellionsReader {
                         let model = Self::get_device_model(&device.name, total_memory);
 
                         let mut detail = HashMap::new();
-                        detail.insert("KMD Version".to_string(), kmd_version.clone());
-                        detail.insert("Firmware Version".to_string(), device.fw_ver.clone());
-                        detail.insert("Device Name".to_string(), device.device.clone());
-                        detail.insert("Serial ID".to_string(), device.sid.clone());
-                        detail.insert("Status".to_string(), device.status.clone());
-                        detail.insert("PCIe Bus".to_string(), device.pci.bus_id.clone());
-                        detail.insert("PCIe Link Speed".to_string(), device.pci.link_speed.clone());
+                        detail.insert("kmd_version".to_string(), kmd_version.clone());
+                        detail.insert("firmware_version".to_string(), device.fw_ver.clone());
+                        detail.insert("device_name".to_string(), device.device.clone());
+                        detail.insert("serial_id".to_string(), device.sid.clone());
+                        detail.insert("status".to_string(), device.status.clone());
+                        detail.insert("pcie_bus".to_string(), device.pci.bus_id.clone());
+                        detail.insert("pcie_link_speed".to_string(), device.pci.link_speed.clone());
                         detail.insert(
-                            "PCIe Link Width".to_string(),
+                            "pcie_link_width".to_string(),
                             format!("x{}", device.pci.link_width),
                         );
-                        detail.insert("NUMA Node".to_string(), device.pci.numa_node.clone());
-                        detail.insert("Performance State".to_string(), device.pstate.clone());
-                        detail.insert("Board Info".to_string(), device.board_info.clone());
+                        detail.insert("numa_node".to_string(), device.pci.numa_node.clone());
+                        detail.insert("performance_state".to_string(), device.pstate.clone());
+                        detail.insert("board_info".to_string(), device.board_info.clone());
 
                         GpuInfo {
                             uuid: device.uuid,

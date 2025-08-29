@@ -14,6 +14,7 @@
 
 use super::{MetricBuilder, MetricExporter};
 use crate::device::GpuInfo;
+use crate::parsing::common::sanitize_label_name;
 
 pub struct GpuMetricExporter<'a> {
     pub gpu_info: &'a [GpuInfo],
@@ -139,7 +140,7 @@ impl<'a> GpuMetricExporter<'a> {
             );
 
         // Thermal pressure level
-        if let Some(thermal_level) = info.detail.get("Thermal Pressure") {
+        if let Some(thermal_level) = info.detail.get("thermal_pressure") {
             let thermal_labels = [
                 ("gpu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
@@ -166,11 +167,11 @@ impl<'a> GpuMetricExporter<'a> {
             ("type", info.device_type.as_str()),
         ];
 
-        // Convert detail HashMap to label pairs
+        // Convert detail HashMap to label pairs with sanitized names
         let detail_labels: Vec<(String, String)> = info
             .detail
             .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .map(|(k, v)| (sanitize_label_name(k), v.clone()))
             .collect();
 
         builder

@@ -30,7 +30,10 @@ use api::run_api_mode;
 use clap::Parser;
 use cli::{Cli, Commands, LocalArgs};
 use tokio::signal;
-use utils::{ensure_sudo_permissions, ensure_sudo_permissions_with_fallback, RuntimeEnvironment};
+use utils::{
+    ensure_sudo_permissions, ensure_sudo_permissions_for_api,
+    ensure_sudo_permissions_with_fallback, RuntimeEnvironment,
+};
 
 #[cfg(target_os = "macos")]
 use device::is_apple_silicon;
@@ -75,11 +78,11 @@ async fn main() {
 
     match cli.command {
         Some(Commands::Api(args)) => {
-            ensure_sudo_permissions();
+            let has_sudo = ensure_sudo_permissions_for_api();
 
-            // Initialize PowerMetricsManager after getting sudo
+            // Initialize PowerMetricsManager if we have sudo
             #[cfg(target_os = "macos")]
-            if is_apple_silicon() {
+            if has_sudo && is_apple_silicon() {
                 if let Err(e) = initialize_powermetrics_manager(args.interval) {
                     eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
                 } else {

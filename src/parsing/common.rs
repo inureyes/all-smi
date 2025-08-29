@@ -54,6 +54,13 @@ pub fn sanitize_label_value(s: &str) -> String {
     trimmed.trim_matches('"').to_string()
 }
 
+/// Sanitize a label name for Prometheus compatibility.
+/// Converts spaces to underscores and makes lowercase.
+/// Prometheus label names must match: [a-zA-Z_][a-zA-Z0-9_]*
+pub fn sanitize_label_name(s: &str) -> String {
+    s.replace([' ', '-'], "_").to_lowercase()
+}
+
 /// Extract the substring that appears after the first ':' character, trimmed.
 /// Returns None if ':' is not present.
 #[allow(dead_code)]
@@ -87,6 +94,17 @@ mod tests {
     fn test_sanitize_label_value() {
         assert_eq!(sanitize_label_value(r#" "hello" "#), "hello".to_string());
         assert_eq!(sanitize_label_value("world"), "world".to_string());
+    }
+
+    #[test]
+    fn test_sanitize_label_name() {
+        assert_eq!(sanitize_label_name("Driver Version"), "driver_version");
+        assert_eq!(sanitize_label_name("GPU Type"), "gpu_type");
+        assert_eq!(sanitize_label_name("Thermal Pressure"), "thermal_pressure");
+        assert_eq!(sanitize_label_name("Architecture"), "architecture");
+        assert_eq!(sanitize_label_name("pcie-gen-current"), "pcie_gen_current");
+        assert_eq!(sanitize_label_name("UPPER_CASE"), "upper_case");
+        assert_eq!(sanitize_label_name("already_valid"), "already_valid");
     }
 
     #[test]
