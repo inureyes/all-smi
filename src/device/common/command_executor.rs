@@ -58,15 +58,13 @@ pub fn execute_command(
     // Validate command and arguments for security
     if !validate_command(command) {
         return Err(DeviceError::Other(format!(
-            "Invalid command rejected: {}",
-            command
+            "Invalid command rejected: {command}"
         )));
     }
 
     if !validate_args(args) {
         return Err(DeviceError::Other(format!(
-            "Invalid arguments rejected for command: {}",
-            command
+            "Invalid arguments rejected for command: {command}"
         )));
     }
 
@@ -87,13 +85,10 @@ pub fn execute_command(
         let full_command = if args.is_empty() {
             command.to_string()
         } else {
-            format!("{} {}", command, args.join(" "))
+            format!("{command} {}", args.join(" "))
         };
 
-        eprintln!(
-            "Command execution failed: '{}' (exit code: {})",
-            full_command, status_code
-        );
+        eprintln!("Command execution failed: '{full_command}' (exit code: {status_code})");
 
         if !out.stderr.is_empty() {
             eprintln!("Stderr output: {}", out.stderr);

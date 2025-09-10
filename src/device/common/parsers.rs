@@ -14,9 +14,6 @@
 
 // Common parsing utilities with proper error handling
 
-use std::num::ParseFloatError;
-use std::num::ParseIntError;
-
 /// Parse a temperature string (e.g., "45C" or "45°C") into u32
 /// Returns None if parsing fails
 pub fn parse_temperature(temp_str: &str) -> Option<u32> {
@@ -71,6 +68,7 @@ pub fn parse_frequency_mhz(freq_str: &str) -> Option<u32> {
 
 /// Parse a string with a default value if parsing fails
 /// Logs the parse error for debugging
+#[allow(dead_code)]
 pub fn parse_with_default<T, E>(value_str: &str, default: T, context: &str) -> T
 where
     T: std::str::FromStr<Err = E>,
@@ -79,7 +77,7 @@ where
     match value_str.parse::<T>() {
         Ok(val) => val,
         Err(e) => {
-            eprintln!("Parse error in {}: {} (input: '{}')", context, e, value_str);
+            eprintln!("Parse error in {context}: {e} (input: '{value_str}')");
             default
         }
     }

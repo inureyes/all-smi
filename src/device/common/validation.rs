@@ -29,13 +29,13 @@ pub fn validate_command(command: &str) -> bool {
         ';', '&', '|', '>', '<', '$', '`', '\n', '\r', '(', ')', '{', '}',
     ];
     if command.chars().any(|c| DANGEROUS_CHARS.contains(&c)) {
-        eprintln!("Potentially dangerous command rejected: {}", command);
+        eprintln!("Potentially dangerous command rejected: {command}");
         return false;
     }
 
     // Reject path traversal attempts
     if command.contains("..") {
-        eprintln!("Command with path traversal rejected: {}", command);
+        eprintln!("Command with path traversal rejected: {command}");
         return false;
     }
 
@@ -54,7 +54,7 @@ pub fn validate_args(args: &[&str]) -> bool {
         // Reject arguments with shell metacharacters that could cause injection
         const DANGEROUS_CHARS: &[char] = &[';', '&', '|', '`', '\n', '\r', '$'];
         if arg.chars().any(|c| DANGEROUS_CHARS.contains(&c)) {
-            eprintln!("Potentially dangerous argument rejected: {}", arg);
+            eprintln!("Potentially dangerous argument rejected: {arg}");
             return false;
         }
     }
@@ -64,17 +64,18 @@ pub fn validate_args(args: &[&str]) -> bool {
 
 /// Validates a path is safe to use as a command
 /// Returns true if the path is safe, false otherwise
+#[allow(dead_code)]
 pub fn validate_command_path(path: &Path) -> bool {
     // Must be an absolute path
     if !path.is_absolute() {
-        eprintln!("Non-absolute command path rejected: {:?}", path);
+        eprintln!("Non-absolute command path rejected: {path:?}");
         return false;
     }
 
     // Must not contain path traversal
     if let Some(path_str) = path.to_str() {
         if path_str.contains("..") {
-            eprintln!("Command path with traversal rejected: {}", path_str);
+            eprintln!("Command path with traversal rejected: {path_str}");
             return false;
         }
     }
@@ -87,12 +88,12 @@ pub fn validate_command_path(path: &Path) -> bool {
             let permissions = metadata.permissions();
             // Check if any execute bit is set
             if permissions.mode() & 0o111 == 0 {
-                eprintln!("Non-executable command path: {:?}", path);
+                eprintln!("Non-executable command path: {path:?}");
                 return false;
             }
         } else {
             // Path doesn't exist
-            eprintln!("Command path does not exist: {:?}", path);
+            eprintln!("Command path does not exist: {path:?}");
             return false;
         }
     }
@@ -136,7 +137,7 @@ mod tests {
         use std::path::PathBuf;
 
         // Valid paths
-        assert!(validate_command_path(&PathBuf::from("/usr/bin/ls")));
+        assert!(validate_command_path(&PathBuf::from("/bin/ls")));
 
         // Invalid paths
         assert!(!validate_command_path(&PathBuf::from("relative/path")));

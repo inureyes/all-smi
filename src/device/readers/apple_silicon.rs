@@ -62,7 +62,7 @@ impl AppleSiliconGpuReader {
         let mut cache = match CACHED_GPU_INFO.lock() {
             Ok(guard) => guard,
             Err(e) => {
-                eprintln!("Failed to acquire lock for Apple Silicon GPU cache: {}", e);
+                eprintln!("Failed to acquire lock for Apple Silicon GPU cache: {e}");
                 return;
             }
         };

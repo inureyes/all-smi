@@ -25,7 +25,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 /// JSON structures for Rebellions device information
 #[derive(Debug, Deserialize)]
@@ -169,7 +168,7 @@ impl RebellionsNpuReader {
         let path_str = match path.to_str() {
             Some(s) if path.is_absolute() && !s.contains("..") => s,
             Some(s) => {
-                eprintln!("Suspicious path detected: {}", s);
+                eprintln!("Suspicious path detected: {s}");
                 return Vec::new();
             }
             None => {
@@ -211,7 +210,7 @@ impl RebellionsNpuReader {
         let path_str = match path.to_str() {
             Some(s) if path.is_absolute() && !s.contains("..") => s,
             Some(s) => {
-                eprintln!("Suspicious path detected: {}", s);
+                eprintln!("Suspicious path detected: {s}");
                 return Vec::new();
             }
             None => {
@@ -342,7 +341,7 @@ fn create_process_info_from_context(ctx: RblnContext) -> ProcessInfo {
 // Helper function to parse temperature with fallback
 fn parse_temp_safe(temp_str: &str) -> u32 {
     parse_temperature(temp_str).unwrap_or_else(|| {
-        eprintln!("Failed to parse temperature: {}", temp_str);
+        eprintln!("Failed to parse temperature: {temp_str}");
         0
     })
 }
@@ -350,7 +349,7 @@ fn parse_temp_safe(temp_str: &str) -> u32 {
 // Helper function to parse power with fallback
 fn parse_power_safe(power_str: &str) -> f64 {
     parse_power(power_str).unwrap_or_else(|| {
-        eprintln!("Failed to parse power: {}", power_str);
+        eprintln!("Failed to parse power: {power_str}");
         0.0
     })
 }
@@ -358,7 +357,7 @@ fn parse_power_safe(power_str: &str) -> f64 {
 // Helper function to parse utilization with fallback
 fn parse_util_safe(util_str: &str) -> f64 {
     parse_utilization(util_str).unwrap_or_else(|| {
-        eprintln!("Failed to parse utilization: {}", util_str);
+        eprintln!("Failed to parse utilization: {util_str}");
         0.0
     })
 }

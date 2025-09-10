@@ -107,7 +107,7 @@ impl TenstorrentReader {
         let mut chips_guard = match INITIALIZED_CHIPS.lock() {
             Ok(guard) => guard,
             Err(e) => {
-                eprintln!("Failed to acquire lock for Tenstorrent chips: {}", e);
+                eprintln!("Failed to acquire lock for Tenstorrent chips: {e}");
                 return;
             }
         };
@@ -175,7 +175,7 @@ impl GpuReader for TenstorrentReader {
         let chips_guard = match INITIALIZED_CHIPS.lock() {
             Ok(guard) => guard,
             Err(e) => {
-                eprintln!("Failed to acquire lock for Tenstorrent chips: {}", e);
+                eprintln!("Failed to acquire lock for Tenstorrent chips: {e}");
                 return Vec::new();
             }
         };

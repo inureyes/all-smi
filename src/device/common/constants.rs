@@ -14,6 +14,8 @@
 
 // Common constants for device readers
 
+#![allow(dead_code)]
+
 /// Memory conversion constants
 pub const BYTES_PER_KB: u64 = 1024;
 pub const BYTES_PER_MB: u64 = BYTES_PER_KB * 1024;
