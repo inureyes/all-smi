@@ -21,7 +21,9 @@ use crate::device::{
 };
 
 #[cfg(target_os = "macos")]
-use crate::device::{apple_silicon, cpu_macos, memory_macos, platform_detection::is_apple_silicon};
+use crate::device::{
+    cpu_macos, memory_macos, platform_detection::is_apple_silicon, readers::apple_silicon,
+};
 
 #[cfg(target_os = "linux")]
 use crate::device::{cpu_linux, memory_linux};

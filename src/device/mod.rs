@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(target_os = "macos")]
-pub mod apple_silicon;
-
 // Re-export status functions for UI
 pub use readers::nvidia::get_nvml_status_message;
 pub use readers::tenstorrent::get_tenstorrent_status_message;

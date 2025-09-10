@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::device::common::command_executor::execute_command_default;
 use crate::device::powermetrics::get_powermetrics_manager;
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
 use once_cell::sync::{Lazy, OnceCell};
 use std::collections::{HashMap, HashSet};
-#[cfg(unix)]
-use std::os::unix::process::ExitStatusExt;
-use std::process::Command;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
@@ -47,7 +45,6 @@ impl Default for AppleSiliconGpuReader {
 
 impl AppleSiliconGpuReader {
     pub fn new() -> Self {
-        // Don't fetch GPU info during initialization - defer it to first use
         AppleSiliconGpuReader {
             name: OnceCell::new(),
             driver_version: OnceCell::new(),
@@ -104,8 +101,6 @@ impl AppleSiliconGpuReader {
             if gpu_usage > 0.0 {
                 gpu_pids.insert(pid);
 
-                // Create minimal ProcessInfo for GPU data
-                // The rest will be filled by sysinfo
                 gpu_processes.push(ProcessInfo {
                     device_id: 0,
                     device_uuid: "AppleSiliconGPU".to_string(),
@@ -182,8 +177,8 @@ impl GpuReader for AppleSiliconGpuReader {
                 .cloned()
                 .unwrap_or_else(|| "Apple Silicon GPU".to_string()),
             device_type: "GPU".to_string(),
-            host_id: get_hostname(), // For local mode, host_id is just the hostname
-            hostname: get_hostname(), // DNS hostname
+            host_id: get_hostname(),
+            hostname: get_hostname(),
             instance: get_hostname(),
             utilization: metrics.utilization.unwrap_or(0.0),
             ane_utilization: metrics.ane_utilization.unwrap_or(0.0),
@@ -200,7 +195,6 @@ impl GpuReader for AppleSiliconGpuReader {
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
         // For Apple Silicon, we only return GPU process information from powermetrics
-        // The main process list will be collected separately to avoid duplication
         let (gpu_processes, _gpu_pids) = self.get_gpu_processes();
         gpu_processes
     }
@@ -216,9 +210,9 @@ struct GpuMetrics {
 
 fn get_gpu_metrics_fallback() -> GpuMetrics {
     // Fallback implementation when PowerMetricsManager is not available
-    // This is a simplified version that runs powermetrics once
-    let output = Command::new("sudo")
-        .args([
+    let output = execute_command_default(
+        "sudo",
+        &[
             "powermetrics",
             "--samplers",
             "gpu_power",
@@ -226,23 +220,18 @@ fn get_gpu_metrics_fallback() -> GpuMetrics {
             "1",
             "-i",
             "1000",
-        ])
-        .output()
-        .ok();
+        ],
+    );
 
-    if let Some(output) = output {
-        if output.status.success() {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            return parse_gpu_metrics(&output_str);
-        }
-    }
-
-    GpuMetrics {
-        utilization: None,
-        ane_utilization: None,
-        frequency: None,
-        power_consumption: None,
-        thermal_pressure_level: None,
+    match output {
+        Ok(cmd_output) => parse_gpu_metrics(&cmd_output.stdout),
+        Err(_) => GpuMetrics {
+            utilization: None,
+            ane_utilization: None,
+            frequency: None,
+            power_consumption: None,
+            thermal_pressure_level: None,
+        },
     }
 }
 
@@ -267,31 +256,22 @@ fn parse_gpu_metrics(output: &str) -> GpuMetrics {
                 ane_utilization = power_str
                     .split_whitespace()
                     .next()
-                    .unwrap_or("0")
-                    .parse::<f64>()
-                    .ok();
+                    .and_then(|s| s.parse::<f64>().ok());
             }
         } else if line.contains("GPU HW active frequency:") {
             if let Some(freq_str) = line.split(':').nth(1) {
                 frequency = freq_str
                     .split_whitespace()
                     .next()
-                    .unwrap_or("0")
-                    .parse::<u32>()
-                    .ok();
+                    .and_then(|s| s.parse::<u32>().ok());
             }
         } else if line.contains("GPU Power:") && !line.contains("CPU + GPU") {
             if let Some(power_str) = line.split(':').nth(1) {
                 power_consumption = power_str
                     .split_whitespace()
                     .next()
-                    .unwrap_or("0")
-                    .parse::<f64>()
-                    .ok();
-                // Convert power from mW to W
-                if let Some(p) = power_consumption {
-                    power_consumption = Some(p / 1000.0);
-                }
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .map(|p| p / 1000.0); // Convert mW to W
             }
         } else if line.contains("pressure level:") {
             if let Some(pressure_str) = line.split(':').nth(1) {
@@ -311,12 +291,8 @@ fn parse_gpu_metrics(output: &str) -> GpuMetrics {
 
 fn get_gpu_name_and_version() -> (String, Option<String>) {
     // Try to get chip name from a faster source first
-    if let Ok(output) = Command::new("sysctl")
-        .arg("-n")
-        .arg("machdep.cpu.brand_string")
-        .output()
-    {
-        let cpu_brand = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if let Ok(output) = execute_command_default("sysctl", &["-n", "machdep.cpu.brand_string"]) {
+        let cpu_brand = output.stdout.trim().to_string();
         // Extract chip name from CPU brand string (e.g., "Apple M1 Pro" from full string)
         if cpu_brand.contains("Apple M") {
             for part in cpu_brand.split_whitespace() {
@@ -342,23 +318,13 @@ fn get_gpu_name_and_version() -> (String, Option<String>) {
     }
 
     // Only use system_profiler as absolute last resort (this should rarely happen)
-    let output = Command::new("system_profiler")
-        .arg("SPDisplaysDataType")
-        .output()
-        .unwrap_or_else(|_| {
-            // If system_profiler fails, return default values
-            std::process::Output {
-                status: std::process::ExitStatus::from_raw(0),
-                stdout: Vec::new(),
-                stderr: Vec::new(),
-            }
-        });
-
-    if output.stdout.is_empty() {
-        return ("Apple Silicon GPU".to_string(), Some("Metal 3".to_string()));
+    match execute_command_default("system_profiler", &["SPDisplaysDataType"]) {
+        Ok(cmd_output) => parse_system_profiler_output(&cmd_output.stdout),
+        Err(_) => ("Apple Silicon GPU".to_string(), Some("Metal 3".to_string())),
     }
+}
 
-    let output_str = String::from_utf8_lossy(&output.stdout);
+fn parse_system_profiler_output(output_str: &str) -> (String, Option<String>) {
     let mut gpu_name = "Apple Silicon GPU".to_string();
     let mut driver_version = None;
 
@@ -386,83 +352,62 @@ fn get_gpu_name_and_version() -> (String, Option<String>) {
 
 fn get_gpu_core_count() -> Option<u32> {
     // Try to determine GPU core count based on chip model
-    // This is faster than calling ioreg
-    if let Ok(output) = Command::new("sysctl")
-        .arg("-n")
-        .arg("machdep.cpu.brand_string")
-        .output()
-    {
-        let cpu_brand = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        // Common GPU core counts for Apple Silicon chips
-        if cpu_brand.contains("M1 ")
-            && !cpu_brand.contains("Pro")
-            && !cpu_brand.contains("Max")
-            && !cpu_brand.contains("Ultra")
-        {
-            return Some(8); // M1 base
-        } else if cpu_brand.contains("M1 Pro") {
-            return Some(16); // M1 Pro
-        } else if cpu_brand.contains("M1 Max") {
-            return Some(32); // M1 Max
-        } else if cpu_brand.contains("M1 Ultra") {
-            return Some(64); // M1 Ultra
-        } else if cpu_brand.contains("M2 ")
-            && !cpu_brand.contains("Pro")
-            && !cpu_brand.contains("Max")
-            && !cpu_brand.contains("Ultra")
-        {
-            return Some(10); // M2 base
-        } else if cpu_brand.contains("M2 Pro") {
-            return Some(19); // M2 Pro
-        } else if cpu_brand.contains("M2 Max") {
-            return Some(38); // M2 Max
-        } else if cpu_brand.contains("M2 Ultra") {
-            return Some(76); // M2 Ultra
-        } else if cpu_brand.contains("M3 ")
-            && !cpu_brand.contains("Pro")
-            && !cpu_brand.contains("Max")
-        {
-            return Some(10); // M3 base
-        } else if cpu_brand.contains("M3 Pro") {
-            return Some(18); // M3 Pro (14-core) or 14 (11-core)
-        } else if cpu_brand.contains("M3 Max") {
-            return Some(40); // M3 Max
-        } else if cpu_brand.contains("M4 Pro") {
-            return Some(20); // M4 Pro (estimated based on M3 Pro pattern)
-        } else if cpu_brand.contains("M4 Max") {
-            return Some(40); // M4 Max (estimated based on M3 Max pattern)
-        } else if cpu_brand.contains("M4")
-            && !cpu_brand.contains("Pro")
-            && !cpu_brand.contains("Max")
-        {
-            return Some(10); // M4 base
+    if let Ok(output) = execute_command_default("sysctl", &["-n", "machdep.cpu.brand_string"]) {
+        let cpu_brand = output.stdout.trim().to_string();
+
+        // Use pattern matching for cleaner code
+        let core_count = match cpu_brand.as_str() {
+            s if s.contains("M1 ")
+                && !s.contains("Pro")
+                && !s.contains("Max")
+                && !s.contains("Ultra") =>
+            {
+                Some(8)
+            }
+            s if s.contains("M1 Pro") => Some(16),
+            s if s.contains("M1 Max") => Some(32),
+            s if s.contains("M1 Ultra") => Some(64),
+            s if s.contains("M2 ")
+                && !s.contains("Pro")
+                && !s.contains("Max")
+                && !s.contains("Ultra") =>
+            {
+                Some(10)
+            }
+            s if s.contains("M2 Pro") => Some(19),
+            s if s.contains("M2 Max") => Some(38),
+            s if s.contains("M2 Ultra") => Some(76),
+            s if s.contains("M3 ") && !s.contains("Pro") && !s.contains("Max") => Some(10),
+            s if s.contains("M3 Pro") => Some(18),
+            s if s.contains("M3 Max") => Some(40),
+            s if s.contains("M4 ") && !s.contains("Pro") && !s.contains("Max") => Some(10),
+            s if s.contains("M4 Pro") => Some(20),
+            s if s.contains("M4 Max") => Some(40),
+            _ => None,
+        };
+
+        if core_count.is_some() {
+            return core_count;
         }
     }
 
     // Fallback to ioreg only if we can't determine from CPU brand
-    let output = Command::new("ioreg")
-        .arg("-rc")
-        .arg("AGXAccelerator")
-        .arg("-d1")
-        .output()
-        .ok()?;
+    match execute_command_default("ioreg", &["-rc", "AGXAccelerator", "-d1"]) {
+        Ok(cmd_output) => parse_ioreg_gpu_cores(&cmd_output.stdout),
+        Err(_) => None,
+    }
+}
 
-    if output.status.success() {
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        // Find the line containing "gpu-core-count"
-        for line in output_str.lines() {
-            if line.contains("\"gpu-core-count\"") {
-                // Split the line into whitespace-separated fields and get the third field
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 3 {
-                    if let Ok(core_count) = parts[2].parse::<u32>() {
-                        return Some(core_count);
-                    }
+fn parse_ioreg_gpu_cores(output_str: &str) -> Option<u32> {
+    for line in output_str.lines() {
+        if line.contains("\"gpu-core-count\"") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                if let Ok(core_count) = parts[2].parse::<u32>() {
+                    return Some(core_count);
                 }
             }
         }
-        None
-    } else {
-        None
     }
+    None
 }

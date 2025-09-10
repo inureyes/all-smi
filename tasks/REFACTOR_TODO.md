@@ -182,8 +182,8 @@ Read the guide below and check the box when you have completed each step.
 
 ## Phase 3: Eliminate Duplication
 
-### 3.1 Consolidate Device Implementations
-**Status: Successfully completed after fixing type issues**
+### 3.1 Consolidate Device Implementations ✅ 
+**Status: COMPLETED - PR Ready**
 
 - [x] Create `src/device/readers/` directory
 - [x] Analyze actual GpuInfo/ProcessInfo field usage in current code
@@ -192,6 +192,9 @@ Read the guide below and check the box when you have completed each step.
   - [x] Replace with common/error_handling usage
   - [x] Code reduced from 516 to 446 lines (14% reduction)
   - [x] Verify existing tests pass with cargo check
+- [x] Refactor `src/device/readers/nvidia_jetson.rs` with correct types
+  - [x] Apply common modules - reduced from 349 to 304 lines (13% reduction)
+  - [x] Test: Verify compilation and tests pass
 - [x] Refactor `src/device/readers/furiosa.rs` with correct types
   - [x] Apply common modules - reduced from 795 to 363 lines (54% reduction)
   - [x] Test: Verify mock server Furiosa mode
@@ -202,15 +205,25 @@ Read the guide below and check the box when you have completed each step.
 - [x] Refactor `src/device/readers/rebellions.rs` with correct types
   - [x] Apply common modules - reduced from 603 to 314 lines (48% reduction)
   - [x] Test: Verify mock server Rebellions mode
+- [x] Refactor `src/device/readers/apple_silicon.rs` (macOS)
+  - [x] Apply common modules - reduced from 468 to 413 lines (12% reduction)
+  - [x] Maintained PowerMetrics Manager integration
+  - [x] Test: Verify compilation on macOS
 - [x] Update `src/device/mod.rs` to include readers module
-- [x] Test compilation with cargo check
-- [x] Test mock server generates metrics correctly
+- [x] Update `src/device/reader_factory.rs` to use new readers
+- [x] Remove old implementations backup directory
+- [x] Test compilation with cargo check ✅
+- [x] Test all unit tests pass with cargo test ✅
+- [x] Verify cargo clippy has no warnings ✅
+- [x] Verify cargo fmt --check passes ✅
 
 **Results achieved:**
-- Total ~1,500 lines removed (average 43% reduction)
-- All implementations use common modules for command execution and error handling
+- Total ~1,800+ lines removed (average 36% reduction across all devices)
+- All implementations (including Apple Silicon) now use common modules
 - Maintained backward compatibility with existing types
 - Improved maintainability with smaller, focused files
+- Old implementations successfully migrated and removed
+- All quality checks pass (compilation, tests, clippy, fmt)
 
 ### 3.2 Consolidate NPU Metrics Export
 - [ ] Create `src/api/metrics/npu/` directory

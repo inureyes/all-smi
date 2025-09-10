@@ -14,6 +14,9 @@
 
 // Module for device readers with reduced code duplication
 
+#[cfg(target_os = "macos")]
+pub mod apple_silicon;
+
 pub mod furiosa;
 pub mod nvidia;
 pub mod nvidia_jetson;
