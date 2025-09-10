@@ -24,7 +24,10 @@ const MAX_LABEL_LENGTH: usize = 128;
 pub mod status_values {
     pub const NORMAL: &str = "normal";
     pub const READY: &str = "true";
+    // Reserved for future error handling
+    #[allow(dead_code)]
     pub const ERROR: &str = "error";
+    #[allow(dead_code)]
     pub const UNKNOWN: &str = "unknown";
 }
 

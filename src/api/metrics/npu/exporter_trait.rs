@@ -25,7 +25,6 @@ pub trait NpuExporter: Send + Sync {
     fn export_vendor_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize, index_str: &str);
 
     /// Get the vendor name for identification purposes
-    #[allow(dead_code)]
     fn vendor_name(&self) -> &'static str;
 }
 
@@ -38,18 +37,14 @@ pub trait CommonNpuMetrics {
     fn export_generic_npu_metrics_str(&self, builder: &mut MetricBuilder, info: &GpuInfo, index_str: &str);
 
     /// Export basic device information metrics
-    #[allow(dead_code)]
     fn export_device_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize);
 
     /// Export firmware version information
-    #[allow(dead_code)]
     fn export_firmware_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize);
 
     /// Export temperature metrics if available
-    #[allow(dead_code)]
     fn export_temperature_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize);
 
     /// Export power-related metrics if available
-    #[allow(dead_code)]
     fn export_power_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize);
 }
