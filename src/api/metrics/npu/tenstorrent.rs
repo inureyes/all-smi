@@ -12,190 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{MetricBuilder, MetricExporter};
+use super::common::CommonNpuExporter;
+use super::exporter_trait::{CommonNpuMetrics, NpuExporter};
+use crate::api::metrics::MetricBuilder;
 use crate::device::GpuInfo;
 
-pub struct NpuMetricExporter<'a> {
-    pub npu_info: &'a [GpuInfo],
+/// Tenstorrent NPU-specific metric exporter
+pub struct TenstorrentExporter {
+    common: CommonNpuExporter,
 }
 
-impl<'a> NpuMetricExporter<'a> {
-    pub fn new(npu_info: &'a [GpuInfo]) -> Self {
-        Self { npu_info }
-    }
-
-    fn export_generic_npu_metrics(
-        &self,
-        builder: &mut MetricBuilder,
-        info: &GpuInfo,
-        index: usize,
-    ) {
-        if info.device_type != "NPU" {
-            return;
-        }
-
-        // NPU-specific firmware version
-        if let Some(firmware) = info.detail.get("firmware") {
-            let fw_labels = [
-                ("npu", info.name.as_str()),
-                ("instance", info.instance.as_str()),
-                ("uuid", info.uuid.as_str()),
-                ("index", &index.to_string()),
-                ("firmware", firmware.as_str()),
-            ];
-            builder
-                .help("all_smi_npu_firmware_info", "NPU firmware version")
-                .type_("all_smi_npu_firmware_info", "gauge")
-                .metric("all_smi_npu_firmware_info", &fw_labels, 1);
+impl TenstorrentExporter {
+    pub fn new() -> Self {
+        Self {
+            common: CommonNpuExporter::new(),
         }
     }
 
-    fn export_rebellions_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
-        if !info.name.contains("Rebellions") {
-            return;
-        }
-
-        // Base labels
-        let _base_labels = [
-            ("npu", info.name.as_str()),
-            ("instance", info.instance.as_str()),
-            ("uuid", info.uuid.as_str()),
-            ("index", &index.to_string()),
-        ];
-
-        // Rebellions firmware info
-        if let Some(fw_version) = info.detail.get("firmware_version") {
-            let fw_labels = [
-                ("npu", info.name.as_str()),
-                ("instance", info.instance.as_str()),
-                ("uuid", info.uuid.as_str()),
-                ("index", &index.to_string()),
-                ("firmware", fw_version.as_str()),
-            ];
-            builder
-                .help(
-                    "all_smi_rebellions_firmware_info",
-                    "Rebellions NPU firmware version",
-                )
-                .type_("all_smi_rebellions_firmware_info", "gauge")
-                .metric("all_smi_rebellions_firmware_info", &fw_labels, 1);
-        }
-
-        // KMD version
-        if let Some(kmd_version) = info.detail.get("kmd_version") {
-            let kmd_labels = [
-                ("instance", info.instance.as_str()),
-                ("version", kmd_version.as_str()),
-            ];
-            builder
-                .help("all_smi_rebellions_kmd_info", "Rebellions KMD version")
-                .type_("all_smi_rebellions_kmd_info", "gauge")
-                .metric("all_smi_rebellions_kmd_info", &kmd_labels, 1);
-        }
-
-        // Device info
-        if let Some(_device_name) = info.detail.get("device_name") {
-            if let Some(sid) = info.detail.get("serial_id") {
-                let model_type = if info.name.contains("ATOM Max") {
-                    "ATOM-Max"
-                } else if info.name.contains("ATOM+") {
-                    "ATOM-Plus"
-                } else {
-                    "ATOM"
-                };
-
-                let device_labels = [
-                    ("npu", info.name.as_str()),
-                    ("instance", info.instance.as_str()),
-                    ("uuid", info.uuid.as_str()),
-                    ("index", &index.to_string()),
-                    ("model", model_type),
-                    ("sid", sid.as_str()),
-                    ("location", "5"), // Default location from mock server
-                ];
-                builder
-                    .help(
-                        "all_smi_rebellions_device_info",
-                        "Rebellions device information",
-                    )
-                    .type_("all_smi_rebellions_device_info", "gauge")
-                    .metric("all_smi_rebellions_device_info", &device_labels, 1);
-            }
-        }
-
-        // Performance state
-        if let Some(pstate) = info.detail.get("performance_state") {
-            let pstate_labels = [
-                ("npu", info.name.as_str()),
-                ("instance", info.instance.as_str()),
-                ("uuid", info.uuid.as_str()),
-                ("index", &index.to_string()),
-                ("pstate", pstate.as_str()),
-            ];
-            builder
-                .help(
-                    "all_smi_rebellions_pstate_info",
-                    "Current performance state",
-                )
-                .type_("all_smi_rebellions_pstate_info", "gauge")
-                .metric("all_smi_rebellions_pstate_info", &pstate_labels, 1);
-        }
-
-        // Device status
-        if let Some(status) = info.detail.get("status") {
-            let status_value = if status == "normal" { 1.0 } else { 0.0 };
-            let status_labels = [
-                ("npu", info.name.as_str()),
-                ("instance", info.instance.as_str()),
-                ("uuid", info.uuid.as_str()),
-                ("index", &index.to_string()),
-                ("status", status.as_str()),
-            ];
-            builder
-                .help("all_smi_rebellions_status", "Device operational status")
-                .type_("all_smi_rebellions_status", "gauge")
-                .metric("all_smi_rebellions_status", &status_labels, status_value);
-        }
-    }
-
-    fn export_tenstorrent_metrics(
-        &self,
-        builder: &mut MetricBuilder,
-        info: &GpuInfo,
-        index: usize,
-    ) {
-        if !info.name.contains("Tenstorrent") {
-            return;
-        }
-
-        // Firmware versions
-        self.export_tenstorrent_firmware(builder, info, index);
-
-        // Temperature sensors
-        self.export_tenstorrent_temperatures(builder, info, index);
-
-        // Clock frequencies
-        self.export_tenstorrent_clocks(builder, info, index);
-
-        // Power metrics
-        self.export_tenstorrent_power(builder, info, index);
-
-        // Status and health metrics
-        self.export_tenstorrent_status_health(builder, info, index);
-
-        // Board and system info
-        self.export_tenstorrent_board_info(builder, info, index);
-
-        // PCIe and DRAM info
-        self.export_tenstorrent_pcie_dram(builder, info, index);
-    }
-
-    fn export_tenstorrent_firmware(
-        &self,
-        builder: &mut MetricBuilder,
-        info: &GpuInfo,
-        index: usize,
-    ) {
+    fn export_firmware(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
         // ARC firmware
         if let Some(arc_fw) = info.detail.get("arc_fw_version") {
             let fw_labels = [
@@ -291,12 +125,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
     }
 
-    fn export_tenstorrent_temperatures(
-        &self,
-        builder: &mut MetricBuilder,
-        info: &GpuInfo,
-        index: usize,
-    ) {
+    fn export_temperatures(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
         let base_labels = [
             ("npu", info.name.as_str()),
             ("instance", info.instance.as_str()),
@@ -306,7 +135,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // ASIC temperature (main chip temperature)
         if let Some(asic_temp) = info.detail.get("asic_temperature") {
-            if let Ok(temp) = asic_temp.parse::<f64>() {
+            if let Some(temp) = CommonNpuExporter::parse_numeric_value(asic_temp) {
                 builder
                     .help(
                         "all_smi_tenstorrent_asic_temperature_celsius",
@@ -323,7 +152,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Voltage regulator temperature
         if let Some(vreg_temp) = info.detail.get("vreg_temperature") {
-            if let Ok(temp) = vreg_temp.parse::<f64>() {
+            if let Some(temp) = CommonNpuExporter::parse_numeric_value(vreg_temp) {
                 builder
                     .help(
                         "all_smi_tenstorrent_vreg_temperature_celsius",
@@ -340,7 +169,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Inlet temperature
         if let Some(inlet_temp) = info.detail.get("inlet_temperature") {
-            if let Ok(temp) = inlet_temp.parse::<f64>() {
+            if let Some(temp) = CommonNpuExporter::parse_numeric_value(inlet_temp) {
                 builder
                     .help(
                         "all_smi_tenstorrent_inlet_temperature_celsius",
@@ -357,7 +186,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Outlet temperatures
         if let Some(outlet_temp1) = info.detail.get("outlet_temperature1") {
-            if let Ok(temp) = outlet_temp1.parse::<f64>() {
+            if let Some(temp) = CommonNpuExporter::parse_numeric_value(outlet_temp1) {
                 builder
                     .help(
                         "all_smi_tenstorrent_outlet1_temperature_celsius",
@@ -373,7 +202,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
 
         if let Some(outlet_temp2) = info.detail.get("outlet_temperature2") {
-            if let Ok(temp) = outlet_temp2.parse::<f64>() {
+            if let Some(temp) = CommonNpuExporter::parse_numeric_value(outlet_temp2) {
                 builder
                     .help(
                         "all_smi_tenstorrent_outlet2_temperature_celsius",
@@ -389,7 +218,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
     }
 
-    fn export_tenstorrent_clocks(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+    fn export_clocks(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
         let base_labels = [
             ("npu", info.name.as_str()),
             ("instance", info.instance.as_str()),
@@ -399,7 +228,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // AI clock
         if let Some(aiclk) = info.detail.get("aiclk_mhz") {
-            if let Ok(freq) = aiclk.parse::<f64>() {
+            if let Some(freq) = CommonNpuExporter::parse_numeric_value(aiclk) {
                 builder
                     .help("all_smi_tenstorrent_aiclk_mhz", "AI clock frequency in MHz")
                     .type_("all_smi_tenstorrent_aiclk_mhz", "gauge")
@@ -409,7 +238,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // AXI clock
         if let Some(axiclk) = info.detail.get("axiclk_mhz") {
-            if let Ok(freq) = axiclk.parse::<f64>() {
+            if let Some(freq) = CommonNpuExporter::parse_numeric_value(axiclk) {
                 builder
                     .help(
                         "all_smi_tenstorrent_axiclk_mhz",
@@ -422,7 +251,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // ARC clock
         if let Some(arcclk) = info.detail.get("arcclk_mhz") {
-            if let Ok(freq) = arcclk.parse::<f64>() {
+            if let Some(freq) = CommonNpuExporter::parse_numeric_value(arcclk) {
                 builder
                     .help(
                         "all_smi_tenstorrent_arcclk_mhz",
@@ -434,7 +263,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
     }
 
-    fn export_tenstorrent_power(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+    fn export_power(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
         let base_labels = [
             ("npu", info.name.as_str()),
             ("instance", info.instance.as_str()),
@@ -444,7 +273,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Voltage
         if let Some(voltage) = info.detail.get("voltage") {
-            if let Ok(v) = voltage.parse::<f64>() {
+            if let Some(v) = CommonNpuExporter::parse_numeric_value(voltage) {
                 builder
                     .help("all_smi_tenstorrent_voltage_volts", "Core voltage in volts")
                     .type_("all_smi_tenstorrent_voltage_volts", "gauge")
@@ -454,7 +283,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Current
         if let Some(current) = info.detail.get("current") {
-            if let Ok(c) = current.parse::<f64>() {
+            if let Some(c) = CommonNpuExporter::parse_numeric_value(current) {
                 builder
                     .help("all_smi_tenstorrent_current_amperes", "Current in amperes")
                     .type_("all_smi_tenstorrent_current_amperes", "gauge")
@@ -464,7 +293,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Power limits
         if let Some(tdp_limit) = info.detail.get("power_limit_tdp") {
-            if let Ok(power) = tdp_limit.parse::<f64>() {
+            if let Some(power) = CommonNpuExporter::parse_numeric_value(tdp_limit) {
                 builder
                     .help(
                         "all_smi_tenstorrent_power_limit_tdp_watts",
@@ -480,7 +309,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
 
         if let Some(tdc_limit) = info.detail.get("power_limit_tdc") {
-            if let Ok(current) = tdc_limit.parse::<f64>() {
+            if let Some(current) = CommonNpuExporter::parse_numeric_value(tdc_limit) {
                 builder
                     .help(
                         "all_smi_tenstorrent_power_limit_tdc_amperes",
@@ -497,7 +326,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // TDP limit (new field from enhanced metrics)
         if let Some(tdp_limit) = info.detail.get("tdp_limit") {
-            if let Ok(power) = tdp_limit.parse::<f64>() {
+            if let Some(power) = CommonNpuExporter::parse_numeric_value(tdp_limit) {
                 builder
                     .help("all_smi_tenstorrent_tdp_limit_watts", "TDP limit in watts")
                     .type_("all_smi_tenstorrent_tdp_limit_watts", "gauge")
@@ -507,7 +336,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // TDC limit (new field from enhanced metrics)
         if let Some(tdc_limit) = info.detail.get("tdc_limit") {
-            if let Ok(current) = tdc_limit.parse::<f64>() {
+            if let Some(current) = CommonNpuExporter::parse_numeric_value(tdc_limit) {
                 builder
                     .help(
                         "all_smi_tenstorrent_tdc_limit_amperes",
@@ -524,7 +353,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Thermal limit
         if let Some(thermal_limit) = info.detail.get("thermal_limit") {
-            if let Ok(temp) = thermal_limit.parse::<f64>() {
+            if let Some(temp) = CommonNpuExporter::parse_numeric_value(thermal_limit) {
                 builder
                     .help(
                         "all_smi_tenstorrent_thermal_limit_celsius",
@@ -541,7 +370,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Heartbeat
         if let Some(heartbeat) = info.detail.get("heartbeat") {
-            if let Ok(hb) = heartbeat.parse::<f64>() {
+            if let Some(hb) = CommonNpuExporter::parse_numeric_value(heartbeat) {
                 builder
                     .help("all_smi_tenstorrent_heartbeat", "Device heartbeat counter")
                     .type_("all_smi_tenstorrent_heartbeat", "counter")
@@ -551,7 +380,7 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Raw power consumption in watts
         if let Some(power_watts) = info.detail.get("power_watts") {
-            if let Ok(power) = power_watts.parse::<f64>() {
+            if let Some(power) = CommonNpuExporter::parse_numeric_value(power_watts) {
                 builder
                     .help(
                         "all_smi_tenstorrent_power_raw_watts",
@@ -563,12 +392,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
     }
 
-    fn export_tenstorrent_status_health(
-        &self,
-        builder: &mut MetricBuilder,
-        info: &GpuInfo,
-        index: usize,
-    ) {
+    fn export_status_health(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
         let base_labels = [
             ("npu", info.name.as_str()),
             ("instance", info.instance.as_str()),
@@ -633,25 +457,20 @@ impl<'a> NpuMetricExporter<'a> {
 
         // DDR status (as numeric register value)
         if let Some(ddr_status) = info.detail.get("ddr_status") {
-            // Try to parse hex string to numeric value
-            if let Ok(status_val) = u32::from_str_radix(ddr_status.trim_start_matches("0x"), 16) {
+            if let Some(status_val) = CommonNpuExporter::parse_hex_register(ddr_status) {
                 builder
                     .help(
                         "all_smi_tenstorrent_ddr_status",
                         "DDR status register value",
                     )
                     .type_("all_smi_tenstorrent_ddr_status", "gauge")
-                    .metric(
-                        "all_smi_tenstorrent_ddr_status",
-                        &base_labels,
-                        status_val as f64,
-                    );
+                    .metric("all_smi_tenstorrent_ddr_status", &base_labels, status_val);
             }
         }
 
         // ARC health counters
         if let Some(arc0_health) = info.detail.get("arc0_health") {
-            if let Ok(health) = arc0_health.parse::<f64>() {
+            if let Some(health) = CommonNpuExporter::parse_numeric_value(arc0_health) {
                 builder
                     .help("all_smi_tenstorrent_arc0_health", "ARC0 health counter")
                     .type_("all_smi_tenstorrent_arc0_health", "counter")
@@ -660,7 +479,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
 
         if let Some(arc3_health) = info.detail.get("arc3_health") {
-            if let Ok(health) = arc3_health.parse::<f64>() {
+            if let Some(health) = CommonNpuExporter::parse_numeric_value(arc3_health) {
                 builder
                     .help("all_smi_tenstorrent_arc3_health", "ARC3 health counter")
                     .type_("all_smi_tenstorrent_arc3_health", "counter")
@@ -670,40 +489,30 @@ impl<'a> NpuMetricExporter<'a> {
 
         // Faults register
         if let Some(faults) = info.detail.get("faults") {
-            // Try to parse hex string to numeric value
-            if let Ok(faults_val) = u32::from_str_radix(faults.trim_start_matches("0x"), 16) {
+            if let Some(faults_val) = CommonNpuExporter::parse_hex_register(faults) {
                 builder
                     .help("all_smi_tenstorrent_faults", "Fault register value")
                     .type_("all_smi_tenstorrent_faults", "gauge")
-                    .metric(
-                        "all_smi_tenstorrent_faults",
-                        &base_labels,
-                        faults_val as f64,
-                    );
+                    .metric("all_smi_tenstorrent_faults", &base_labels, faults_val);
             }
         }
 
         // Throttler state
         if let Some(throttler) = info.detail.get("throttler") {
-            // Try to parse hex string to numeric value
-            if let Ok(throttler_val) = u32::from_str_radix(throttler.trim_start_matches("0x"), 16) {
+            if let Some(throttler_val) = CommonNpuExporter::parse_hex_register(throttler) {
                 builder
                     .help(
                         "all_smi_tenstorrent_throttler",
                         "Throttler state register value",
                     )
                     .type_("all_smi_tenstorrent_throttler", "gauge")
-                    .metric(
-                        "all_smi_tenstorrent_throttler",
-                        &base_labels,
-                        throttler_val as f64,
-                    );
+                    .metric("all_smi_tenstorrent_throttler", &base_labels, throttler_val);
             }
         }
 
         // Fan metrics
         if let Some(fan_speed) = info.detail.get("fan_speed") {
-            if let Ok(speed) = fan_speed.parse::<f64>() {
+            if let Some(speed) = CommonNpuExporter::parse_numeric_value(fan_speed) {
                 builder
                     .help(
                         "all_smi_tenstorrent_fan_speed_percent",
@@ -715,7 +524,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
 
         if let Some(fan_rpm) = info.detail.get("fan_rpm") {
-            if let Ok(rpm) = fan_rpm.parse::<f64>() {
+            if let Some(rpm) = CommonNpuExporter::parse_numeric_value(fan_rpm) {
                 builder
                     .help("all_smi_tenstorrent_fan_rpm", "Fan speed in RPM")
                     .type_("all_smi_tenstorrent_fan_rpm", "gauge")
@@ -724,12 +533,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
     }
 
-    fn export_tenstorrent_board_info(
-        &self,
-        builder: &mut MetricBuilder,
-        info: &GpuInfo,
-        index: usize,
-    ) {
+    fn export_board_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
         // Board type and architecture
         if let Some(board_type) = info.detail.get("board_type") {
             let arch = if info.name.contains("Grayskull") {
@@ -789,12 +593,7 @@ impl<'a> NpuMetricExporter<'a> {
         }
     }
 
-    fn export_tenstorrent_pcie_dram(
-        &self,
-        builder: &mut MetricBuilder,
-        info: &GpuInfo,
-        index: usize,
-    ) {
+    fn export_pcie_dram(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
         let base_labels = [
             ("npu", info.name.as_str()),
             ("instance", info.instance.as_str()),
@@ -841,10 +640,10 @@ impl<'a> NpuMetricExporter<'a> {
             }
         }
 
-        // PCIe generation (from enhanced metrics)
+        // PCIe generation
         if let Some(pcie_gen) = info.detail.get("pcie_link_gen") {
             if let Some(gen_str) = pcie_gen.strip_prefix("Gen") {
-                if let Ok(gen) = gen_str.parse::<f64>() {
+                if let Some(gen) = CommonNpuExporter::parse_numeric_value(gen_str) {
                     builder
                         .help("all_smi_tenstorrent_pcie_generation", "PCIe generation")
                         .type_("all_smi_tenstorrent_pcie_generation", "gauge")
@@ -853,10 +652,10 @@ impl<'a> NpuMetricExporter<'a> {
             }
         }
 
-        // PCIe width (from enhanced metrics)
+        // PCIe width
         if let Some(pcie_width) = info.detail.get("pcie_link_width") {
             if let Some(width_str) = pcie_width.strip_prefix("x") {
-                if let Ok(width) = width_str.parse::<f64>() {
+                if let Some(width) = CommonNpuExporter::parse_numeric_value(width_str) {
                     builder
                         .help("all_smi_tenstorrent_pcie_width", "PCIe link width")
                         .type_("all_smi_tenstorrent_pcie_width", "gauge")
@@ -864,8 +663,6 @@ impl<'a> NpuMetricExporter<'a> {
                 }
             }
         }
-
-        // DRAM status - removed as it's now exported as numeric register value in status_health
 
         // DRAM speed
         if let Some(dram_speed) = info.detail.get("dram_speed") {
@@ -887,16 +684,65 @@ impl<'a> NpuMetricExporter<'a> {
     }
 }
 
-impl<'a> MetricExporter for NpuMetricExporter<'a> {
-    fn export_metrics(&self) -> String {
-        let mut builder = MetricBuilder::new();
+impl Default for TenstorrentExporter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-        for (i, info) in self.npu_info.iter().enumerate() {
-            self.export_generic_npu_metrics(&mut builder, info, i);
-            self.export_tenstorrent_metrics(&mut builder, info, i);
-            self.export_rebellions_metrics(&mut builder, info, i);
+impl NpuExporter for TenstorrentExporter {
+    fn can_handle(&self, info: &GpuInfo) -> bool {
+        info.name.contains("Tenstorrent")
+    }
+
+    fn export_vendor_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+        if !self.can_handle(info) {
+            return;
         }
 
-        builder.build()
+        // Export all Tenstorrent-specific metrics
+        self.export_firmware(builder, info, index);
+        self.export_temperatures(builder, info, index);
+        self.export_clocks(builder, info, index);
+        self.export_power(builder, info, index);
+        self.export_status_health(builder, info, index);
+        self.export_board_info(builder, info, index);
+        self.export_pcie_dram(builder, info, index);
+    }
+
+    fn vendor_name(&self) -> &'static str {
+        "Tenstorrent"
+    }
+}
+
+impl CommonNpuMetrics for TenstorrentExporter {
+    fn export_generic_npu_metrics(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index: usize,
+    ) {
+        self.common.export_generic_npu_metrics(builder, info, index);
+    }
+
+    fn export_device_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+        self.common.export_device_info(builder, info, index);
+    }
+
+    fn export_firmware_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+        self.common.export_firmware_info(builder, info, index);
+    }
+
+    fn export_temperature_metrics(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index: usize,
+    ) {
+        self.common.export_temperature_metrics(builder, info, index);
+    }
+
+    fn export_power_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+        self.common.export_power_metrics(builder, info, index);
     }
 }

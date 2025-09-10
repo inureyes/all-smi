@@ -225,25 +225,35 @@ Read the guide below and check the box when you have completed each step.
 - Old implementations successfully migrated and removed
 - All quality checks pass (compilation, tests, clippy, fmt)
 
-### 3.2 Consolidate NPU Metrics Export
-- [ ] Create `src/api/metrics/npu/` directory
-- [ ] Create `src/api/metrics/npu/exporter_trait.rs`
-  - [ ] Define `NpuExporter` trait
-  - [ ] Define common export methods
-- [ ] Create `src/api/metrics/npu/common.rs`
-  - [ ] Extract common NPU metric patterns
-  - [ ] Implement helper functions
-- [ ] Create `src/api/metrics/npu/tenstorrent.rs`
-  - [ ] Keep only Tenstorrent-specific logic (~200 lines)
-  - [ ] Implement NpuExporter trait
-- [ ] Create `src/api/metrics/npu/rebellions.rs`
-  - [ ] Keep only Rebellions-specific logic (~180 lines)
-  - [ ] Implement NpuExporter trait
-- [ ] Create `src/api/metrics/npu/furiosa.rs`
-  - [ ] Keep only Furiosa-specific logic (~160 lines)
-  - [ ] Implement NpuExporter trait
-- [ ] Remove existing `npu.rs` file
-- [ ] Test: Verify `/metrics` endpoint in API mode
+### 3.2 Consolidate NPU Metrics Export ✅
+**Status: COMPLETED - PR Ready**
+
+- [x] Create `src/api/metrics/npu/` directory
+- [x] Create `src/api/metrics/npu/exporter_trait.rs`
+  - [x] Define `NpuExporter` trait
+  - [x] Define common export methods
+- [x] Create `src/api/metrics/npu/common.rs`
+  - [x] Extract common NPU metric patterns
+  - [x] Implement helper functions
+- [x] Create `src/api/metrics/npu/tenstorrent.rs`
+  - [x] Keep only Tenstorrent-specific logic (605 lines with enhanced functionality)
+  - [x] Implement NpuExporter trait
+- [x] Create `src/api/metrics/npu/rebellions.rs`
+  - [x] Keep only Rebellions-specific logic (167 lines)
+  - [x] Implement NpuExporter trait
+- [x] Create `src/api/metrics/npu/furiosa.rs`
+  - [x] Keep only Furiosa-specific logic (260 lines with extensible framework)
+  - [x] Implement NpuExporter trait
+- [x] Remove existing `npu.rs` file
+- [x] Test: Verify `/metrics` endpoint in API mode
+
+**Results achieved:**
+- Original single file (903 lines) → 6 modular files (1,373 lines with added extensibility)
+- Trait-based architecture with `NpuExporter` and `CommonNpuMetrics` interfaces
+- Dynamic vendor detection and automatic metric delegation
+- Maintained full backward compatibility with existing `MetricExporter` interface
+- Clean separation of vendor-specific logic for improved maintainability
+- All tests pass (cargo test ✅), no clippy warnings (cargo clippy ✅), proper formatting (cargo fmt ✅)
 
 ### 3.3 Remove Parser Boilerplate
 - [ ] Extend parsing macros from Phase 1.2
