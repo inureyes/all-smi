@@ -17,6 +17,7 @@
 pub mod command_executor;
 pub mod error_handling;
 pub mod json_parser;
+pub mod parsers;
 pub mod validation;
 
 /* Re-exports for convenience (keep minimal to avoid unused-imports clippy errors) */

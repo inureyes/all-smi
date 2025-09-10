@@ -13,6 +13,9 @@
 // limitations under the License.
 
 use crate::device::common::execute_command_default;
+use crate::device::common::parsers::{
+    parse_device_id, parse_frequency_mhz, parse_memory_mb_to_bytes, parse_power, parse_temperature,
+};
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
@@ -227,12 +230,10 @@ fn calculate_device_memory_usage(processes: &[FuriosaPsOutputJson]) -> HashMap<S
     let mut device_memory_usage: HashMap<String, u64> = HashMap::new();
 
     for proc in processes {
-        let memory_mb = proc
-            .memory
-            .trim_end_matches("MB")
-            .parse::<u64>()
-            .unwrap_or(0);
-        let memory_bytes = memory_mb * 1024 * 1024;
+        let memory_bytes = parse_memory_mb_to_bytes(&proc.memory).unwrap_or_else(|| {
+            eprintln!("Failed to parse memory for process {}: {}", proc.pid, proc.memory);
+            0
+        });
 
         *device_memory_usage.entry(proc.npu.clone()).or_insert(0) += memory_bytes;
     }
@@ -262,21 +263,18 @@ fn create_gpu_info_from_cli(
     detail.insert("memory_bandwidth".to_string(), "1.63TB/s".to_string());
     detail.insert("on_chip_sram".to_string(), "256MB".to_string());
 
-    let temperature = device
-        .temperature
-        .trim_end_matches('C')
-        .parse::<u32>()
-        .unwrap_or(0);
-    let power = device
-        .power
-        .trim_end_matches('W')
-        .parse::<f64>()
-        .unwrap_or(0.0);
-    let frequency = device
-        .core_clock
-        .trim_end_matches("MHz")
-        .parse::<u32>()
-        .unwrap_or(0);
+    let temperature = parse_temperature(&device.temperature).unwrap_or_else(|| {
+        eprintln!("Failed to parse temperature: {}", device.temperature);
+        0
+    });
+    let power = parse_power(&device.power).unwrap_or_else(|| {
+        eprintln!("Failed to parse power: {}", device.power);
+        0.0
+    });
+    let frequency = parse_frequency_mhz(&device.core_clock).unwrap_or_else(|| {
+        eprintln!("Failed to parse frequency: {}", device.core_clock);
+        0
+    });
 
     let utilization = status
         .and_then(|s| {
@@ -367,23 +365,21 @@ fn create_gpu_info_from_device(
 }
 
 fn create_process_info_from_ps(proc: &FuriosaPsOutputJson) -> ProcessInfo {
-    let device_id = proc
-        .npu
-        .trim_start_matches("npu")
-        .parse::<usize>()
-        .unwrap_or(0);
-    let memory_mb = proc
-        .memory
-        .trim_end_matches("MB")
-        .parse::<u64>()
-        .unwrap_or(0);
+    let device_id = parse_device_id(&proc.npu).unwrap_or_else(|| {
+        eprintln!("Failed to parse device ID: {}", proc.npu);
+        0
+    });
+    let used_memory = parse_memory_mb_to_bytes(&proc.memory).unwrap_or_else(|| {
+        eprintln!("Failed to parse memory for process {}: {}", proc.pid, proc.memory);
+        0
+    });
 
     ProcessInfo {
         device_id,
         device_uuid: proc.npu.clone(),
         pid: proc.pid,
         process_name: extract_process_name(&proc.cmd),
-        used_memory: memory_mb * 1024 * 1024,
+        used_memory,
         cpu_percent: 0.0,
         memory_percent: 0.0,
         memory_rss: 0,

@@ -13,6 +13,9 @@
 // limitations under the License.
 
 use crate::device::common::execute_command_default;
+use crate::device::common::parsers::{
+    parse_device_id, parse_memory_mb_to_bytes, parse_power, parse_temperature, parse_utilization,
+};
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
@@ -272,9 +275,9 @@ fn create_gpu_info_from_device(
     detail.insert("Performance State".to_string(), device.pstate.clone());
 
     // Parse metrics
-    let temperature = parse_temperature(&device.temperature);
-    let power = parse_power(&device.card_power);
-    let utilization = parse_utilization(&device.util);
+    let temperature = parse_temp_safe(&device.temperature);
+    let power = parse_power_safe(&device.card_power);
+    let utilization = parse_util_safe(&device.util);
     let (used_memory, total_memory) = parse_memory(&device.memory);
 
     Some(GpuInfo {
@@ -299,23 +302,21 @@ fn create_gpu_info_from_device(
 }
 
 fn create_process_info_from_context(ctx: RblnContext) -> ProcessInfo {
-    let device_id = ctx
-        .npu
-        .trim_start_matches("npu")
-        .parse::<usize>()
-        .unwrap_or(0);
-    let memory_mb = ctx
-        .memory
-        .trim_end_matches("MB")
-        .parse::<u64>()
-        .unwrap_or(0);
+    let device_id = parse_device_id(&ctx.npu).unwrap_or_else(|| {
+        eprintln!("Failed to parse device ID: {}", ctx.npu);
+        0
+    });
+    let used_memory = parse_memory_mb_to_bytes(&ctx.memory).unwrap_or_else(|| {
+        eprintln!("Failed to parse memory for process {}: {}", ctx.pid, ctx.memory);
+        0
+    });
 
     ProcessInfo {
         device_id,
         device_uuid: ctx.npu,
         pid: ctx.pid,
         process_name: extract_process_name(&ctx.cmd),
-        used_memory: memory_mb * 1024 * 1024,
+        used_memory,
         cpu_percent: 0.0,
         memory_percent: 0.0,
         memory_rss: 0,
@@ -334,38 +335,40 @@ fn create_process_info_from_context(ctx: RblnContext) -> ProcessInfo {
     }
 }
 
-fn parse_temperature(temp_str: &str) -> u32 {
-    temp_str
-        .trim_end_matches('C')
-        .split('/')
-        .next()
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(0)
+// Helper function to parse temperature with fallback
+fn parse_temp_safe(temp_str: &str) -> u32 {
+    parse_temperature(temp_str).unwrap_or_else(|| {
+        eprintln!("Failed to parse temperature: {}", temp_str);
+        0
+    })
 }
 
-fn parse_power(power_str: &str) -> f64 {
-    power_str
-        .trim_end_matches('W')
-        .split('/')
-        .next()
-        .and_then(|s| s.parse::<f64>().ok())
-        .unwrap_or(0.0)
+// Helper function to parse power with fallback
+fn parse_power_safe(power_str: &str) -> f64 {
+    parse_power(power_str).unwrap_or_else(|| {
+        eprintln!("Failed to parse power: {}", power_str);
+        0.0
+    })
 }
 
-fn parse_utilization(util_str: &str) -> f64 {
-    util_str.trim_end_matches('%').parse::<f64>().unwrap_or(0.0)
+// Helper function to parse utilization with fallback
+fn parse_util_safe(util_str: &str) -> f64 {
+    parse_utilization(util_str).unwrap_or_else(|| {
+        eprintln!("Failed to parse utilization: {}", util_str);
+        0.0
+    })
 }
 
 fn parse_memory(mem: &RblnMemoryInfo) -> (u64, u64) {
-    let used = mem.used.trim_end_matches("MiB").parse::<u64>().unwrap_or(0) * 1024 * 1024;
+    let used = parse_memory_mb_to_bytes(&mem.used).unwrap_or_else(|| {
+        eprintln!("Failed to parse used memory: {}", mem.used);
+        0
+    });
 
-    let total = mem
-        .total
-        .trim_end_matches("MiB")
-        .parse::<u64>()
-        .unwrap_or(0)
-        * 1024
-        * 1024;
+    let total = parse_memory_mb_to_bytes(&mem.total).unwrap_or_else(|| {
+        eprintln!("Failed to parse total memory: {}", mem.total);
+        0
+    });
 
     (used, total)
 }
