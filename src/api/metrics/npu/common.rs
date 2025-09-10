@@ -39,18 +39,22 @@ impl CommonNpuExporter {
     pub fn new() -> Self {
         Self
     }
-    
+
     /// Sanitize and validate a label value for safe use in metrics
     /// Prevents injection attacks and ensures valid metric labels
     pub fn sanitize_label(value: &str) -> String {
         // Truncate to max length
         let truncated = if value.len() > MAX_LABEL_LENGTH {
-            warn!("Label value too long ({}), truncating to {} chars", value.len(), MAX_LABEL_LENGTH);
+            warn!(
+                "Label value too long ({}), truncating to {} chars",
+                value.len(),
+                MAX_LABEL_LENGTH
+            );
             &value[..MAX_LABEL_LENGTH]
         } else {
             value
         };
-        
+
         // Replace invalid characters with underscore
         // Prometheus labels must match [a-zA-Z_][a-zA-Z0-9_]*
         truncated
@@ -69,19 +73,23 @@ impl CommonNpuExporter {
     /// Safely handles overflow by using checked parsing and reasonable bounds
     pub fn parse_hex_register(value: &str) -> Option<f64> {
         let trimmed = value.trim_start_matches("0x").trim();
-        
+
         // Validate input: max 8 hex chars for u32 to prevent overflow
         if trimmed.len() > 8 || trimmed.is_empty() {
-            debug!("Invalid hex value length: {} (value: {})", trimmed.len(), value);
+            debug!(
+                "Invalid hex value length: {} (value: {})",
+                trimmed.len(),
+                value
+            );
             return None;
         }
-        
+
         // Validate hex characters
         if !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
             debug!("Invalid hex characters in value: {}", value);
             return None;
         }
-        
+
         // Use checked parsing to prevent panic on overflow
         match u32::from_str_radix(trimmed, 16) {
             Ok(reg_val) => Some(reg_val as f64),
@@ -99,7 +107,10 @@ impl CommonNpuExporter {
         match trimmed.parse::<f64>() {
             Ok(v) if v.is_finite() => Some(v),
             Ok(v) => {
-                warn!("Rejected non-finite numeric value: {} (parsed as: {})", trimmed, v);
+                warn!(
+                    "Rejected non-finite numeric value: {} (parsed as: {})",
+                    trimmed, v
+                );
                 None
             }
             Err(e) => {
@@ -152,7 +163,7 @@ impl CommonNpuMetrics for CommonNpuExporter {
         let index_str = index.to_string();
         self.export_generic_npu_metrics_str(builder, info, &index_str);
     }
-    
+
     fn export_generic_npu_metrics_str(
         &self,
         builder: &mut MetricBuilder,
@@ -167,7 +178,7 @@ impl CommonNpuMetrics for CommonNpuExporter {
             let safe_instance = Self::sanitize_label(&info.instance);
             let safe_uuid = Self::sanitize_label(&info.uuid);
             let safe_firmware = Self::sanitize_label(firmware);
-            
+
             let fw_labels = [
                 ("npu", safe_name.as_str()),
                 ("instance", safe_instance.as_str()),

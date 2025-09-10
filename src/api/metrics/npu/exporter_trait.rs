@@ -22,7 +22,13 @@ pub trait NpuExporter: Send + Sync {
     fn can_handle(&self, info: &GpuInfo) -> bool;
 
     /// Export vendor-specific metrics for a single NPU device
-    fn export_vendor_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize, index_str: &str);
+    fn export_vendor_metrics(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index: usize,
+        index_str: &str,
+    );
 
     /// Get the vendor name for identification purposes
     fn vendor_name(&self) -> &'static str;
@@ -32,9 +38,14 @@ pub trait NpuExporter: Send + Sync {
 pub trait CommonNpuMetrics {
     /// Export generic NPU metrics that are common across vendors
     fn export_generic_npu_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize);
-    
+
     /// Export generic NPU metrics with pre-allocated index string (optimization)
-    fn export_generic_npu_metrics_str(&self, builder: &mut MetricBuilder, info: &GpuInfo, index_str: &str);
+    fn export_generic_npu_metrics_str(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index_str: &str,
+    );
 
     /// Export basic device information metrics
     fn export_device_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize);

@@ -55,7 +55,7 @@ impl<'a> NpuMetricExporter<'a> {
         EXPORTER_POOL.get().and_then(|exporters| {
             // Fast path: match common vendor patterns first
             let name = &info.name;
-            
+
             // Direct index access for known vendors (most common first)
             if name.contains("Tenstorrent") {
                 return Some(exporters[0].as_ref());
@@ -64,7 +64,7 @@ impl<'a> NpuMetricExporter<'a> {
             } else if name.contains("Furiosa") || name.contains("RNGD") || name.contains("Warboy") {
                 return Some(exporters[2].as_ref());
             }
-            
+
             // Fallback to dynamic check for unknown patterns
             exporters
                 .iter()
@@ -86,7 +86,13 @@ impl<'a> NpuMetricExporter<'a> {
     }
 
     /// Export vendor-specific metrics using the appropriate exporter
-    fn export_vendor_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize, index_str: &str) {
+    fn export_vendor_metrics(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index: usize,
+        index_str: &str,
+    ) {
         if let Some(exporter) = self.find_exporter(info) {
             exporter.export_vendor_metrics(builder, info, index, index_str);
         }
@@ -96,14 +102,14 @@ impl<'a> NpuMetricExporter<'a> {
     fn export_device_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
         // Pre-allocate index string once per device
         let index_str = index.to_string();
-        
+
         // Export generic metrics first
         self.export_generic_npu_metrics_with_str(builder, info, &index_str);
 
         // Then export vendor-specific metrics
         self.export_vendor_metrics(builder, info, index, &index_str);
     }
-    
+
     /// Export generic NPU metrics with pre-allocated index string
     fn export_generic_npu_metrics_with_str(
         &self,
@@ -113,7 +119,8 @@ impl<'a> NpuMetricExporter<'a> {
     ) {
         // Device type check removed - caller already filters NPU devices
         // Always export common metrics first
-        self.common.export_generic_npu_metrics_str(builder, info, index_str);
+        self.common
+            .export_generic_npu_metrics_str(builder, info, index_str);
     }
 }
 

@@ -211,7 +211,7 @@ impl FuriosaExporter {
 
     fn export_device_status(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
         use super::common::status_values;
-        
+
         // Export device status using common helper
         CommonNpuExporter::export_status_metric(
             builder,
@@ -247,7 +247,13 @@ impl NpuExporter for FuriosaExporter {
         info.name.contains("Furiosa") || info.name.contains("RNGD") || info.name.contains("Warboy")
     }
 
-    fn export_vendor_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize, _index_str: &str) {
+    fn export_vendor_metrics(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index: usize,
+        _index_str: &str,
+    ) {
         if !self.can_handle(info) {
             return;
         }
@@ -275,14 +281,15 @@ impl CommonNpuMetrics for FuriosaExporter {
     ) {
         self.common.export_generic_npu_metrics(builder, info, index);
     }
-    
+
     fn export_generic_npu_metrics_str(
         &self,
         builder: &mut MetricBuilder,
         info: &GpuInfo,
         index_str: &str,
     ) {
-        self.common.export_generic_npu_metrics_str(builder, info, index_str);
+        self.common
+            .export_generic_npu_metrics_str(builder, info, index_str);
     }
 
     fn export_device_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
