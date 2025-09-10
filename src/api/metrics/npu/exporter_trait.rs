@@ -17,7 +17,7 @@ use crate::device::GpuInfo;
 
 /// Trait for NPU vendor-specific metric exporters
 /// This trait defines the interface that all NPU vendor implementations must follow
-pub trait NpuExporter {
+pub trait NpuExporter: Send + Sync {
     /// Check if this exporter can handle the given NPU device
     fn can_handle(&self, info: &GpuInfo) -> bool;
 

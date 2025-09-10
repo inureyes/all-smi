@@ -26,17 +26,33 @@ impl CommonNpuExporter {
     }
 
     /// Helper function to parse hex register values commonly found in NPU metrics
+    /// Safely handles overflow by using checked parsing and reasonable bounds
     pub fn parse_hex_register(value: &str) -> Option<f64> {
-        if let Ok(reg_val) = u32::from_str_radix(value.trim_start_matches("0x"), 16) {
-            Some(reg_val as f64)
-        } else {
-            None
+        let trimmed = value.trim_start_matches("0x").trim();
+        
+        // Validate input: max 8 hex chars for u32 to prevent overflow
+        if trimmed.len() > 8 || trimmed.is_empty() {
+            return None;
         }
+        
+        // Validate hex characters
+        if !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        
+        // Use checked parsing to prevent panic on overflow
+        u32::from_str_radix(trimmed, 16)
+            .ok()
+            .map(|reg_val| reg_val as f64)
     }
 
     /// Helper function to safely parse numeric values from device details
+    /// Rejects NaN, infinity, and malformed values
     pub fn parse_numeric_value(value: &str) -> Option<f64> {
-        value.parse::<f64>().ok()
+        value.trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|v| v.is_finite())
     }
 
     /// Export status metrics with predefined status values

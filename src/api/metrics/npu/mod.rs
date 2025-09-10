@@ -21,36 +21,44 @@ pub mod tenstorrent;
 use crate::api::metrics::{MetricBuilder, MetricExporter};
 use crate::device::GpuInfo;
 use exporter_trait::{CommonNpuMetrics, NpuExporter};
+use std::sync::OnceLock;
+
+/// Static pool of vendor exporters to avoid repeated allocations
+static EXPORTER_POOL: OnceLock<Vec<Box<dyn NpuExporter + Send + Sync>>> = OnceLock::new();
 
 /// Main NPU metric exporter that coordinates between different vendor-specific exporters
 pub struct NpuMetricExporter<'a> {
     pub npu_info: &'a [GpuInfo],
-    exporters: Vec<Box<dyn NpuExporter>>,
     common: common::CommonNpuExporter,
 }
 
 impl<'a> NpuMetricExporter<'a> {
     pub fn new(npu_info: &'a [GpuInfo]) -> Self {
-        // Register all vendor-specific exporters
-        let exporters: Vec<Box<dyn NpuExporter>> = vec![
-            Box::new(tenstorrent::TenstorrentExporter::new()),
-            Box::new(rebellions::RebellionsExporter::new()),
-            Box::new(furiosa::FuriosaExporter::new()),
-        ];
+        // Initialize the exporter pool once
+        EXPORTER_POOL.get_or_init(|| {
+            vec![
+                Box::new(tenstorrent::TenstorrentExporter::new()),
+                Box::new(rebellions::RebellionsExporter::new()),
+                Box::new(furiosa::FuriosaExporter::new()),
+            ]
+        });
 
         Self {
             npu_info,
-            exporters,
             common: common::CommonNpuExporter::new(),
         }
     }
 
     /// Find the appropriate exporter for a given NPU device
     fn find_exporter(&self, info: &GpuInfo) -> Option<&dyn NpuExporter> {
-        self.exporters
-            .iter()
-            .find(|exporter| exporter.can_handle(info))
-            .map(|b| b.as_ref())
+        EXPORTER_POOL
+            .get()
+            .and_then(|exporters| {
+                exporters
+                    .iter()
+                    .find(|exporter| exporter.can_handle(info))
+                    .map(|b| b.as_ref())
+            })
     }
 
     /// Export generic NPU metrics that are common across all vendors
