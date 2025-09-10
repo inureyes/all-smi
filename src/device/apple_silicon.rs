@@ -161,16 +161,16 @@ impl GpuReader for AppleSiliconGpuReader {
 
         let mut detail = HashMap::new();
         detail.insert(
-            "Driver Version".to_string(),
+            "driver_version".to_string(),
             self.driver_version
                 .get()
                 .and_then(|v| v.clone())
                 .unwrap_or_else(|| "Unknown".to_string()),
         );
-        detail.insert("GPU Type".to_string(), "Integrated".to_string());
-        detail.insert("Architecture".to_string(), "Apple Silicon".to_string());
+        detail.insert("gpu_type".to_string(), "Integrated".to_string());
+        detail.insert("architecture".to_string(), "Apple Silicon".to_string());
         if let Some(ref thermal_level) = metrics.thermal_pressure_level {
-            detail.insert("Thermal Pressure".to_string(), thermal_level.clone());
+            detail.insert("thermal_pressure".to_string(), thermal_level.clone());
         }
 
         vec![GpuInfo {

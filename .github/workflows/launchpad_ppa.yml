@@ -15,7 +15,7 @@ on:
         description: 'Release tag to upload to PPA (e.g. v0.5.0). Empty = latest release'
         required: false
       distributions:
-        description: 'Target distributions (comma-separated: jammy,noble,oracular)'
+        description: 'Target distributions (comma-separated: jammy,noble)'
         required: false
         default: 'jammy,noble'
 
@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [jammy, noble, oracular]
+        distro: [jammy, noble]
     
     steps:
     # ───────────────────────────────────────────────────────────────

@@ -247,21 +247,21 @@ impl NvidiaGpuReader {
             for i in 0..device_count {
                 if let Ok(device) = nvml.device_by_index(i) {
                     let mut detail = HashMap::new();
-                    detail.insert("Driver Version".to_string(), driver_version.clone());
-                    detail.insert("CUDA Version".to_string(), cuda_version.clone());
+                    detail.insert("driver_version".to_string(), driver_version.clone());
+                    detail.insert("cuda_version".to_string(), cuda_version.clone());
 
                     // Get additional details
                     if let Ok(brand) = device.brand() {
-                        detail.insert("Brand".to_string(), format!("{brand:?}"));
+                        detail.insert("brand".to_string(), format!("{brand:?}"));
                     }
                     if let Ok(arch) = device.architecture() {
-                        detail.insert("Architecture".to_string(), format!("{arch:?}"));
+                        detail.insert("architecture".to_string(), format!("{arch:?}"));
                     }
                     if let Ok(pcie_gen) = device.current_pcie_link_gen() {
-                        detail.insert("PCIe Generation".to_string(), pcie_gen.to_string());
+                        detail.insert("pcie_generation".to_string(), pcie_gen.to_string());
                     }
                     if let Ok(pcie_width) = device.current_pcie_link_width() {
-                        detail.insert("PCIe Width".to_string(), format!("x{pcie_width}"));
+                        detail.insert("pcie_width".to_string(), format!("x{pcie_width}"));
                     }
 
                     // Compute mode
@@ -453,9 +453,9 @@ impl NvidiaGpuReader {
                         let driver_version = parts[9].clone();
 
                         let mut detail = HashMap::new();
-                        detail.insert("Driver Version".to_string(), driver_version);
+                        detail.insert("driver_version".to_string(), driver_version);
                         if !cuda_version.is_empty() {
-                            detail.insert("CUDA Version".to_string(), cuda_version.clone());
+                            detail.insert("cuda_version".to_string(), cuda_version.clone());
                         }
 
                         let info = GpuInfo {

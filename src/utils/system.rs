@@ -62,6 +62,26 @@ pub fn ensure_sudo_permissions() {
     }
 }
 
+pub fn ensure_sudo_permissions_for_api() -> bool {
+    // Check if we're already running as root
+    if std::env::var("USER").unwrap_or_default() == "root" || unsafe { libc::geteuid() } == 0 {
+        println!("✅ Running as root, no sudo required.");
+        return true;
+    }
+
+    // Check if we already have sudo privileges cached
+    if has_sudo_privileges() {
+        println!("✅ Sudo privileges already available.");
+        return true;
+    }
+
+    // Try to get sudo, but don't exit if it fails (for API mode)
+    println!("⚠️  Warning: Running without sudo privileges.");
+    println!("   Some hardware metrics may not be available.");
+    println!("   For full functionality, run with: sudo all-smi api --port <port>");
+    false
+}
+
 pub fn ensure_sudo_permissions_with_fallback() -> bool {
     if cfg!(target_os = "macos") {
         request_sudo_with_explanation(true)

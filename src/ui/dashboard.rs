@@ -139,7 +139,7 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
         let thermal_pressure = state
             .gpu_info
             .first()
-            .and_then(|gpu| gpu.detail.get("Thermal Pressure"))
+            .and_then(|gpu| gpu.detail.get("thermal_pressure"))
             .cloned()
             .unwrap_or_else(|| "Unknown".to_string());
         (thermal_pressure, "N/A".to_string())

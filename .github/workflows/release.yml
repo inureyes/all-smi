@@ -103,9 +103,9 @@ jobs:
       - name: Add target architecture
         run: rustup target add ${{ matrix.target }}
 
-      # 5) Install musl tools only for aarch64 musl builds
-      - name: Install ARM64 musl tools (Linux aarch64 musl only)
-        if: matrix.target == 'aarch64-unknown-linux-musl'
+      # 5) Install musl tools only for musl builds
+      - name: Install musl tools (Linux musl only)
+        if: contains(matrix.target, 'musl')
         run: |
           sudo apt update
           sudo apt install -y musl-tools
