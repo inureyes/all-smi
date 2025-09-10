@@ -23,20 +23,22 @@ pub fn validate_command(command: &str) -> bool {
     if command.is_empty() {
         return false;
     }
-    
+
     // Reject commands with shell metacharacters
-    const DANGEROUS_CHARS: &[char] = &[';', '&', '|', '>', '<', '$', '`', '\n', '\r', '(', ')', '{', '}'];
+    const DANGEROUS_CHARS: &[char] = &[
+        ';', '&', '|', '>', '<', '$', '`', '\n', '\r', '(', ')', '{', '}',
+    ];
     if command.chars().any(|c| DANGEROUS_CHARS.contains(&c)) {
         eprintln!("Potentially dangerous command rejected: {}", command);
         return false;
     }
-    
+
     // Reject path traversal attempts
     if command.contains("..") {
         eprintln!("Command with path traversal rejected: {}", command);
         return false;
     }
-    
+
     true
 }
 
@@ -48,7 +50,7 @@ pub fn validate_args(args: &[&str]) -> bool {
         if arg.is_empty() {
             continue; // Empty args are often harmless
         }
-        
+
         // Reject arguments with shell metacharacters that could cause injection
         const DANGEROUS_CHARS: &[char] = &[';', '&', '|', '`', '\n', '\r', '$'];
         if arg.chars().any(|c| DANGEROUS_CHARS.contains(&c)) {
@@ -56,7 +58,7 @@ pub fn validate_args(args: &[&str]) -> bool {
             return false;
         }
     }
-    
+
     true
 }
 
@@ -68,7 +70,7 @@ pub fn validate_command_path(path: &Path) -> bool {
         eprintln!("Non-absolute command path rejected: {:?}", path);
         return false;
     }
-    
+
     // Must not contain path traversal
     if let Some(path_str) = path.to_str() {
         if path_str.contains("..") {
@@ -76,7 +78,7 @@ pub fn validate_command_path(path: &Path) -> bool {
             return false;
         }
     }
-    
+
     // Should exist and be executable (on Unix)
     #[cfg(unix)]
     {
@@ -94,20 +96,20 @@ pub fn validate_command_path(path: &Path) -> bool {
             return false;
         }
     }
-    
+
     true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_validate_command() {
         // Valid commands
         assert!(validate_command("nvidia-smi"));
         assert!(validate_command("/usr/bin/echo"));
-        
+
         // Invalid commands
         assert!(!validate_command(""));
         assert!(!validate_command("echo; rm -rf /"));
@@ -116,26 +118,26 @@ mod tests {
         assert!(!validate_command("../../bin/evil"));
         assert!(!validate_command("echo $(whoami)"));
     }
-    
+
     #[test]
     fn test_validate_args() {
         // Valid arguments
         assert!(validate_args(&["--json", "--output", "file.txt"]));
         assert!(validate_args(&["-L", "-v"]));
-        
+
         // Invalid arguments
         assert!(!validate_args(&["; rm -rf /"]));
         assert!(!validate_args(&["$(whoami)"]));
         assert!(!validate_args(&["file.txt | cat"]));
     }
-    
+
     #[test]
     fn test_validate_command_path() {
         use std::path::PathBuf;
-        
+
         // Valid paths
         assert!(validate_command_path(&PathBuf::from("/usr/bin/ls")));
-        
+
         // Invalid paths
         assert!(!validate_command_path(&PathBuf::from("relative/path")));
         assert!(!validate_command_path(&PathBuf::from("/usr/../etc/passwd")));

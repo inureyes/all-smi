@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::device::common::constants::{self, BYTES_PER_MB, DEFAULT_TEMPERATURE, DEFAULT_POWER, DEFAULT_FREQUENCY, FURIOSA_HBM3_MEMORY_BYTES};
+use crate::device::common::constants::{
+    self, BYTES_PER_MB, DEFAULT_FREQUENCY, DEFAULT_POWER, DEFAULT_TEMPERATURE,
+    FURIOSA_HBM3_MEMORY_BYTES,
+};
 use crate::device::common::execute_command_default;
 use crate::device::common::parsers::{
     parse_device_id, parse_frequency_mhz, parse_memory_mb_to_bytes, parse_power, parse_temperature,
@@ -232,7 +235,10 @@ fn calculate_device_memory_usage(processes: &[FuriosaPsOutputJson]) -> HashMap<S
 
     for proc in processes {
         let memory_bytes = parse_memory_mb_to_bytes(&proc.memory).unwrap_or_else(|| {
-            eprintln!("Failed to parse memory for process {}: {}", proc.pid, proc.memory);
+            eprintln!(
+                "Failed to parse memory for process {}: {}",
+                proc.pid, proc.memory
+            );
             0
         });
 
@@ -371,7 +377,10 @@ fn create_process_info_from_ps(proc: &FuriosaPsOutputJson) -> ProcessInfo {
         0
     });
     let used_memory = parse_memory_mb_to_bytes(&proc.memory).unwrap_or_else(|| {
-        eprintln!("Failed to parse memory for process {}: {}", proc.pid, proc.memory);
+        eprintln!(
+            "Failed to parse memory for process {}: {}",
+            proc.pid, proc.memory
+        );
         0
     });
 

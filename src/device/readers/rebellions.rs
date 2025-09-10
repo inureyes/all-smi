@@ -25,6 +25,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// JSON structures for Rebellions device information
 #[derive(Debug, Deserialize)]
@@ -307,7 +308,10 @@ fn create_process_info_from_context(ctx: RblnContext) -> ProcessInfo {
         0
     });
     let used_memory = parse_memory_mb_to_bytes(&ctx.memory).unwrap_or_else(|| {
-        eprintln!("Failed to parse memory for process {}: {}", ctx.pid, ctx.memory);
+        eprintln!(
+            "Failed to parse memory for process {}: {}",
+            ctx.pid, ctx.memory
+        );
         0
     });
 

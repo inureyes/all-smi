@@ -59,18 +59,14 @@ pub fn parse_memory_mb_to_bytes(mem_str: &str) -> Option<u64> {
         .trim_end_matches("MB")
         .trim_end_matches("MiB")
         .trim();
-    
+
     cleaned.parse::<u64>().ok().map(|mb| mb * 1024 * 1024)
 }
 
 /// Parse a frequency string (e.g., "1000MHz") into u32
 /// Returns None if parsing fails
 pub fn parse_frequency_mhz(freq_str: &str) -> Option<u32> {
-    freq_str
-        .trim_end_matches("MHz")
-        .trim()
-        .parse::<u32>()
-        .ok()
+    freq_str.trim_end_matches("MHz").trim().parse::<u32>().ok()
 }
 
 /// Parse a string with a default value if parsing fails

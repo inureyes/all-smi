@@ -62,14 +62,14 @@ pub fn execute_command(
             command
         )));
     }
-    
+
     if !validate_args(args) {
         return Err(DeviceError::Other(format!(
             "Invalid arguments rejected for command: {}",
             command
         )));
     }
-    
+
     let output = if let Some(timeout) = options.timeout {
         run_command_with_timeout(command, args, timeout)?
     } else {
@@ -89,16 +89,16 @@ pub fn execute_command(
         } else {
             format!("{} {}", command, args.join(" "))
         };
-        
+
         eprintln!(
             "Command execution failed: '{}' (exit code: {})",
             full_command, status_code
         );
-        
+
         if !out.stderr.is_empty() {
             eprintln!("Stderr output: {}", out.stderr);
         }
-        
+
         return Err(DeviceError::CommandFailed {
             command: full_command,
             code: Some(status_code),
