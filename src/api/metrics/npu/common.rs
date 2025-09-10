@@ -15,6 +15,7 @@
 use super::exporter_trait::CommonNpuMetrics;
 use crate::api::metrics::MetricBuilder;
 use crate::device::GpuInfo;
+use tracing::{debug, warn};
 
 /// Common NPU metrics implementation
 /// Contains shared functionality and patterns used across all NPU vendors
@@ -32,27 +33,41 @@ impl CommonNpuExporter {
         
         // Validate input: max 8 hex chars for u32 to prevent overflow
         if trimmed.len() > 8 || trimmed.is_empty() {
+            debug!("Invalid hex value length: {} (value: {})", trimmed.len(), value);
             return None;
         }
         
         // Validate hex characters
         if !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+            debug!("Invalid hex characters in value: {}", value);
             return None;
         }
         
         // Use checked parsing to prevent panic on overflow
-        u32::from_str_radix(trimmed, 16)
-            .ok()
-            .map(|reg_val| reg_val as f64)
+        match u32::from_str_radix(trimmed, 16) {
+            Ok(reg_val) => Some(reg_val as f64),
+            Err(e) => {
+                warn!("Failed to parse hex value '{}': {}", value, e);
+                None
+            }
+        }
     }
 
     /// Helper function to safely parse numeric values from device details
     /// Rejects NaN, infinity, and malformed values
     pub fn parse_numeric_value(value: &str) -> Option<f64> {
-        value.trim()
-            .parse::<f64>()
-            .ok()
-            .filter(|v| v.is_finite())
+        let trimmed = value.trim();
+        match trimmed.parse::<f64>() {
+            Ok(v) if v.is_finite() => Some(v),
+            Ok(v) => {
+                warn!("Rejected non-finite numeric value: {} (parsed as: {})", trimmed, v);
+                None
+            }
+            Err(e) => {
+                debug!("Failed to parse numeric value '{}': {}", trimmed, e);
+                None
+            }
+        }
     }
 
     /// Export status metrics with predefined status values
@@ -95,6 +110,16 @@ impl CommonNpuMetrics for CommonNpuExporter {
         info: &GpuInfo,
         index: usize,
     ) {
+        let index_str = index.to_string();
+        self.export_generic_npu_metrics_str(builder, info, &index_str);
+    }
+    
+    fn export_generic_npu_metrics_str(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index_str: &str,
+    ) {
         if info.device_type != "NPU" {
             return;
         }
@@ -105,7 +130,7 @@ impl CommonNpuMetrics for CommonNpuExporter {
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
                 ("uuid", info.uuid.as_str()),
-                ("index", &index.to_string()),
+                ("index", index_str),
                 ("firmware", firmware.as_str()),
             ];
             builder

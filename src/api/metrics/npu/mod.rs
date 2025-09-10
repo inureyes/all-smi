@@ -50,15 +50,27 @@ impl<'a> NpuMetricExporter<'a> {
     }
 
     /// Find the appropriate exporter for a given NPU device
-    fn find_exporter(&self, info: &GpuInfo) -> Option<&dyn NpuExporter> {
-        EXPORTER_POOL
-            .get()
-            .and_then(|exporters| {
-                exporters
-                    .iter()
-                    .find(|exporter| exporter.can_handle(info))
-                    .map(|b| b.as_ref())
-            })
+    /// Optimized with early pattern matching to avoid linear search
+    fn find_exporter(&self, info: &GpuInfo) -> Option<&(dyn NpuExporter + Send + Sync)> {
+        EXPORTER_POOL.get().and_then(|exporters| {
+            // Fast path: match common vendor patterns first
+            let name = &info.name;
+            
+            // Direct index access for known vendors (most common first)
+            if name.contains("Tenstorrent") {
+                return Some(exporters[0].as_ref());
+            } else if name.contains("Rebellions") {
+                return Some(exporters[1].as_ref());
+            } else if name.contains("Furiosa") || name.contains("RNGD") || name.contains("Warboy") {
+                return Some(exporters[2].as_ref());
+            }
+            
+            // Fallback to dynamic check for unknown patterns
+            exporters
+                .iter()
+                .find(|exporter| exporter.can_handle(info))
+                .map(|b| b.as_ref())
+        })
     }
 
     /// Export generic NPU metrics that are common across all vendors
@@ -77,19 +89,37 @@ impl<'a> NpuMetricExporter<'a> {
     }
 
     /// Export vendor-specific metrics using the appropriate exporter
-    fn export_vendor_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+    fn export_vendor_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize, index_str: &str) {
         if let Some(exporter) = self.find_exporter(info) {
-            exporter.export_vendor_metrics(builder, info, index);
+            exporter.export_vendor_metrics(builder, info, index, index_str);
         }
     }
 
     /// Export all NPU metrics for a single device
     fn export_device_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+        // Pre-allocate index string once per device
+        let index_str = index.to_string();
+        
         // Export generic metrics first
-        self.export_generic_npu_metrics(builder, info, index);
+        self.export_generic_npu_metrics_with_str(builder, info, &index_str);
 
         // Then export vendor-specific metrics
-        self.export_vendor_metrics(builder, info, index);
+        self.export_vendor_metrics(builder, info, index, &index_str);
+    }
+    
+    /// Export generic NPU metrics with pre-allocated index string
+    fn export_generic_npu_metrics_with_str(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index_str: &str,
+    ) {
+        if info.device_type != "NPU" {
+            return;
+        }
+
+        // Always export common metrics first
+        self.common.export_generic_npu_metrics_str(builder, info, index_str);
     }
 }
 

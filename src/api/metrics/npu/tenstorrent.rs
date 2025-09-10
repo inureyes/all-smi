@@ -695,12 +695,13 @@ impl NpuExporter for TenstorrentExporter {
         info.name.contains("Tenstorrent")
     }
 
-    fn export_vendor_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+    fn export_vendor_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize, _index_str: &str) {
         if !self.can_handle(info) {
             return;
         }
 
         // Export all Tenstorrent-specific metrics
+        // TODO: Optimize to use pre-allocated index_str in future refactor
         self.export_firmware(builder, info, index);
         self.export_temperatures(builder, info, index);
         self.export_clocks(builder, info, index);
@@ -723,6 +724,15 @@ impl CommonNpuMetrics for TenstorrentExporter {
         index: usize,
     ) {
         self.common.export_generic_npu_metrics(builder, info, index);
+    }
+    
+    fn export_generic_npu_metrics_str(
+        &self,
+        builder: &mut MetricBuilder,
+        info: &GpuInfo,
+        index_str: &str,
+    ) {
+        self.common.export_generic_npu_metrics_str(builder, info, index_str);
     }
 
     fn export_device_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
