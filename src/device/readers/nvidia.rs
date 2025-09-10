@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::device::common::constants::BYTES_PER_MB;
 use crate::device::common::{execute_command_default, parse_csv_line};
 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
 use crate::device::types::{GpuInfo, ProcessInfo};
@@ -169,7 +170,7 @@ fn create_base_process_info(
     memory: UsedGpuMemory,
 ) -> ProcessInfo {
     let used_memory_mb = match memory {
-        UsedGpuMemory::Used(bytes) => bytes / (1024 * 1024),
+        UsedGpuMemory::Used(bytes) => bytes / BYTES_PER_MB,
         UsedGpuMemory::Unavailable => 0,
     };
 
@@ -178,7 +179,7 @@ fn create_base_process_info(
         device_uuid,
         pid,
         process_name: String::new(), // Will be filled by sysinfo
-        used_memory: used_memory_mb * 1024 * 1024, // Convert MB to bytes
+        used_memory: used_memory_mb * BYTES_PER_MB, // Convert MB to bytes
         cpu_percent: 0.0,            // Will be filled by sysinfo
         memory_percent: 0.0,         // Will be filled by sysinfo
         memory_rss: 0,               // Will be filled by sysinfo
@@ -478,5 +479,5 @@ fn get_gpu_processes_nvidia_smi() -> (Vec<ProcessInfo>, HashSet<u32>) {
 
 // Helper to parse memory values
 fn parse_memory_value(value: &str) -> u64 {
-    value.parse::<u64>().unwrap_or(0) * 1024 * 1024 // Convert MB to bytes
+    value.parse::<u64>().unwrap_or(0) * BYTES_PER_MB // Convert MB to bytes
 }

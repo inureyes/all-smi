@@ -84,8 +84,23 @@ pub fn execute_command(
     };
 
     if options.check_status && status_code != 0 {
+        let full_command = if args.is_empty() {
+            command.to_string()
+        } else {
+            format!("{} {}", command, args.join(" "))
+        };
+        
+        eprintln!(
+            "Command execution failed: '{}' (exit code: {})",
+            full_command, status_code
+        );
+        
+        if !out.stderr.is_empty() {
+            eprintln!("Stderr output: {}", out.stderr);
+        }
+        
         return Err(DeviceError::CommandFailed {
-            command: format!("{command} {}", args.join(" ")),
+            command: full_command,
             code: Some(status_code),
             stderr: out.stderr.clone(),
         });

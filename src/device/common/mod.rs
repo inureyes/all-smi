@@ -15,6 +15,7 @@
 // Common utilities for device modules: command execution, error handling, and JSON parsing.
 
 pub mod command_executor;
+pub mod constants;
 pub mod error_handling;
 pub mod json_parser;
 pub mod parsers;

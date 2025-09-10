@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::device::common::constants::{self, BYTES_PER_MB, DEFAULT_TEMPERATURE, DEFAULT_POWER, DEFAULT_FREQUENCY, FURIOSA_HBM3_MEMORY_BYTES};
 use crate::device::common::execute_command_default;
 use crate::device::common::parsers::{
     parse_device_id, parse_frequency_mhz, parse_memory_mb_to_bytes, parse_power, parse_temperature,
@@ -309,7 +310,7 @@ fn create_gpu_info_from_cli(
         dla_utilization: None,
         temperature,
         used_memory,
-        total_memory: 48 * 1024 * 1024 * 1024, // 48GB HBM3
+        total_memory: FURIOSA_HBM3_MEMORY_BYTES,
         frequency,
         power_consumption: power,
         gpu_core_count: None,
