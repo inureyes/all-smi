@@ -17,6 +17,17 @@ use crate::api::metrics::MetricBuilder;
 use crate::device::GpuInfo;
 use tracing::{debug, warn};
 
+/// Maximum allowed length for device names and UUIDs in metrics
+const MAX_LABEL_LENGTH: usize = 128;
+
+/// Standard status values for NPU devices
+pub mod status_values {
+    pub const NORMAL: &str = "normal";
+    pub const READY: &str = "true";
+    pub const ERROR: &str = "error";
+    pub const UNKNOWN: &str = "unknown";
+}
+
 /// Common NPU metrics implementation
 /// Contains shared functionality and patterns used across all NPU vendors
 pub struct CommonNpuExporter;
@@ -24,6 +35,31 @@ pub struct CommonNpuExporter;
 impl CommonNpuExporter {
     pub fn new() -> Self {
         Self
+    }
+    
+    /// Sanitize and validate a label value for safe use in metrics
+    /// Prevents injection attacks and ensures valid metric labels
+    pub fn sanitize_label(value: &str) -> String {
+        // Truncate to max length
+        let truncated = if value.len() > MAX_LABEL_LENGTH {
+            warn!("Label value too long ({}), truncating to {} chars", value.len(), MAX_LABEL_LENGTH);
+            &value[..MAX_LABEL_LENGTH]
+        } else {
+            value
+        };
+        
+        // Replace invalid characters with underscore
+        // Prometheus labels must match [a-zA-Z_][a-zA-Z0-9_]*
+        truncated
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect()
     }
 
     /// Helper function to parse hex register values commonly found in NPU metrics
@@ -120,18 +156,21 @@ impl CommonNpuMetrics for CommonNpuExporter {
         info: &GpuInfo,
         index_str: &str,
     ) {
-        if info.device_type != "NPU" {
-            return;
-        }
-
+        // Device type check removed - caller ensures NPU-only devices
         // Generic NPU firmware version
         if let Some(firmware) = info.detail.get("firmware") {
+            // Sanitize labels to prevent injection
+            let safe_name = Self::sanitize_label(&info.name);
+            let safe_instance = Self::sanitize_label(&info.instance);
+            let safe_uuid = Self::sanitize_label(&info.uuid);
+            let safe_firmware = Self::sanitize_label(firmware);
+            
             let fw_labels = [
-                ("npu", info.name.as_str()),
-                ("instance", info.instance.as_str()),
-                ("uuid", info.uuid.as_str()),
+                ("npu", safe_name.as_str()),
+                ("instance", safe_instance.as_str()),
+                ("uuid", safe_uuid.as_str()),
                 ("index", index_str),
-                ("firmware", firmware.as_str()),
+                ("firmware", safe_firmware.as_str()),
             ];
             builder
                 .help("all_smi_npu_firmware_info", "NPU firmware version")
@@ -141,10 +180,6 @@ impl CommonNpuMetrics for CommonNpuExporter {
     }
 
     fn export_device_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
-        if info.device_type != "NPU" {
-            return;
-        }
-
         // Export basic device information
         let device_labels = [
             ("npu", info.name.as_str()),
@@ -161,10 +196,6 @@ impl CommonNpuMetrics for CommonNpuExporter {
     }
 
     fn export_firmware_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
-        if info.device_type != "NPU" {
-            return;
-        }
-
         // Generic firmware version export (this is called by the generic method above)
         self.export_generic_npu_metrics(builder, info, index);
     }
@@ -175,10 +206,6 @@ impl CommonNpuMetrics for CommonNpuExporter {
         info: &GpuInfo,
         index: usize,
     ) {
-        if info.device_type != "NPU" {
-            return;
-        }
-
         let base_labels = [
             ("npu", info.name.as_str()),
             ("instance", info.instance.as_str()),
@@ -201,10 +228,6 @@ impl CommonNpuMetrics for CommonNpuExporter {
     }
 
     fn export_power_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
-        if info.device_type != "NPU" {
-            return;
-        }
-
         let base_labels = [
             ("npu", info.name.as_str()),
             ("instance", info.instance.as_str()),

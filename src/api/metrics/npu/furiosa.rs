@@ -210,6 +210,8 @@ impl FuriosaExporter {
     }
 
     fn export_device_status(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+        use super::common::status_values;
+        
         // Export device status using common helper
         CommonNpuExporter::export_status_metric(
             builder,
@@ -218,7 +220,7 @@ impl FuriosaExporter {
             "all_smi_furiosa_status",
             "Device operational status",
             "status",
-            "normal",
+            status_values::NORMAL,
         );
 
         // Export ready state if available
@@ -229,7 +231,7 @@ impl FuriosaExporter {
             "all_smi_furiosa_ready",
             "Device ready state",
             "ready",
-            "true",
+            status_values::READY,
         );
     }
 }

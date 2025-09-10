@@ -80,10 +80,7 @@ impl<'a> NpuMetricExporter<'a> {
         info: &GpuInfo,
         index: usize,
     ) {
-        if info.device_type != "NPU" {
-            return;
-        }
-
+        // Device type check removed - caller already filters NPU devices
         // Always export common metrics first
         self.common.export_generic_npu_metrics(builder, info, index);
     }
@@ -114,10 +111,7 @@ impl<'a> NpuMetricExporter<'a> {
         info: &GpuInfo,
         index_str: &str,
     ) {
-        if info.device_type != "NPU" {
-            return;
-        }
-
+        // Device type check removed - caller already filters NPU devices
         // Always export common metrics first
         self.common.export_generic_npu_metrics_str(builder, info, index_str);
     }
@@ -127,8 +121,12 @@ impl<'a> MetricExporter for NpuMetricExporter<'a> {
     fn export_metrics(&self) -> String {
         let mut builder = MetricBuilder::new();
 
+        // Filter NPU devices and export metrics
         for (i, info) in self.npu_info.iter().enumerate() {
-            self.export_device_metrics(&mut builder, info, i);
+            // Only process NPU devices
+            if info.device_type == "NPU" {
+                self.export_device_metrics(&mut builder, info, i);
+            }
         }
 
         builder.build()

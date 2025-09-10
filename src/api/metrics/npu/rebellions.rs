@@ -112,6 +112,8 @@ impl RebellionsExporter {
     }
 
     fn export_device_status(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {
+        use super::common::status_values;
+        
         CommonNpuExporter::export_status_metric(
             builder,
             info,
@@ -119,7 +121,7 @@ impl RebellionsExporter {
             "all_smi_rebellions_status",
             "Device operational status",
             "status",
-            "normal",
+            status_values::NORMAL,
         );
     }
 }
