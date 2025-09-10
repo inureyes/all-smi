@@ -104,7 +104,13 @@ impl TenstorrentReader {
 
     /// Get or initialize chips with caching
     fn ensure_chips_initialized() {
-        let mut chips_guard = INITIALIZED_CHIPS.lock().unwrap();
+        let mut chips_guard = match INITIALIZED_CHIPS.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                eprintln!("Failed to acquire lock for Tenstorrent chips: {}", e);
+                return;
+            }
+        };
 
         if chips_guard.is_some() {
             return;
@@ -149,8 +155,11 @@ impl TenstorrentReader {
     /// Invalidate cache to force re-detection on next access
     #[allow(dead_code)]
     pub fn invalidate_cache() {
-        let mut chips_guard = INITIALIZED_CHIPS.lock().unwrap();
-        *chips_guard = None;
+        if let Ok(mut chips_guard) = INITIALIZED_CHIPS.lock() {
+            *chips_guard = None;
+        } else {
+            eprintln!("Failed to acquire lock to invalidate Tenstorrent cache");
+        }
     }
 
     /// Get NPU processes (currently returns empty - Tenstorrent doesn't provide process info)
@@ -163,7 +172,13 @@ impl GpuReader for TenstorrentReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
         Self::ensure_chips_initialized();
 
-        let chips_guard = INITIALIZED_CHIPS.lock().unwrap();
+        let chips_guard = match INITIALIZED_CHIPS.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                eprintln!("Failed to acquire lock for Tenstorrent chips: {}", e);
+                return Vec::new();
+            }
+        };
         let cached_chips = match chips_guard.as_ref() {
             Some(chips) => chips,
             None => return Vec::new(),

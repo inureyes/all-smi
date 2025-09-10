@@ -59,7 +59,13 @@ impl AppleSiliconGpuReader {
         }
 
         // Check cache first to avoid expensive system_profiler calls
-        let mut cache = CACHED_GPU_INFO.lock().unwrap();
+        let mut cache = match CACHED_GPU_INFO.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                eprintln!("Failed to acquire lock for Apple Silicon GPU cache: {}", e);
+                return;
+            }
+        };
 
         if let Some((name, driver_version, gpu_core_count)) = cache.as_ref() {
             // Use cached values - safe initialization via OnceCell
