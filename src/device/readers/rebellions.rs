@@ -161,7 +161,20 @@ impl RebellionsNpuReader {
             None => return Vec::new(),
         };
 
-        let output = match execute_command_default(path.to_str().unwrap(), &["--json"]) {
+        // Validate path before execution to prevent path traversal
+        let path_str = match path.to_str() {
+            Some(s) if path.is_absolute() && !s.contains("..") => s,
+            Some(s) => {
+                eprintln!("Suspicious path detected: {}", s);
+                return Vec::new();
+            }
+            None => {
+                eprintln!("Invalid path for Rebellions command");
+                return Vec::new();
+            }
+        };
+
+        let output = match execute_command_default(path_str, &["--json"]) {
             Ok(output) => output,
             Err(_) => return Vec::new(),
         };
@@ -190,7 +203,20 @@ impl RebellionsNpuReader {
             None => return Vec::new(),
         };
 
-        let output = match execute_command_default(path.to_str().unwrap(), &["--json"]) {
+        // Validate path before execution to prevent path traversal
+        let path_str = match path.to_str() {
+            Some(s) if path.is_absolute() && !s.contains("..") => s,
+            Some(s) => {
+                eprintln!("Suspicious path detected: {}", s);
+                return Vec::new();
+            }
+            None => {
+                eprintln!("Invalid path for Rebellions command");
+                return Vec::new();
+            }
+        };
+
+        let output = match execute_command_default(path_str, &["--json"]) {
             Ok(output) => output,
             Err(_) => return Vec::new(),
         };

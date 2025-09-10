@@ -283,7 +283,15 @@ fn create_gpu_info_from_cli(
             s.pe_utilizations
                 .iter()
                 .map(|pe| pe.utilization)
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .max_by(|a, b| {
+                    // Safe comparison handling NaN values
+                    match (a.is_nan(), b.is_nan()) {
+                        (true, true) => std::cmp::Ordering::Equal,
+                        (true, false) => std::cmp::Ordering::Less,
+                        (false, true) => std::cmp::Ordering::Greater,
+                        (false, false) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
+                    }
+                })
         })
         .unwrap_or(0.0);
 
