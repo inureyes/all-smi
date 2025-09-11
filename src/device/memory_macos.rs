@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use chrono::Local;
-use sysinfo::System;
 use std::sync::RwLock;
+use sysinfo::System;
 
 use crate::device::{MemoryInfo, MemoryReader};
 use crate::utils::get_hostname;
@@ -34,7 +34,7 @@ impl MacOsMemoryReader {
         let mut system = System::new();
         // Initial refresh to populate memory information
         system.refresh_memory();
-        
+
         Self {
             system: RwLock::new(system),
         }
@@ -47,7 +47,7 @@ impl MemoryReader for MacOsMemoryReader {
 
         // Refresh memory information using the cached System instance
         self.system.write().unwrap().refresh_memory();
-        
+
         // Now read the memory information
         let system = self.system.read().unwrap();
 

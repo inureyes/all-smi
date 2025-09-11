@@ -53,7 +53,7 @@ impl MacOsCpuReader {
     pub fn new() -> Self {
         let is_apple_silicon = Self::detect_apple_silicon();
         let system = System::new();
-        
+
         Self {
             is_apple_silicon,
             system: RwLock::new(system),
@@ -117,7 +117,7 @@ impl MacOsCpuReader {
                     let mut cores = Vec::new();
                     let mut p_cores_residency = Vec::new();
                     let mut e_cores_residency = Vec::new();
-                    
+
                     // First pass: collect residencies by type
                     for (i, residency) in data.core_active_residencies.iter().enumerate() {
                         let core_type = if i < data.core_cluster_types.len() {
@@ -134,18 +134,18 @@ impl MacOsCpuReader {
                         } else {
                             CoreType::Standard
                         };
-                        
+
                         // Scale residency to actual utilization
                         // If average residency is 80% but actual CPU usage is 20%,
                         // scale individual core values proportionally
-                        let avg_residency = data.core_active_residencies.iter().sum::<f64>() 
+                        let avg_residency = data.core_active_residencies.iter().sum::<f64>()
                             / data.core_active_residencies.len() as f64;
                         let scale_factor = if avg_residency > 0.0 {
                             cpu_utilization / avg_residency
                         } else {
                             0.0
                         };
-                        
+
                         cores.push(CoreUtilization {
                             core_id: i as u32,
                             core_type,
@@ -154,8 +154,8 @@ impl MacOsCpuReader {
                     }
 
                     // Note: P-core and E-core utilization will be calculated from scaled per-core data later
-                    
-                    (  
+
+                    (
                         avg_freq,
                         data.p_cluster_frequency, // P-cluster frequency as max
                         Some(data.p_cluster_frequency),
@@ -200,7 +200,7 @@ impl MacOsCpuReader {
             let mut p_count = 0;
             let mut e_sum = 0.0;
             let mut e_count = 0;
-            
+
             for core in &per_core_utilization {
                 match core.core_type {
                     CoreType::Performance => {
@@ -214,25 +214,26 @@ impl MacOsCpuReader {
                     _ => {}
                 }
             }
-            
+
             let p_util = if p_count > 0 {
                 p_sum / p_count as f64
             } else {
                 cpu_utilization * 0.6
             };
-            
+
             let e_util = if e_count > 0 {
                 e_sum / e_count as f64
             } else {
                 cpu_utilization * 0.4
             };
-            
+
             (p_util, e_util)
         } else {
             // Fallback to estimated values
-            self.get_apple_silicon_core_utilization().unwrap_or((cpu_utilization * 0.6, cpu_utilization * 0.4))
+            self.get_apple_silicon_core_utilization()
+                .unwrap_or((cpu_utilization * 0.6, cpu_utilization * 0.4))
         };
-        
+
         let apple_silicon_info = Some(AppleSiliconCpuInfo {
             p_core_count,
             e_core_count,
@@ -589,16 +590,16 @@ impl MacOsCpuReader {
             std::thread::sleep(std::time::Duration::from_millis(100));
             *self.first_refresh_done.write().unwrap() = true;
         }
-        
+
         // Refresh CPU information to get latest data
         self.system.write().unwrap().refresh_cpu_usage();
-        
+
         // Get global CPU usage
         let cpu_usage = self.system.read().unwrap().global_cpu_usage() as f64;
-        
+
         Ok(cpu_usage)
     }
-    
+
     #[allow(dead_code)] // Kept as fallback method when sysinfo is unavailable
     fn get_cpu_utilization_iostat(&self) -> Result<f64, Box<dyn std::error::Error>> {
         // Fallback method using iostat (kept for compatibility)
@@ -632,7 +633,7 @@ impl MacOsCpuReader {
     fn get_apple_silicon_core_utilization(&self) -> Result<(f64, f64), Box<dyn std::error::Error>> {
         // Get actual CPU utilization from sysinfo first
         let total_cpu_util = self.get_cpu_utilization_sysinfo().unwrap_or(0.0);
-        
+
         // Try to get data from the PowerMetricsManager
         if let Some(manager) = get_powermetrics_manager() {
             if let Ok(data) = manager.get_latest_data_result() {
@@ -643,7 +644,7 @@ impl MacOsCpuReader {
                     let mut p_core_count = 0;
                     let mut e_core_sum = 0.0;
                     let mut e_core_count = 0;
-                    
+
                     for (i, residency) in data.core_active_residencies.iter().enumerate() {
                         if i < data.core_cluster_types.len() {
                             match data.core_cluster_types[i] {
@@ -658,11 +659,11 @@ impl MacOsCpuReader {
                             }
                         }
                     }
-                    
+
                     if p_core_count > 0 && e_core_count > 0 {
                         let p_avg = p_core_sum / p_core_count as f64;
                         let e_avg = e_core_sum / e_core_count as f64;
-                        
+
                         // Scale based on actual CPU utilization
                         // If residencies show P=90%, E=80% but iostat shows 20%,
                         // scale them proportionally
@@ -676,12 +677,12 @@ impl MacOsCpuReader {
                         }
                     }
                 }
-                
+
                 // Fallback: distribute total CPU utilization based on residency ratio
                 let p_residency = data.p_cluster_active_residency.clamp(0.0, 100.0);
                 let e_residency = data.e_cluster_active_residency.clamp(0.0, 100.0);
                 let total_residency = p_residency + e_residency;
-                
+
                 if total_residency > 0.0 {
                     let p_ratio = p_residency / total_residency;
                     let e_ratio = e_residency / total_residency;
