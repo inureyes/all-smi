@@ -50,8 +50,17 @@ pub fn to_bytes(value: f64, unit: &str) -> Option<u64> {
 
 /// Sanitize a quoted label/value by trimming whitespace and removing surrounding double quotes.
 pub fn sanitize_label_value(s: &str) -> String {
+    const MAX_LABEL_VALUE_LENGTH: usize = 1024;
+    
     let trimmed = s.trim();
-    trimmed.trim_matches('"').to_string()
+    let cleaned = trimmed.trim_matches('"');
+    
+    // Truncate excessively long values to prevent memory exhaustion
+    if cleaned.len() > MAX_LABEL_VALUE_LENGTH {
+        cleaned[..MAX_LABEL_VALUE_LENGTH].to_string()
+    } else {
+        cleaned.to_string()
+    }
 }
 
 /// Sanitize a label name for Prometheus compatibility.

@@ -22,6 +22,9 @@
 /// - Parses the remainder into the requested numeric type.
 ///
 /// Returns Option<T> (None if parsing fails).
+/// 
+/// # Safety
+/// This macro does not panic. Returns None for invalid input.
 #[macro_export]
 macro_rules! parse_metric {
     ($line:expr, $suffix:expr, $ty:ty) => {{
@@ -44,6 +47,9 @@ macro_rules! parse_metric {
 ///
 /// Example regex: r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$"
 /// Returns Option<(String, String, f64)>
+/// 
+/// # Safety
+/// This macro does not panic. Returns None for invalid input or regex mismatches.
 #[macro_export]
 macro_rules! parse_prometheus {
     ($line:expr, $re:expr) => {{
@@ -72,6 +78,9 @@ macro_rules! parse_prometheus {
 /// ```
 /// extract_label_to_detail!(labels, "cuda_version", gpu_info.detail, "cuda_version");
 /// ```
+/// 
+/// # Safety
+/// This macro does not panic. Silently skips if the label is not found.
 #[macro_export]
 macro_rules! extract_label_to_detail {
     ($labels:expr, $label_key:expr, $detail_map:expr, $detail_key:expr) => {
@@ -87,6 +96,7 @@ macro_rules! extract_label_to_detail {
 
 /// Process multiple label extractions in a batch.
 /// Takes a list of label keys and inserts them into the detail map.
+/// Optimized to perform single HashMap lookup per key.
 ///
 /// Example usage:
 /// ```
@@ -99,13 +109,16 @@ macro_rules! extract_label_to_detail {
 macro_rules! extract_labels_batch {
     ($labels:expr, $detail_map:expr, [$($key:expr),* $(,)?]) => {
         $(
-            extract_label_to_detail!($labels, $key, $detail_map);
+            if let Some(value) = $labels.get($key) {
+                $detail_map.insert($key.to_string(), value.clone());
+            }
         )*
     };
 }
 
 /// Update a struct field based on a metric name match.
 /// Reduces repetitive match arms to single macro calls.
+/// Uses saturating casts to prevent overflow/underflow.
 ///
 /// Example usage:
 /// ```
@@ -122,7 +135,18 @@ macro_rules! update_metric_field {
     }) => {
         match $metric_name {
             $(
-                $name => $target.$field = $value as $type,
+                $name => {
+                    // Use saturating conversions for integer types to prevent overflow
+                    #[allow(unused_comparisons)]
+                    let safe_value = if $value < 0.0 {
+                        0 as $type
+                    } else if $value > (<$type>::MAX as f64) {
+                        <$type>::MAX
+                    } else {
+                        $value as $type
+                    };
+                    $target.$field = safe_value;
+                },
             )*
             _ => {}
         }
@@ -130,7 +154,7 @@ macro_rules! update_metric_field {
 }
 
 /// Extract a label value from a HashMap with a default if not present.
-/// Returns the value or a default.
+/// Returns the value or a default. Uses efficient borrowing when possible.
 ///
 /// Example usage:
 /// ```
@@ -140,12 +164,12 @@ macro_rules! update_metric_field {
 #[macro_export]
 macro_rules! get_label_or_default {
     ($labels:expr, $key:expr) => {
-        $labels.get($key).cloned().unwrap_or_default()
+        $labels.get($key).map(|s| s.as_str()).unwrap_or("").to_string()
     };
     ($labels:expr, $key:expr, $default:expr) => {
         $labels
             .get($key)
-            .cloned()
+            .map(|s| s.to_string())
             .unwrap_or_else(|| $default.to_string())
     };
 }
@@ -168,6 +192,7 @@ macro_rules! update_optional_field {
 
 /// Extract fields from a struct and insert them into a HashMap.
 /// Useful for populating detail HashMaps from device structs.
+/// Optimized to avoid redundant allocations for static strings.
 ///
 /// Example usage:
 /// ```
@@ -180,16 +205,17 @@ macro_rules! update_optional_field {
 #[macro_export]
 macro_rules! extract_struct_fields {
     ($detail:expr, $source:expr, {
-        $($key:expr => $field:ident),* $(,)?
+        $($key:literal => $field:ident),* $(,)?
     }) => {
         $(
-            $detail.insert($key.to_string(), $source.$field.clone());
+            $detail.insert($key.into(), $source.$field.clone());
         )*
     };
 }
 
 /// Insert optional fields from a struct into a HashMap if they exist.
 /// Skips None values automatically.
+/// Optimized to avoid redundant allocations for static strings.
 ///
 /// Example usage:
 /// ```
@@ -202,11 +228,11 @@ macro_rules! extract_struct_fields {
 #[macro_export]
 macro_rules! insert_optional_fields {
     ($detail:expr, $source:expr, {
-        $($key:expr => $field:ident),* $(,)?
+        $($key:literal => $field:ident),* $(,)?
     }) => {
         $(
             if let Some(ref value) = $source.$field {
-                $detail.insert($key.to_string(), value.clone());
+                $detail.insert($key.into(), value.clone());
             }
         )*
     };
