@@ -17,6 +17,7 @@ use crate::device::GpuInfo;
 
 /// Trait for NPU vendor-specific metric exporters
 /// This trait defines the interface that all NPU vendor implementations must follow
+#[allow(dead_code)]
 pub trait NpuExporter: Send + Sync {
     /// Check if this exporter can handle the given NPU device
     fn can_handle(&self, info: &GpuInfo) -> bool;
@@ -35,6 +36,7 @@ pub trait NpuExporter: Send + Sync {
 }
 
 /// Common interface for exporting metrics that all NPU exporters should implement
+#[allow(dead_code)]
 pub trait CommonNpuMetrics {
     /// Export generic NPU metrics that are common across vendors
     fn export_generic_npu_metrics(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize);

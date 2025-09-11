@@ -74,6 +74,7 @@ impl<'a> NpuMetricExporter<'a> {
     }
 
     /// Export generic NPU metrics that are common across all vendors
+    #[allow(dead_code)]
     fn export_generic_npu_metrics(
         &self,
         builder: &mut MetricBuilder,
