@@ -124,9 +124,9 @@ impl MetricsParser {
         value: f64,
         host: &str,
     ) {
-        let gpu_name = labels.get("gpu").cloned().unwrap_or_default();
-        let gpu_uuid = labels.get("uuid").cloned().unwrap_or_default();
-        let gpu_index = labels.get("index").cloned().unwrap_or_default();
+        let gpu_name = crate::get_label_or_default!(labels, "gpu");
+        let gpu_uuid = crate::get_label_or_default!(labels, "uuid");
+        let gpu_index = crate::get_label_or_default!(labels, "index");
 
         if gpu_name.is_empty() || gpu_uuid.is_empty() {
             return;
@@ -141,14 +141,8 @@ impl MetricsParser {
                 name: gpu_name,
                 device_type: "GPU".to_string(), // Default to GPU, can be overridden by gpu_info metric
                 host_id: host.to_string(),      // Host identifier (e.g., "10.82.128.41:9090")
-                hostname: labels
-                    .get("instance")
-                    .cloned()
-                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
-                instance: labels
-                    .get("instance")
-                    .cloned()
-                    .unwrap_or_else(|| host.to_string()),
+                hostname: crate::get_label_or_default!(labels, "instance", host), // DNS hostname from instance label
+                instance: crate::get_label_or_default!(labels, "instance", host),
                 utilization: 0.0,
                 ane_utilization: 0.0,
                 dla_utilization: None,
@@ -162,14 +156,17 @@ impl MetricsParser {
             }
         });
 
+        crate::update_metric_field!(metric_name, value, gpu_info, {
+            "gpu_utilization" => utilization as f64,
+            "gpu_memory_used_bytes" => used_memory as u64,
+            "gpu_memory_total_bytes" => total_memory as u64,
+            "gpu_temperature_celsius" => temperature as u32,
+            "gpu_power_consumption_watts" => power_consumption as f64,
+            "gpu_frequency_mhz" => frequency as u32,
+            "ane_utilization" => ane_utilization as f64
+        });
+
         match metric_name {
-            "gpu_utilization" => gpu_info.utilization = value,
-            "gpu_memory_used_bytes" => gpu_info.used_memory = value as u64,
-            "gpu_memory_total_bytes" => gpu_info.total_memory = value as u64,
-            "gpu_temperature_celsius" => gpu_info.temperature = value as u32,
-            "gpu_power_consumption_watts" => gpu_info.power_consumption = value,
-            "gpu_frequency_mhz" => gpu_info.frequency = value as u32,
-            "ane_utilization" => gpu_info.ane_utilization = value,
             "gpu_power_limit_max_watts" => {
                 gpu_info
                     .detail
@@ -181,57 +178,25 @@ impl MetricsParser {
                     gpu_info.device_type = device_type.clone();
                 }
 
-                // Extract CUDA and driver info from labels
-                if let Some(cuda_version) = labels.get("cuda_version") {
-                    gpu_info
-                        .detail
-                        .insert("cuda_version".to_string(), cuda_version.clone());
-                }
-                if let Some(driver_version) = labels.get("driver_version") {
-                    gpu_info
-                        .detail
-                        .insert("driver_version".to_string(), driver_version.clone());
-                }
-                // Also extract other useful info from gpu_info metric
-                if let Some(arch) = labels.get("architecture") {
-                    gpu_info
-                        .detail
-                        .insert("architecture".to_string(), arch.clone());
-                }
-                if let Some(compute_cap) = labels.get("compute_capability") {
-                    gpu_info
-                        .detail
-                        .insert("compute_capability".to_string(), compute_cap.clone());
-                }
-                // Extract NPU-specific info
-                if let Some(firmware) = labels.get("firmware") {
-                    gpu_info
-                        .detail
-                        .insert("firmware".to_string(), firmware.clone());
-                }
-                if let Some(serial_number) = labels.get("serial_number") {
-                    gpu_info
-                        .detail
-                        .insert("serial_number".to_string(), serial_number.clone());
-                }
-                if let Some(pci_address) = labels.get("pci_address") {
-                    gpu_info
-                        .detail
-                        .insert("pci_address".to_string(), pci_address.clone());
-                }
-                if let Some(pci_device) = labels.get("pci_device") {
-                    gpu_info
-                        .detail
-                        .insert("pci_device".to_string(), pci_device.clone());
-                }
+                // Extract all GPU metadata labels in batch
+                crate::extract_labels_batch!(
+                    labels,
+                    gpu_info.detail,
+                    [
+                        "cuda_version",
+                        "driver_version",
+                        "architecture",
+                        "compute_capability",
+                        "firmware",
+                        "serial_number",
+                        "pci_address",
+                        "pci_device"
+                    ]
+                );
             }
             "npu_firmware_info" => {
                 // Handle NPU-specific firmware info metric
-                if let Some(firmware) = labels.get("firmware") {
-                    gpu_info
-                        .detail
-                        .insert("firmware".to_string(), firmware.clone());
-                }
+                crate::extract_label_to_detail!(labels, "firmware", gpu_info.detail);
             }
             _ => {}
         }
@@ -245,9 +210,9 @@ impl MetricsParser {
         value: f64,
         host: &str,
     ) {
-        let cpu_model = labels.get("cpu_model").cloned().unwrap_or_default();
+        let cpu_model = crate::get_label_or_default!(labels, "cpu_model");
         // Keep the full host address including port
-        let cpu_index = labels.get("index").cloned().unwrap_or("0".to_string());
+        let cpu_index = crate::get_label_or_default!(labels, "index", "0");
 
         let cpu_key = format!("{host}:{cpu_index}");
 
@@ -264,14 +229,8 @@ impl MetricsParser {
 
             CpuInfo {
                 host_id: host.to_string(), // Host identifier (e.g., "10.82.128.41:9090")
-                hostname: labels
-                    .get("instance")
-                    .cloned()
-                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
-                instance: labels
-                    .get("instance")
-                    .cloned()
-                    .unwrap_or_else(|| host.to_string()),
+                hostname: crate::get_label_or_default!(labels, "instance", host), // DNS hostname from instance label
+                instance: crate::get_label_or_default!(labels, "instance", host),
                 cpu_model: cpu_model.clone(),
                 architecture: "".to_string(),
                 platform_type,
@@ -291,11 +250,14 @@ impl MetricsParser {
             }
         });
 
+        crate::update_metric_field!(metric_name, value, cpu_info, {
+            "cpu_utilization" => utilization as f64,
+            "cpu_socket_count" => socket_count as u32,
+            "cpu_core_count" => total_cores as u32,
+            "cpu_thread_count" => total_threads as u32
+        });
+
         match metric_name {
-            "cpu_utilization" => cpu_info.utilization = value,
-            "cpu_socket_count" => cpu_info.socket_count = value as u32,
-            "cpu_core_count" => cpu_info.total_cores = value as u32,
-            "cpu_thread_count" => cpu_info.total_threads = value as u32,
             "cpu_frequency_mhz" => {
                 cpu_info.base_frequency_mhz = value as u32;
                 cpu_info.max_frequency_mhz = value as u32;
@@ -304,27 +266,39 @@ impl MetricsParser {
             "cpu_power_consumption_watts" => cpu_info.power_consumption = Some(value),
             "cpu_p_core_count" => {
                 self.ensure_apple_silicon_info(cpu_info);
-                if let Some(ref mut apple_info) = cpu_info.apple_silicon_info {
-                    apple_info.p_core_count = value as u32;
-                }
+                crate::update_optional_field!(
+                    cpu_info,
+                    apple_silicon_info,
+                    p_core_count,
+                    value as u32
+                );
             }
             "cpu_e_core_count" => {
                 self.ensure_apple_silicon_info(cpu_info);
-                if let Some(ref mut apple_info) = cpu_info.apple_silicon_info {
-                    apple_info.e_core_count = value as u32;
-                }
+                crate::update_optional_field!(
+                    cpu_info,
+                    apple_silicon_info,
+                    e_core_count,
+                    value as u32
+                );
             }
             "cpu_p_core_utilization" => {
                 self.ensure_apple_silicon_info(cpu_info);
-                if let Some(ref mut apple_info) = cpu_info.apple_silicon_info {
-                    apple_info.p_core_utilization = value;
-                }
+                crate::update_optional_field!(
+                    cpu_info,
+                    apple_silicon_info,
+                    p_core_utilization,
+                    value
+                );
             }
             "cpu_e_core_utilization" => {
                 self.ensure_apple_silicon_info(cpu_info);
-                if let Some(ref mut apple_info) = cpu_info.apple_silicon_info {
-                    apple_info.e_core_utilization = value;
-                }
+                crate::update_optional_field!(
+                    cpu_info,
+                    apple_silicon_info,
+                    e_core_utilization,
+                    value
+                );
             }
             "cpu_core_utilization" => {
                 // Parse per-core utilization
@@ -390,21 +364,15 @@ impl MetricsParser {
         host: &str,
     ) {
         // Keep the full host address including port
-        let memory_index = labels.get("index").cloned().unwrap_or("0".to_string());
+        let memory_index = crate::get_label_or_default!(labels, "index", "0");
         let memory_key = format!("{host}:{memory_index}");
 
         let memory_info = memory_info_map
             .entry(memory_key)
             .or_insert_with(|| MemoryInfo {
                 host_id: host.to_string(), // Host identifier (e.g., "10.82.128.41:9090")
-                hostname: labels
-                    .get("instance")
-                    .cloned()
-                    .unwrap_or_else(|| host.to_string()), // DNS hostname from instance label
-                instance: labels
-                    .get("instance")
-                    .cloned()
-                    .unwrap_or_else(|| host.to_string()),
+                hostname: crate::get_label_or_default!(labels, "instance", host), // DNS hostname from instance label
+                instance: crate::get_label_or_default!(labels, "instance", host),
                 total_bytes: 0,
                 used_bytes: 0,
                 available_bytes: 0,
@@ -418,15 +386,14 @@ impl MetricsParser {
                 time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             });
 
-        match metric_name {
-            "memory_total_bytes" => memory_info.total_bytes = value as u64,
-            "memory_used_bytes" => memory_info.used_bytes = value as u64,
-            "memory_available_bytes" => memory_info.available_bytes = value as u64,
-            "memory_buffers_bytes" => memory_info.buffers_bytes = value as u64,
-            "memory_cached_bytes" => memory_info.cached_bytes = value as u64,
-            "memory_utilization" => memory_info.utilization = value,
-            _ => {}
-        }
+        crate::update_metric_field!(metric_name, value, memory_info, {
+            "memory_total_bytes" => total_bytes as u64,
+            "memory_used_bytes" => used_bytes as u64,
+            "memory_available_bytes" => available_bytes as u64,
+            "memory_buffers_bytes" => buffers_bytes as u64,
+            "memory_cached_bytes" => cached_bytes as u64,
+            "memory_utilization" => utilization as f64
+        });
     }
 
     fn process_storage_metrics(
@@ -438,8 +405,8 @@ impl MetricsParser {
         host: &str,
     ) {
         // Keep the full host address including port
-        let mount_point = labels.get("mount_point").cloned().unwrap_or_default();
-        let storage_index = labels.get("index").cloned().unwrap_or("0".to_string());
+        let mount_point = crate::get_label_or_default!(labels, "mount_point");
+        let storage_index = crate::get_label_or_default!(labels, "index", "0");
 
         if mount_point.is_empty() {
             return;
@@ -460,11 +427,10 @@ impl MetricsParser {
                 index: storage_index.parse().unwrap_or(0),
             });
 
-        match metric_name {
-            "disk_total_bytes" => storage_info.total_bytes = value as u64,
-            "disk_available_bytes" => storage_info.available_bytes = value as u64,
-            _ => {}
-        }
+        crate::update_metric_field!(metric_name, value, storage_info, {
+            "disk_total_bytes" => total_bytes as u64,
+            "disk_available_bytes" => available_bytes as u64
+        });
     }
 
     fn ensure_apple_silicon_info(&self, cpu_info: &mut CpuInfo) {
