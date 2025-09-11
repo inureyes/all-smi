@@ -528,35 +528,21 @@ impl MacOsCpuReader {
             if line.starts_with("Processor Name:") {
                 cpu_model = line.split(':').nth(1).unwrap_or("").trim().to_string();
             } else if line.starts_with("Processor Speed:") {
-                if let Some(speed_str) = line.split(':').nth(1) {
-                    let speed_str = speed_str.trim();
-                    if let Some(ghz_str) = speed_str.split_whitespace().next() {
-                        if let Ok(ghz) = ghz_str.parse::<f64>() {
-                            base_frequency = (ghz * 1000.0) as u32;
-                        }
-                    }
+                if let Some(ghz) = crate::parse_colon_value!(line, f64) {
+                    base_frequency = (ghz * 1000.0) as u32;
                 }
             } else if line.starts_with("Number of Processors:") {
-                if let Some(proc_str) = line.split(':').nth(1) {
-                    if let Ok(procs) = proc_str.trim().parse::<u32>() {
-                        socket_count = procs;
-                    }
+                if let Some(procs) = crate::parse_colon_value!(line, u32) {
+                    socket_count = procs;
                 }
             } else if line.starts_with("Total Number of Cores:") {
-                if let Some(cores_str) = line.split(':').nth(1) {
-                    if let Ok(cores) = cores_str.trim().parse::<u32>() {
-                        total_cores = cores;
-                        total_threads = cores * 2; // Assume hyperthreading
-                    }
+                if let Some(cores) = crate::parse_colon_value!(line, u32) {
+                    total_cores = cores;
+                    total_threads = cores * 2; // Assume hyperthreading
                 }
             } else if line.starts_with("L3 Cache:") {
-                if let Some(cache_str) = line.split(':').nth(1) {
-                    let cache_str = cache_str.trim();
-                    if let Some(size_str) = cache_str.split_whitespace().next() {
-                        if let Ok(size) = size_str.parse::<u32>() {
-                            cache_size = size;
-                        }
-                    }
+                if let Some(size) = crate::parse_colon_value!(line, u32) {
+                    cache_size = size;
                 }
             }
         }

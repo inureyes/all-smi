@@ -253,33 +253,14 @@ fn parse_gpu_metrics(output: &str) -> GpuMetrics {
         let line = line.trim();
 
         if line.contains("GPU HW active residency:") {
-            if let Some(percent_str) = line.split(':').nth(1) {
-                if let Some(percent) = percent_str.split_whitespace().next() {
-                    utilization = percent.trim_end_matches('%').parse::<f64>().ok();
-                }
-            }
+            utilization = crate::parse_metric!(line, "%", f64);
         } else if line.contains("ANE Power:") {
-            if let Some(power_str) = line.split(':').nth(1) {
-                ane_utilization = power_str
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse::<f64>().ok());
-            }
+            ane_utilization = crate::parse_metric!(line, "mW", f64);
         } else if line.contains("GPU HW active frequency:") {
-            if let Some(freq_str) = line.split(':').nth(1) {
-                frequency = freq_str
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse::<u32>().ok());
-            }
+            frequency = crate::parse_metric!(line, "MHz", u32);
         } else if line.contains("GPU Power:") && !line.contains("CPU + GPU") {
-            if let Some(power_str) = line.split(':').nth(1) {
-                power_consumption = power_str
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .map(|p| p / 1000.0); // Convert mW to W
-            }
+            power_consumption = crate::parse_metric!(line, "mW", f64)
+                .map(|p| p / 1000.0); // Convert mW to W
         } else if line.contains("pressure level:") {
             if let Some(pressure_str) = line.split(':').nth(1) {
                 thermal_pressure_level = Some(pressure_str.trim().to_string());

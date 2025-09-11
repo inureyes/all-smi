@@ -166,6 +166,92 @@ macro_rules! update_optional_field {
     };
 }
 
+/// Extract fields from a struct and insert them into a HashMap.
+/// Useful for populating detail HashMaps from device structs.
+///
+/// Example usage:
+/// ```
+/// extract_struct_fields!(detail, device, {
+///     "serial_number" => device_sn,
+///     "firmware_version" => firmware,
+///     "pci_bdf" => pci_bdf
+/// });
+/// ```
+#[macro_export]
+macro_rules! extract_struct_fields {
+    ($detail:expr, $source:expr, {
+        $($key:expr => $field:ident),* $(,)?
+    }) => {
+        $(
+            $detail.insert($key.to_string(), $source.$field.clone());
+        )*
+    };
+}
+
+/// Insert optional fields from a struct into a HashMap if they exist.
+/// Skips None values automatically.
+///
+/// Example usage:
+/// ```
+/// insert_optional_fields!(detail, static_info, {
+///     "PCIe Address" => pcie_address,
+///     "PCIe Vendor ID" => pcie_vendor_id,
+///     "PCIe Device ID" => pcie_device_id
+/// });
+/// ```
+#[macro_export]
+macro_rules! insert_optional_fields {
+    ($detail:expr, $source:expr, {
+        $($key:expr => $field:ident),* $(,)?
+    }) => {
+        $(
+            if let Some(ref value) = $source.$field {
+                $detail.insert($key.to_string(), value.clone());
+            }
+        )*
+    };
+}
+
+/// Parse a value after a colon with optional type conversion.
+/// Simple utility for "Key: Value" parsing patterns.
+///
+/// Example usage:
+/// ```
+/// let frequency = parse_colon_value!(line, u32);
+/// let temperature = parse_colon_value!(line, f64);
+/// ```
+#[macro_export]
+macro_rules! parse_colon_value {
+    ($line:expr, $type:ty) => {
+        $line.split(':')
+            .nth(1)
+            .and_then(|s| s.trim().split_whitespace().next())
+            .and_then(|s| s.parse::<$type>().ok())
+    };
+}
+
+/// Parse a line starting with a specific prefix and extract the value.
+/// Useful for consistent prefix-based parsing.
+///
+/// Example usage:
+/// ```
+/// if line.starts_with("CPU Temperature:") {
+///     let temp = parse_prefixed_line!(line, "CPU Temperature:", f64);
+/// }
+/// ```
+#[macro_export]
+macro_rules! parse_prefixed_line {
+    ($line:expr, $prefix:expr, $type:ty) => {
+        if $line.starts_with($prefix) {
+            $line.strip_prefix($prefix)
+                .and_then(|s| s.trim().split_whitespace().next())
+                .and_then(|s| s.parse::<$type>().ok())
+        } else {
+            None
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use regex::Regex;

@@ -255,12 +255,14 @@ fn create_gpu_info_from_cli(
     let mut detail = HashMap::new();
 
     // Add device details
-    detail.insert("serial_number".to_string(), device.device_sn.clone());
-    detail.insert("firmware_version".to_string(), device.firmware.clone());
-    detail.insert("pert_version".to_string(), device.pert.clone());
-    detail.insert("governor".to_string(), device.governor.clone());
-    detail.insert("pci_bdf".to_string(), device.pci_bdf.clone());
-    detail.insert("pci_dev".to_string(), device.pci_dev.clone());
+    crate::extract_struct_fields!(detail, device, {
+        "serial_number" => device_sn,
+        "firmware_version" => firmware,
+        "pert_version" => pert,
+        "governor" => governor,
+        "pci_bdf" => pci_bdf,
+        "pci_dev" => pci_dev
+    });
     detail.insert("architecture".to_string(), device.arch.to_uppercase());
     detail.insert("core_count".to_string(), "8".to_string());
     detail.insert("pe_count".to_string(), "64K".to_string());

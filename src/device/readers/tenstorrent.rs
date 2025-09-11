@@ -377,40 +377,24 @@ fn build_device_details(
     let mut detail = HashMap::new();
 
     // Static information
-    detail.insert("Board Type".to_string(), static_info.board_type.clone());
-    detail.insert("Board ID".to_string(), static_info.board_id.clone());
-    detail.insert(
-        "ARC Firmware".to_string(),
-        static_info.arc_fw_version.clone(),
-    );
-    detail.insert(
-        "ETH Firmware".to_string(),
-        static_info.eth_fw_version.clone(),
-    );
-    detail.insert("Firmware Date".to_string(), static_info.fw_date.clone());
+    crate::extract_struct_fields!(detail, static_info, {
+        "Board Type" => board_type,
+        "Board ID" => board_id,
+        "ARC Firmware" => arc_fw_version,
+        "ETH Firmware" => eth_fw_version,
+        "Firmware Date" => fw_date
+    });
 
     // Optional static info
-    if let Some(ref addr) = static_info.pcie_address {
-        detail.insert("PCIe Address".to_string(), addr.clone());
-    }
-    if let Some(ref vid) = static_info.pcie_vendor_id {
-        detail.insert("PCIe Vendor ID".to_string(), vid.clone());
-    }
-    if let Some(ref did) = static_info.pcie_device_id {
-        detail.insert("PCIe Device ID".to_string(), did.clone());
-    }
-    if let Some(ref width) = static_info.pcie_link_width {
-        detail.insert("PCIe Link Width".to_string(), width.clone());
-    }
-    if let Some(ref gen) = static_info.pcie_link_gen {
-        detail.insert("PCIe Link Gen".to_string(), gen.clone());
-    }
-    if let Some(ref ddr_fw) = static_info.ddr_fw_version {
-        detail.insert("DDR Firmware".to_string(), ddr_fw.clone());
-    }
-    if let Some(ref spi_fw) = static_info.spibootrom_fw_version {
-        detail.insert("SPI Bootrom Firmware".to_string(), spi_fw.clone());
-    }
+    crate::insert_optional_fields!(detail, static_info, {
+        "PCIe Address" => pcie_address,
+        "PCIe Vendor ID" => pcie_vendor_id,
+        "PCIe Device ID" => pcie_device_id,
+        "PCIe Link Width" => pcie_link_width,
+        "PCIe Link Gen" => pcie_link_gen,
+        "DDR Firmware" => ddr_fw_version,
+        "SPI Bootrom Firmware" => spibootrom_fw_version
+    });
 
     // Dynamic telemetry
     detail.insert(
