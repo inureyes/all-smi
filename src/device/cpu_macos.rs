@@ -599,7 +599,7 @@ impl MacOsCpuReader {
         Ok(cpu_usage)
     }
     
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Kept as fallback method when sysinfo is unavailable
     fn get_cpu_utilization_iostat(&self) -> Result<f64, Box<dyn std::error::Error>> {
         // Fallback method using iostat (kept for compatibility)
         let output = Command::new("iostat").args(["-c", "1"]).output()?;

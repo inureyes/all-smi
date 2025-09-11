@@ -54,7 +54,7 @@ pub enum CoreType {
 impl PowerMetricsData {
     /// Get CPU utilization as a percentage (0-100)
     /// Uses weighted average of cluster utilization
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used in tests but clippy doesn't detect test usage
     pub fn cpu_utilization(&self) -> f64 {
         // Weight P-cores more heavily as they handle more intensive tasks
         self.e_cluster_active_residency * 0.3 + self.p_cluster_active_residency * 0.7
