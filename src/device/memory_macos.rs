@@ -14,11 +14,14 @@
 
 use chrono::Local;
 use sysinfo::System;
+use std::sync::RwLock;
 
 use crate::device::{MemoryInfo, MemoryReader};
 use crate::utils::get_hostname;
 
-pub struct MacOsMemoryReader;
+pub struct MacOsMemoryReader {
+    system: RwLock<System>,
+}
 
 impl Default for MacOsMemoryReader {
     fn default() -> Self {
@@ -28,7 +31,13 @@ impl Default for MacOsMemoryReader {
 
 impl MacOsMemoryReader {
     pub fn new() -> Self {
-        MacOsMemoryReader
+        let mut system = System::new();
+        // Initial refresh to populate memory information
+        system.refresh_memory();
+        
+        Self {
+            system: RwLock::new(system),
+        }
     }
 }
 
@@ -36,9 +45,11 @@ impl MemoryReader for MacOsMemoryReader {
     fn get_memory_info(&self) -> Vec<MemoryInfo> {
         let mut memory_info = Vec::new();
 
-        // Create system instance and refresh memory information
-        let mut system = System::new();
-        system.refresh_memory();
+        // Refresh memory information using the cached System instance
+        self.system.write().unwrap().refresh_memory();
+        
+        // Now read the memory information
+        let system = self.system.read().unwrap();
 
         let total_bytes = system.total_memory();
         let used_bytes = system.used_memory();
