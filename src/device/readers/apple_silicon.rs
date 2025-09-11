@@ -259,8 +259,8 @@ fn parse_gpu_metrics(output: &str) -> GpuMetrics {
         } else if line.contains("GPU HW active frequency:") {
             frequency = crate::parse_metric!(line, "MHz", u32);
         } else if line.contains("GPU Power:") && !line.contains("CPU + GPU") {
-            power_consumption = crate::parse_metric!(line, "mW", f64)
-                .map(|p| p / 1000.0); // Convert mW to W
+            power_consumption = crate::parse_metric!(line, "mW", f64).map(|p| p / 1000.0);
+        // Convert mW to W
         } else if line.contains("pressure level:") {
             if let Some(pressure_str) = line.split(':').nth(1) {
                 thermal_pressure_level = Some(pressure_str.trim().to_string());

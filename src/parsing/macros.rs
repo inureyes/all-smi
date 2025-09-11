@@ -22,7 +22,7 @@
 /// - Parses the remainder into the requested numeric type.
 ///
 /// Returns Option<T> (None if parsing fails).
-/// 
+///
 /// # Safety
 /// This macro does not panic. Returns None for invalid input.
 #[macro_export]
@@ -47,7 +47,7 @@ macro_rules! parse_metric {
 ///
 /// Example regex: r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$"
 /// Returns Option<(String, String, f64)>
-/// 
+///
 /// # Safety
 /// This macro does not panic. Returns None for invalid input or regex mismatches.
 #[macro_export]
@@ -78,7 +78,7 @@ macro_rules! parse_prometheus {
 /// ```ignore
 /// extract_label_to_detail!(labels, "cuda_version", gpu_info.detail, "cuda_version");
 /// ```
-/// 
+///
 /// # Safety
 /// This macro does not panic. Silently skips if the label is not found.
 #[macro_export]
@@ -164,7 +164,11 @@ macro_rules! update_metric_field {
 #[macro_export]
 macro_rules! get_label_or_default {
     ($labels:expr, $key:expr) => {
-        $labels.get($key).map(|s| s.as_str()).unwrap_or("").to_string()
+        $labels
+            .get($key)
+            .map(|s| s.as_str())
+            .unwrap_or("")
+            .to_string()
     };
     ($labels:expr, $key:expr, $default:expr) => {
         $labels
@@ -249,9 +253,10 @@ macro_rules! insert_optional_fields {
 #[macro_export]
 macro_rules! parse_colon_value {
     ($line:expr, $type:ty) => {
-        $line.split(':')
+        $line
+            .split(':')
             .nth(1)
-            .and_then(|s| s.trim().split_whitespace().next())
+            .and_then(|s| s.split_whitespace().next())
             .and_then(|s| s.parse::<$type>().ok())
     };
 }
@@ -269,7 +274,8 @@ macro_rules! parse_colon_value {
 macro_rules! parse_prefixed_line {
     ($line:expr, $prefix:expr, $type:ty) => {
         if $line.starts_with($prefix) {
-            $line.strip_prefix($prefix)
+            $line
+                .strip_prefix($prefix)
                 .and_then(|s| s.trim().split_whitespace().next())
                 .and_then(|s| s.parse::<$type>().ok())
         } else {

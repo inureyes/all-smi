@@ -106,18 +106,18 @@ impl MetricsParser {
     fn parse_labels(&self, labels_str: &str) -> HashMap<String, String> {
         const MAX_LABELS: usize = 100; // Prevent unbounded growth
         const MAX_LABEL_LENGTH: usize = 1024; // Prevent large string allocations
-        
+
         let mut labels: HashMap<String, String> = HashMap::with_capacity(16);
         for (idx, label) in labels_str.split(',').enumerate() {
             if idx >= MAX_LABELS {
                 break; // Stop processing after reasonable limit
             }
-            
+
             let label_parts: Vec<&str> = label.split('=').collect();
             if label_parts.len() == 2 {
                 let key = sanitize_label_value(label_parts[0]);
                 let value = sanitize_label_value(label_parts[1]);
-                
+
                 // Prevent excessively long labels that could cause memory issues
                 if key.len() <= MAX_LABEL_LENGTH && value.len() <= MAX_LABEL_LENGTH {
                     labels.insert(key, value);
