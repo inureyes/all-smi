@@ -20,13 +20,18 @@ use crate::device::{
 use crate::utils::system::get_hostname;
 use chrono::Local;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
+use sysinfo::System;
 
 type CpuHardwareParseResult = Result<(String, u32, u32, u32, u32, u32), Box<dyn std::error::Error>>;
 type IntelCpuInfo = (String, u32, u32, u32, u32, u32);
 
 pub struct MacOsCpuReader {
     is_apple_silicon: bool,
+    // System info for CPU metrics (using RwLock for better concurrent read access)
+    system: RwLock<System>,
+    // Track if we've done the first refresh
+    first_refresh_done: RwLock<bool>,
     // Cached hardware info for Apple Silicon
     cached_cpu_model: Mutex<Option<String>>,
     cached_p_core_count: Mutex<Option<u32>>,
@@ -47,8 +52,12 @@ impl Default for MacOsCpuReader {
 impl MacOsCpuReader {
     pub fn new() -> Self {
         let is_apple_silicon = Self::detect_apple_silicon();
+        let system = System::new();
+        
         Self {
             is_apple_silicon,
+            system: RwLock::new(system),
+            first_refresh_done: RwLock::new(false),
             cached_cpu_model: Mutex::new(None),
             cached_p_core_count: Mutex::new(None),
             cached_e_core_count: Mutex::new(None),
@@ -285,8 +294,8 @@ impl MacOsCpuReader {
         let (cpu_model, socket_count, total_cores, total_threads, base_frequency, cache_size) =
             self.parse_intel_mac_hardware_info(&hardware_info)?;
 
-        // Get CPU utilization using iostat or top
-        let cpu_utilization = self.get_cpu_utilization_iostat()?;
+        // Get CPU utilization using sysinfo
+        let cpu_utilization = self.get_cpu_utilization_sysinfo()?;
 
         // Get CPU temperature (may not be available)
         let temperature = self.get_cpu_temperature();
@@ -567,13 +576,32 @@ impl MacOsCpuReader {
     }
 
     fn get_cpu_utilization_powermetrics(&self) -> Result<f64, Box<dyn std::error::Error>> {
-        // Always use iostat for accurate CPU utilization
+        // Use sysinfo for accurate CPU utilization (better than iostat)
         // PowerMetrics' active residency != actual CPU utilization
         // Active residency includes idle time at low frequencies
-        self.get_cpu_utilization_iostat()
+        self.get_cpu_utilization_sysinfo()
     }
 
+    fn get_cpu_utilization_sysinfo(&self) -> Result<f64, Box<dyn std::error::Error>> {
+        // Check if we need to do first refresh
+        if !*self.first_refresh_done.read().unwrap() {
+            self.system.write().unwrap().refresh_cpu_usage();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            *self.first_refresh_done.write().unwrap() = true;
+        }
+        
+        // Refresh CPU information to get latest data
+        self.system.write().unwrap().refresh_cpu_usage();
+        
+        // Get global CPU usage
+        let cpu_usage = self.system.read().unwrap().global_cpu_usage() as f64;
+        
+        Ok(cpu_usage)
+    }
+    
+    #[allow(dead_code)]
     fn get_cpu_utilization_iostat(&self) -> Result<f64, Box<dyn std::error::Error>> {
+        // Fallback method using iostat (kept for compatibility)
         let output = Command::new("iostat").args(["-c", "1"]).output()?;
 
         let iostat_output = String::from_utf8_lossy(&output.stdout);
@@ -602,8 +630,8 @@ impl MacOsCpuReader {
     }
 
     fn get_apple_silicon_core_utilization(&self) -> Result<(f64, f64), Box<dyn std::error::Error>> {
-        // Get actual CPU utilization from iostat first
-        let total_cpu_util = self.get_cpu_utilization_iostat().unwrap_or(0.0);
+        // Get actual CPU utilization from sysinfo first
+        let total_cpu_util = self.get_cpu_utilization_sysinfo().unwrap_or(0.0);
         
         // Try to get data from the PowerMetricsManager
         if let Some(manager) = get_powermetrics_manager() {
