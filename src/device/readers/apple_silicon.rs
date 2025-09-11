@@ -23,6 +23,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
 };
+use sysinfo::System;
 
 // Type alias to simplify the complex type
 type GpuInfoCache = (String, Option<String>, Option<u32>);
@@ -190,8 +191,8 @@ impl GpuReader for AppleSiliconGpuReader {
             ane_utilization: metrics.ane_utilization.unwrap_or(0.0),
             dla_utilization: None,
             temperature: 0, // Apple Silicon reports pressure level as text, not numeric temp
-            used_memory: 0, // Apple Silicon doesn't report dedicated GPU memory
-            total_memory: 0, // Using unified memory
+            used_memory: get_used_memory(), // Get system memory usage (unified memory)
+            total_memory: get_total_memory(), // Get total system memory (unified memory)
             frequency: metrics.frequency.unwrap_or(0),
             power_consumption: metrics.power_consumption.unwrap_or(0.0),
             gpu_core_count: self.gpu_core_count.get().copied().flatten(),
@@ -416,4 +417,18 @@ fn parse_ioreg_gpu_cores(output_str: &str) -> Option<u32> {
         }
     }
     None
+}
+
+/// Get total system memory for Apple Silicon (unified memory)
+fn get_total_memory() -> u64 {
+    let mut system = System::new();
+    system.refresh_memory();
+    system.total_memory()
+}
+
+/// Get used memory for Apple Silicon (approximation of GPU memory usage)
+fn get_used_memory() -> u64 {
+    let mut system = System::new();
+    system.refresh_memory();
+    system.used_memory()
 }

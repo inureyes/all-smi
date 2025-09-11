@@ -14,12 +14,10 @@
 
 use std::io::{self, Write};
 use std::process::Command;
+use sysinfo::System;
 
 pub fn get_hostname() -> String {
-    let output = Command::new("hostname")
-        .output()
-        .expect("Failed to execute hostname command");
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+    System::host_name().unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Check if the current process already has sudo privileges
