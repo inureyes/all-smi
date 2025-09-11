@@ -75,7 +75,7 @@ macro_rules! parse_prometheus {
 /// Useful for processing Prometheus label data.
 ///
 /// Example usage:
-/// ```
+/// ```ignore
 /// extract_label_to_detail!(labels, "cuda_version", gpu_info.detail, "cuda_version");
 /// ```
 /// 
@@ -99,7 +99,7 @@ macro_rules! extract_label_to_detail {
 /// Optimized to perform single HashMap lookup per key.
 ///
 /// Example usage:
-/// ```
+/// ```ignore
 /// extract_labels_batch!(
 ///     labels, gpu_info.detail,
 ///     ["cuda_version", "driver_version", "architecture", "compute_capability"]
@@ -121,7 +121,7 @@ macro_rules! extract_labels_batch {
 /// Uses saturating casts to prevent overflow/underflow.
 ///
 /// Example usage:
-/// ```
+/// ```ignore
 /// update_metric_field!(metric_name, value, gpu_info, {
 ///     "gpu_utilization" => utilization as f64,
 ///     "gpu_memory_used_bytes" => used_memory as u64,
@@ -157,7 +157,7 @@ macro_rules! update_metric_field {
 /// Returns the value or a default. Uses efficient borrowing when possible.
 ///
 /// Example usage:
-/// ```
+/// ```ignore
 /// let gpu_name = get_label_or_default!(labels, "gpu");
 /// let gpu_index = get_label_or_default!(labels, "index", "0");
 /// ```
@@ -178,7 +178,7 @@ macro_rules! get_label_or_default {
 /// Useful for updating fields in optional nested structures like apple_silicon_info.
 ///
 /// Example usage:
-/// ```
+/// ```ignore
 /// update_optional_field!(cpu_info, apple_silicon_info, p_core_count, value as u32);
 /// ```
 #[macro_export]
@@ -195,7 +195,7 @@ macro_rules! update_optional_field {
 /// Optimized to avoid redundant allocations for static strings.
 ///
 /// Example usage:
-/// ```
+/// ```ignore
 /// extract_struct_fields!(detail, device, {
 ///     "serial_number" => device_sn,
 ///     "firmware_version" => firmware,
@@ -218,7 +218,7 @@ macro_rules! extract_struct_fields {
 /// Optimized to avoid redundant allocations for static strings.
 ///
 /// Example usage:
-/// ```
+/// ```ignore
 /// insert_optional_fields!(detail, static_info, {
 ///     "PCIe Address" => pcie_address,
 ///     "PCIe Vendor ID" => pcie_vendor_id,
@@ -242,7 +242,7 @@ macro_rules! insert_optional_fields {
 /// Simple utility for "Key: Value" parsing patterns.
 ///
 /// Example usage:
-/// ```
+/// ```ignore
 /// let frequency = parse_colon_value!(line, u32);
 /// let temperature = parse_colon_value!(line, f64);
 /// ```
@@ -260,7 +260,7 @@ macro_rules! parse_colon_value {
 /// Useful for consistent prefix-based parsing.
 ///
 /// Example usage:
-/// ```
+/// ```ignore
 /// if line.starts_with("CPU Temperature:") {
 ///     let temp = parse_prefixed_line!(line, "CPU Temperature:", f64);
 /// }
