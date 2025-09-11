@@ -553,10 +553,10 @@ impl MacOsCpuReader {
         // Try to get data from the PowerMetricsManager first
         if let Some(manager) = get_powermetrics_manager() {
             if let Ok(data) = manager.get_latest_data_result() {
-                return Ok((
-                    data.p_cluster_active_residency,
-                    data.e_cluster_active_residency,
-                ));
+                // Ensure values are within 0-100 range
+                let p_utilization = data.p_cluster_active_residency.clamp(0.0, 100.0);
+                let e_utilization = data.e_cluster_active_residency.clamp(0.0, 100.0);
+                return Ok((p_utilization, e_utilization));
             }
         }
 
