@@ -57,7 +57,8 @@ async fn main() {
     tokio::spawn(async {
         signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
         #[cfg(target_os = "macos")]
-        if POWERMETRICS_INITIALIZED.load(Ordering::Relaxed) {
+        {
+            // Always cleanup powermetrics on signal
             shutdown_powermetrics_manager();
         }
         std::process::exit(0);
@@ -70,7 +71,8 @@ async fn main() {
             .expect("Failed to listen for SIGTERM");
         sigterm.recv().await;
         #[cfg(target_os = "macos")]
-        if POWERMETRICS_INITIALIZED.load(Ordering::Relaxed) {
+        {
+            // Always cleanup powermetrics on signal
             shutdown_powermetrics_manager();
         }
         std::process::exit(0);
@@ -144,6 +146,13 @@ async fn main() {
                 }
             }
             view::run_view_mode(&args).await;
+            
+            // Cleanup after view mode exits
+            #[cfg(target_os = "macos")]
+            {
+                // Always try to shutdown powermetrics, even if not fully initialized
+                shutdown_powermetrics_manager();
+            }
         }
         None => {
             // Default to local mode when no command is specified
@@ -163,15 +172,22 @@ async fn main() {
                 }
 
                 view::run_local_mode(&LocalArgs { interval: None }).await;
+                
+                // Cleanup after local mode exits
+                #[cfg(target_os = "macos")]
+                {
+                    // Always try to shutdown powermetrics, even if not fully initialized
+                    shutdown_powermetrics_manager();
+                }
             }
             // If user declined sudo and chose remote monitoring,
             // they were given instructions and the function exits
         }
     }
 
-    // Cleanup PowerMetricsManager on exit
+    // Final cleanup - ensure all powermetrics processes are terminated
     #[cfg(target_os = "macos")]
-    if POWERMETRICS_INITIALIZED.load(Ordering::Relaxed) {
+    {
         shutdown_powermetrics_manager();
     }
 }
@@ -181,10 +197,8 @@ async fn main() {
 fn setup_panic_handler() {
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
-        // Clean up PowerMetricsManager before panicking
-        if POWERMETRICS_INITIALIZED.load(Ordering::Relaxed) {
-            device::powermetrics::shutdown_powermetrics_manager();
-        }
+        // Always clean up PowerMetrics processes before panicking
+        device::powermetrics::shutdown_powermetrics_manager();
         default_panic(panic_info);
     }));
 }
