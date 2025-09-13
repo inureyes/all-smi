@@ -21,4 +21,6 @@ pub mod furiosa;
 pub mod nvidia;
 pub mod nvidia_jetson;
 pub mod rebellions;
+
+#[cfg(target_os = "linux")]
 pub mod tenstorrent;

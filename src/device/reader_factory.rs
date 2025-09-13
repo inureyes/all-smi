@@ -13,12 +13,16 @@
 // limitations under the License.
 
 use crate::device::{
-    platform_detection::{
-        get_os_type, has_furiosa, has_nvidia, has_rebellions, has_tenstorrent, is_jetson,
-    },
-    readers::{furiosa, nvidia, nvidia_jetson, rebellions, tenstorrent},
+    platform_detection::{get_os_type, has_furiosa, has_nvidia, has_rebellions, is_jetson},
+    readers::{furiosa, nvidia, nvidia_jetson, rebellions},
     traits::{CpuReader, GpuReader, MemoryReader},
 };
+
+#[cfg(target_os = "linux")]
+use crate::device::platform_detection::has_tenstorrent;
+
+#[cfg(target_os = "linux")]
+use crate::device::readers::tenstorrent;
 
 #[cfg(target_os = "macos")]
 use crate::device::{
@@ -54,6 +58,7 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
             }
 
             // Check for Tenstorrent NPU support
+            #[cfg(target_os = "linux")]
             if has_tenstorrent() {
                 readers.push(Box::new(tenstorrent::TenstorrentReader::new()));
             }

@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod data_collection;
-pub mod data_collector;
-pub mod event_handler;
-pub mod runner;
-pub mod terminal_manager;
-pub mod ui_loop;
+pub mod aggregator;
+pub mod local_collector;
+pub mod remote_collector;
+pub mod strategy;
 
-pub use runner::*;
+pub use aggregator::DataAggregator;
+pub use local_collector::LocalCollector;
+pub use remote_collector::{RemoteCollector, RemoteCollectorBuilder};
+pub use strategy::{
+    CollectionConfig, CollectionData, CollectionError, CollectionResult, DataCollectionStrategy,
+};
