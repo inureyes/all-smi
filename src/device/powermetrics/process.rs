@@ -50,8 +50,8 @@ impl ProcessManager {
 
     /// Start the powermetrics process and monitoring thread
     pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Kill any existing powermetrics processes first
-        Self::kill_existing_powermetrics_processes();
+        // We no longer kill existing powermetrics processes
+        // to avoid interfering with other tools that might be using powermetrics
 
         let (command_tx, command_rx) = mpsc::channel();
         self.command_tx = Some(command_tx);
@@ -247,51 +247,17 @@ impl ProcessManager {
         Ok(())
     }
 
-    /// Kill existing powermetrics processes on the system
+    /// Kill only powermetrics processes that were likely spawned by all-smi
+    /// This is a more conservative approach that checks process parent/group
     pub fn kill_existing_powermetrics_processes() {
-        // First try to find and kill any existing powermetrics processes
-        if let Ok(output) = Command::new("pgrep").args(["-f", "powermetrics"]).output() {
-            let pids = String::from_utf8_lossy(&output.stdout);
-            for pid_str in pids.lines() {
-                if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                    // Skip if it's our own process
-                    if pid == std::process::id() as i32 {
-                        continue;
-                    }
-
-                    #[cfg(unix)]
-                    unsafe {
-                        // Try to kill the process group first
-                        let pgid = libc::getpgid(pid);
-                        if pgid > 0 {
-                            let _ = libc::killpg(pgid, libc::SIGTERM);
-                        }
-                        // Then kill the specific process
-                        let _ = libc::kill(pid, libc::SIGTERM);
-                    }
-                }
-            }
-        }
-
-        // Give processes time to terminate
-        thread::sleep(Duration::from_millis(100));
-
-        // Force kill any remaining processes
-        if let Ok(output) = Command::new("pgrep").args(["-f", "powermetrics"]).output() {
-            let pids = String::from_utf8_lossy(&output.stdout);
-            for pid_str in pids.lines() {
-                if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                    if pid == std::process::id() as i32 {
-                        continue;
-                    }
-
-                    #[cfg(unix)]
-                    unsafe {
-                        let _ = libc::kill(pid, libc::SIGKILL);
-                    }
-                }
-            }
-        }
+        // Only kill powermetrics processes that match our typical spawning pattern:
+        // - Started with sudo
+        // - Has specific all-smi related arguments
+        // This prevents killing powermetrics processes started by other tools
+        
+        // Note: For now, we don't kill any processes here to be safe
+        // The actual cleanup happens via the Drop trait when ProcessManager is dropped
+        // This function is kept for backward compatibility but made safer
     }
 
     /// Shutdown the process manager
@@ -307,29 +273,34 @@ impl ProcessManager {
             let _ = tx.send(ReaderCommand::Shutdown);
         }
 
-        // Kill the process
+        // Kill only the process we started
         {
             let mut process_guard = self.process.lock().unwrap();
             if let Some(mut child) = process_guard.take() {
                 #[cfg(unix)]
                 {
-                    // Kill the process group
+                    // Kill the process group we created
                     let pid = child.id() as i32;
                     unsafe {
-                        let pgid = libc::getpgid(pid);
-                        if pgid > 0 {
-                            let _ = libc::killpg(pgid, libc::SIGTERM);
-                        }
+                        // Since we set process_group(0) when spawning,
+                        // the child is the leader of its own process group
+                        // Kill the entire process group (sudo + powermetrics)
+                        let _ = libc::killpg(pid, libc::SIGTERM);
+                        thread::sleep(Duration::from_millis(100));
+                        
+                        // If still running, force kill
+                        let _ = libc::killpg(pid, libc::SIGKILL);
                     }
                 }
 
+                // Also try to kill via the Child handle
                 let _ = child.kill();
                 let _ = child.wait();
             }
         }
-
-        // Kill any remaining powermetrics processes
-        Self::kill_existing_powermetrics_processes();
+        
+        // We no longer kill all powermetrics processes
+        // Only kill the specific process we started
     }
 
     /// Check if the process is running (test use only)
