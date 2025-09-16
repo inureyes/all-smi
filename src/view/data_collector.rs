@@ -133,28 +133,53 @@ impl DataCollector {
         let collector = builder.build();
 
         loop {
-            // Get the current hosts from builder (this is a bit inefficient but maintains compatibility)
+            // Get the current hosts from builder with validation
             let hosts_list = if let Some(file_path) = &hostfile {
                 let mut hosts_vec = hosts.clone();
-                if let Ok(content) = std::fs::read_to_string(file_path) {
-                    let file_hosts: Vec<String> = content
-                        .lines()
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .filter(|s| !s.starts_with('#'))
-                        .map(|s| {
-                            if let Some(stripped) = s.strip_prefix("http://") {
-                                stripped.to_string()
-                            } else if let Some(stripped) = s.strip_prefix("https://") {
-                                stripped.to_string()
-                            } else {
-                                s.to_string()
-                            }
-                        })
-                        .collect();
-                    hosts_vec.extend(file_hosts);
+
+                // Validate file path
+                match std::fs::metadata(file_path) {
+                    Ok(metadata) => {
+                        const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10MB
+                        if metadata.len() > MAX_FILE_SIZE {
+                            eprintln!("Warning: Hostfile too large, skipping reload");
+                            hosts_vec
+                        } else if let Ok(content) = std::fs::read_to_string(file_path) {
+                            const MAX_HOSTS: usize = 1000;
+                            let file_hosts: Vec<String> = content
+                                .lines()
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                                .filter(|s| !s.starts_with('#'))
+                                .take(MAX_HOSTS)
+                                .filter_map(|s| {
+                                    let host = if let Some(stripped) = s.strip_prefix("http://") {
+                                        stripped.to_string()
+                                    } else if let Some(stripped) = s.strip_prefix("https://") {
+                                        stripped.to_string()
+                                    } else {
+                                        s.to_string()
+                                    };
+
+                                    // Basic host validation
+                                    if host.chars().all(|c| c.is_ascii() && (c.is_alphanumeric() || ".-:_".contains(c))) {
+                                        Some(host)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
+                            hosts_vec.extend(file_hosts);
+                            hosts_vec
+                        } else {
+                            hosts_vec
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Warning: Cannot access hostfile: {}", e);
+                        hosts_vec
+                    }
                 }
-                hosts_vec
             } else {
                 hosts.clone()
             };

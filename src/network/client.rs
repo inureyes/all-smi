@@ -107,6 +107,7 @@ impl NetworkClient {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_auth_token(auth_token: Option<String>) -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(AppConfig::CONNECTION_TIMEOUT_SECS))

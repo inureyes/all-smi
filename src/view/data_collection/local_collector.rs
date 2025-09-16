@@ -15,8 +15,10 @@
 use async_trait::async_trait;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 use sysinfo::{Disks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use tokio::sync::{Mutex, RwLock};
+use tokio::time::timeout;
 
 use crate::app_state::AppState;
 #[cfg(target_os = "linux")]
@@ -58,17 +60,36 @@ impl LocalCollector {
     }
 
     async fn initialize_readers(&self, app_state: Arc<Mutex<AppState>>) {
-        let mut initialized = self.initialized.lock().await;
+        // Use timeout to prevent deadlock
+        let initialized_result = timeout(
+            Duration::from_secs(5),
+            self.initialized.lock()
+        ).await;
+
+        let mut initialized = match initialized_result {
+            Ok(lock) => lock,
+            Err(_) => {
+                eprintln!("Warning: Timeout acquiring initialized lock");
+                return;
+            }
+        };
+
         if *initialized {
             return;
         }
 
-        // Add startup status
+        // Add startup status with timeout
         {
-            let mut state = app_state.lock().await;
-            state
-                .startup_status_lines
-                .push("✓ Initializing GPU readers...".to_string());
+            let state_result = timeout(
+                Duration::from_secs(2),
+                app_state.lock()
+            ).await;
+
+            if let Ok(mut state) = state_result {
+                state
+                    .startup_status_lines
+                    .push("✓ Initializing GPU readers...".to_string());
+            }
         }
 
         let gpu_readers = get_gpu_readers();
@@ -93,18 +114,36 @@ impl LocalCollector {
 
         let memory_readers = get_memory_readers();
 
-        // Store the readers in self using RwLock
+        // Store the readers in self using RwLock with timeout
         {
-            let mut gpu_lock = self.gpu_readers.write().await;
-            *gpu_lock = gpu_readers;
+            if let Ok(mut gpu_lock) = timeout(
+                Duration::from_secs(2),
+                self.gpu_readers.write()
+            ).await {
+                *gpu_lock = gpu_readers;
+            } else {
+                eprintln!("Warning: Timeout acquiring GPU readers lock");
+            }
         }
         {
-            let mut cpu_lock = self.cpu_readers.write().await;
-            *cpu_lock = cpu_readers;
+            if let Ok(mut cpu_lock) = timeout(
+                Duration::from_secs(2),
+                self.cpu_readers.write()
+            ).await {
+                *cpu_lock = cpu_readers;
+            } else {
+                eprintln!("Warning: Timeout acquiring CPU readers lock");
+            }
         }
         {
-            let mut mem_lock = self.memory_readers.write().await;
-            *mem_lock = memory_readers;
+            if let Ok(mut mem_lock) = timeout(
+                Duration::from_secs(2),
+                self.memory_readers.write()
+            ).await {
+                *mem_lock = memory_readers;
+            } else {
+                eprintln!("Warning: Timeout acquiring memory readers lock");
+            }
         }
 
         *initialized = true;
@@ -152,10 +191,11 @@ impl LocalCollector {
         });
 
         // Run all collections in parallel with status updates
-        let gpu_readers_1 = self.gpu_readers.clone();
-        let gpu_readers_2 = self.gpu_readers.clone();
-        let cpu_readers = self.cpu_readers.clone();
-        let memory_readers = self.memory_readers.clone();
+        // Use Arc references instead of cloning the entire Arc<RwLock<_>>
+        let gpu_readers_1 = Arc::clone(&self.gpu_readers);
+        let gpu_readers_2 = Arc::clone(&self.gpu_readers);
+        let cpu_readers = Arc::clone(&self.cpu_readers);
+        let memory_readers = Arc::clone(&self.memory_readers);
 
         let (
             all_gpu_info,

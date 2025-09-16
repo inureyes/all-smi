@@ -134,25 +134,27 @@ impl MetricsParser {
         }
 
         let mut labels: HashMap<String, String> = HashMap::with_capacity(16);
-        for (idx, label) in labels_str.split(',').enumerate() {
-            if idx >= MAX_LABELS {
-                break; // Stop processing after reasonable limit
+        let mut label_count = 0;
+
+        // Optimized parsing without intermediate allocations
+        for label in labels_str.split(',') {
+            if label_count >= MAX_LABELS {
+                break;
             }
 
-            // Use splitn to limit splits and prevent unbounded processing
-            if let Some((key, value)) = label.splitn(2, '=').collect::<Vec<&str>>().get(0..2).and_then(|parts| {
-                if parts.len() == 2 {
-                    Some((parts[0], parts[1]))
-                } else {
-                    None
-                }
-            }) {
-                let key = sanitize_label_value(key);
-                let value = sanitize_label_value(value);
+            // Find the '=' separator without allocating a vector
+            if let Some(eq_pos) = label.find('=') {
+                let key = &label[..eq_pos];
+                let value = &label[eq_pos + 1..];
 
-                // Prevent excessively long labels that could cause memory issues
-                if key.len() <= MAX_LABEL_LENGTH && value.len() <= MAX_LABEL_LENGTH {
-                    labels.insert(key, value);
+                // Sanitize and validate in one pass
+                let key_clean = sanitize_label_value(key);
+                let value_clean = sanitize_label_value(value);
+
+                // Check lengths and insert
+                if key_clean.len() <= MAX_LABEL_LENGTH && value_clean.len() <= MAX_LABEL_LENGTH {
+                    labels.insert(key_clean, value_clean);
+                    label_count += 1;
                 }
             }
         }

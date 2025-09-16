@@ -248,23 +248,74 @@ impl RemoteCollectorBuilder {
     }
 
     pub fn load_hosts_from_file(mut self, file_path: &str) -> Result<Self, std::io::Error> {
-        let content = std::fs::read_to_string(file_path)?;
+        use std::path::Path;
+
+        // Sanitize and validate file path
+        let path = Path::new(file_path);
+
+        // Resolve to absolute path and check it exists
+        let canonical_path = path.canonicalize()
+            .map_err(|e| std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("Invalid hostfile path: {}", e)
+            ))?;
+
+        // Ensure it's a file, not a directory
+        if !canonical_path.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Hostfile path is not a regular file"
+            ));
+        }
+
+        // Check file size to prevent loading huge files
+        let metadata = std::fs::metadata(&canonical_path)?;
+        const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10MB max
+        if metadata.len() > MAX_FILE_SIZE {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Hostfile too large: {} bytes (max: {} bytes)", metadata.len(), MAX_FILE_SIZE)
+            ));
+        }
+
+        let content = std::fs::read_to_string(&canonical_path)?;
+
+        // Limit number of hosts to prevent memory exhaustion
+        const MAX_HOSTS: usize = 1000;
+        let mut host_count = 0;
+
         let file_hosts: Vec<String> = content
             .lines()
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .filter(|s| !s.starts_with('#'))
-            .map(|s| {
-                // Strip protocol prefix if present
-                if let Some(stripped) = s.strip_prefix("http://") {
+            .take(MAX_HOSTS)
+            .filter_map(|s| {
+                host_count += 1;
+                if host_count > MAX_HOSTS {
+                    eprintln!("Warning: Hostfile contains more than {} hosts, truncating", MAX_HOSTS);
+                    return None;
+                }
+
+                // Validate host format (basic validation)
+                let host = if let Some(stripped) = s.strip_prefix("http://") {
                     stripped.to_string()
                 } else if let Some(stripped) = s.strip_prefix("https://") {
                     stripped.to_string()
                 } else {
                     s.to_string()
+                };
+
+                // Basic validation: must contain valid characters
+                if host.chars().all(|c| c.is_ascii() && (c.is_alphanumeric() || ".-:_".contains(c))) {
+                    Some(host)
+                } else {
+                    eprintln!("Warning: Invalid host format skipped: {}", s);
+                    None
                 }
             })
             .collect();
+
         self.hosts.extend(file_hosts);
         Ok(self)
     }
