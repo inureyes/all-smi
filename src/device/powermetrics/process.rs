@@ -130,8 +130,10 @@ impl ProcessManager {
         data_buffer: Arc<Mutex<std::collections::VecDeque<String>>>,
         command_rx: Receiver<ReaderCommand>,
     ) {
+        use std::fmt::Write;
+
         let reader = BufReader::new(stdout);
-        let mut current_section = String::new();
+        let mut current_section = String::with_capacity(8192); // Pre-allocate for efficiency
         let mut in_section = false;
 
         for line in reader.lines() {
@@ -154,7 +156,9 @@ impl ProcessManager {
                     if buffer.len() >= AppConfig::POWERMETRICS_BUFFER_CAPACITY {
                         buffer.pop_front(); // Remove oldest
                     }
-                    buffer.push_back(current_section.clone());
+                    // Move the string instead of cloning
+                    buffer.push_back(std::mem::take(&mut current_section));
+                    current_section.reserve(8192); // Reserve capacity for next section
                 }
                 // Start new section
                 current_section.clear();
@@ -162,8 +166,8 @@ impl ProcessManager {
             }
 
             if in_section {
-                current_section.push_str(&line);
-                current_section.push('\n');
+                // Use write! for more efficient string concatenation
+                let _ = writeln!(current_section, "{}", line);
             }
         }
     }

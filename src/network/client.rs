@@ -85,10 +85,13 @@ impl RateLimiter {
 
 impl NetworkClient {
     pub fn new() -> Self {
+        // Validate connection pool limits against system resources
+        let max_idle_per_host = Self::validate_pool_limits(AppConfig::POOL_MAX_IDLE_PER_HOST);
+
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(AppConfig::CONNECTION_TIMEOUT_SECS))
             .pool_idle_timeout(Duration::from_secs(AppConfig::POOL_IDLE_TIMEOUT_SECS))
-            .pool_max_idle_per_host(AppConfig::POOL_MAX_IDLE_PER_HOST)
+            .pool_max_idle_per_host(max_idle_per_host)
             .tcp_keepalive(Duration::from_secs(AppConfig::TCP_KEEPALIVE_SECS))
             .http2_keep_alive_interval(Duration::from_secs(AppConfig::HTTP2_KEEPALIVE_SECS))
             .build()
@@ -109,10 +112,12 @@ impl NetworkClient {
 
     #[allow(dead_code)]
     pub fn with_auth_token(auth_token: Option<String>) -> Self {
+        let max_idle_per_host = Self::validate_pool_limits(AppConfig::POOL_MAX_IDLE_PER_HOST);
+
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(AppConfig::CONNECTION_TIMEOUT_SECS))
             .pool_idle_timeout(Duration::from_secs(AppConfig::POOL_IDLE_TIMEOUT_SECS))
-            .pool_max_idle_per_host(AppConfig::POOL_MAX_IDLE_PER_HOST)
+            .pool_max_idle_per_host(max_idle_per_host)
             .tcp_keepalive(Duration::from_secs(AppConfig::TCP_KEEPALIVE_SECS))
             .http2_keep_alive_interval(Duration::from_secs(AppConfig::HTTP2_KEEPALIVE_SECS))
             .build()
@@ -185,6 +190,58 @@ impl NetworkClient {
         url.set_fragment(None);
 
         Ok(url.to_string())
+    }
+
+    /// Validate pool limits against system resources
+    fn validate_pool_limits(requested: usize) -> usize {
+        // Get system limits using sysctl or /proc
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+
+            // Try to get system file descriptor limit
+            let limit = if cfg!(target_os = "macos") {
+                Command::new("sysctl")
+                    .args(["kern.maxfiles"])
+                    .output()
+                    .ok()
+                    .and_then(|output| {
+                        String::from_utf8_lossy(&output.stdout)
+                            .split(':')
+                            .nth(1)
+                            .and_then(|s| s.trim().parse::<usize>().ok())
+                    })
+            } else {
+                // Linux: read from /proc
+                std::fs::read_to_string("/proc/sys/fs/file-max")
+                    .ok()
+                    .and_then(|s| s.trim().parse::<usize>().ok())
+            };
+
+            // Use conservative fraction of system limit
+            if let Some(sys_limit) = limit {
+                let safe_limit = sys_limit / 10; // Use max 10% of system limit
+                if requested > safe_limit {
+                    eprintln!("Warning: Requested pool size {} exceeds safe limit {}, using {}",
+                             requested, safe_limit, safe_limit);
+                    return safe_limit;
+                }
+            }
+        }
+
+        // Validate against reasonable bounds
+        const MIN_POOL_SIZE: usize = 10;
+        const MAX_POOL_SIZE: usize = 500;
+
+        if requested < MIN_POOL_SIZE {
+            MIN_POOL_SIZE
+        } else if requested > MAX_POOL_SIZE {
+            eprintln!("Warning: Pool size {} exceeds maximum {}, using maximum",
+                     requested, MAX_POOL_SIZE);
+            MAX_POOL_SIZE
+        } else {
+            requested
+        }
     }
 
     pub async fn fetch_remote_data(
