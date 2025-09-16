@@ -17,9 +17,6 @@ pub mod local_collector;
 pub mod remote_collector;
 pub mod strategy;
 
-pub use aggregator::DataAggregator;
 pub use local_collector::LocalCollector;
-pub use remote_collector::{RemoteCollector, RemoteCollectorBuilder};
-pub use strategy::{
-    CollectionConfig, CollectionData, CollectionError, CollectionResult, DataCollectionStrategy,
-};
+pub use remote_collector::RemoteCollectorBuilder;
+pub use strategy::{CollectionConfig, DataCollectionStrategy};

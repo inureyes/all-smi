@@ -203,16 +203,22 @@ impl DataAggregator {
     }
 
     /// Calculate average GPU utilization
+    #[allow(dead_code)]
     pub fn calculate_avg_gpu_utilization(state: &AppState) -> f64 {
         if state.gpu_info.is_empty() {
             return 0.0;
         }
 
-        state.gpu_info.iter().map(|gpu| gpu.utilization).sum::<f64>()
+        state
+            .gpu_info
+            .iter()
+            .map(|gpu| gpu.utilization)
+            .sum::<f64>()
             / state.gpu_info.len() as f64
     }
 
     /// Calculate average GPU memory usage
+    #[allow(dead_code)]
     pub fn calculate_avg_gpu_memory(state: &AppState) -> f64 {
         if state.gpu_info.is_empty() {
             return 0.0;
@@ -233,16 +239,22 @@ impl DataAggregator {
     }
 
     /// Calculate average CPU utilization
+    #[allow(dead_code)]
     pub fn calculate_avg_cpu_utilization(state: &AppState) -> f64 {
         if state.cpu_info.is_empty() {
             return 0.0;
         }
 
-        state.cpu_info.iter().map(|cpu| cpu.utilization).sum::<f64>()
+        state
+            .cpu_info
+            .iter()
+            .map(|cpu| cpu.utilization)
+            .sum::<f64>()
             / state.cpu_info.len() as f64
     }
 
     /// Calculate average system memory usage
+    #[allow(dead_code)]
     pub fn calculate_avg_system_memory(state: &AppState) -> f64 {
         if state.memory_info.is_empty() {
             return 0.0;

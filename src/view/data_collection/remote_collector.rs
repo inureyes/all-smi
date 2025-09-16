@@ -16,7 +16,6 @@ use async_trait::async_trait;
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::Mutex;
 
 use crate::app_state::{AppState, ConnectionStatus};
@@ -71,6 +70,7 @@ impl RemoteCollector {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_hosts(hosts: Vec<String>) -> Self {
         let max_connections = EnvConfig::max_concurrent_connections(hosts.len());
         Self::new(max_connections)
@@ -82,8 +82,7 @@ impl RemoteCollector {
             let dedup_key = format!("{}:{}", storage.hostname, storage.mount_point);
             deduplicated_storage.insert(dedup_key, storage);
         }
-        let mut final_storage_info: Vec<StorageInfo> =
-            deduplicated_storage.into_values().collect();
+        let mut final_storage_info: Vec<StorageInfo> = deduplicated_storage.into_values().collect();
 
         // Sort by hostname first, then by mount point for consistent ordering
         final_storage_info.sort_by(|a, b| match a.hostname.cmp(&b.hostname) {
@@ -235,6 +234,7 @@ impl RemoteCollectorBuilder {
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_max_connections(mut self, max_connections: usize) -> Self {
         self.max_connections = Some(max_connections);
         self
@@ -266,7 +266,7 @@ impl RemoteCollectorBuilder {
         let max_connections = self
             .max_connections
             .unwrap_or_else(|| EnvConfig::max_concurrent_connections(self.hosts.len()));
-        
+
         RemoteCollector::new(max_connections)
     }
 }

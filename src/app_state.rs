@@ -106,6 +106,7 @@ pub struct AppState {
     pub cpu_temperature_history: VecDeque<f64>,
     pub notifications: NotificationManager,
     pub nvml_notification_shown: bool,
+    #[cfg(target_os = "linux")]
     pub tenstorrent_notification_shown: bool,
     // Connection status tracking for remote mode
     pub connection_status: HashMap<String, ConnectionStatus>,
@@ -189,6 +190,7 @@ impl AppState {
             cpu_temperature_history: VecDeque::new(),
             notifications: NotificationManager::new(),
             nvml_notification_shown: false,
+            #[cfg(target_os = "linux")]
             tenstorrent_notification_shown: false,
             // Connection status tracking for remote mode
             connection_status: HashMap::new(),

@@ -120,6 +120,7 @@ pub fn has_furiosa() -> bool {
     false
 }
 
+#[cfg(target_os = "linux")]
 pub fn has_tenstorrent() -> bool {
     // First check if device directory exists
     if std::path::Path::new("/dev/tenstorrent").exists() {

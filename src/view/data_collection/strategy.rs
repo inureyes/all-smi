@@ -55,16 +55,17 @@ impl Default for CollectionData {
 
 /// Error types for data collection
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum CollectionError {
     #[error("Connection error: {0}")]
     ConnectionError(String),
-    
+
     #[error("Parse error: {0}")]
     ParseError(String),
-    
+
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("Other error: {0}")]
     Other(String),
 }
@@ -89,10 +90,11 @@ impl Default for CollectionConfig {
 
 /// Strategy interface for data collection
 #[async_trait]
+#[allow(dead_code)]
 pub trait DataCollectionStrategy: Send + Sync {
     /// Collect data according to the strategy
     async fn collect(&self, config: &CollectionConfig) -> CollectionResult;
-    
+
     /// Update the application state with collected data
     async fn update_state(
         &self,
@@ -100,10 +102,10 @@ pub trait DataCollectionStrategy: Send + Sync {
         data: CollectionData,
         config: &CollectionConfig,
     );
-    
+
     /// Get the strategy type name for logging
     fn strategy_type(&self) -> &str;
-    
+
     /// Check if the strategy is ready for collection
     async fn is_ready(&self) -> bool {
         true

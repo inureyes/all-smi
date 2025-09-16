@@ -108,7 +108,7 @@ pub fn shutdown_powermetrics_manager() {
         // The manager will be dropped when the last Arc reference is dropped
         // The Drop implementation in DataCollector will handle cleanup of our specific process
     }
-    
+
     // Note: We no longer call kill_existing_powermetrics_processes() here
     // to avoid killing powermetrics processes that belong to other applications.
     // The cleanup of our specific process is handled by the Drop trait.

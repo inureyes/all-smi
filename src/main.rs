@@ -146,7 +146,7 @@ async fn main() {
                 }
             }
             view::run_view_mode(&args).await;
-            
+
             // Cleanup after view mode exits
             #[cfg(target_os = "macos")]
             {
@@ -172,7 +172,7 @@ async fn main() {
                 }
 
                 view::run_local_mode(&LocalArgs { interval: None }).await;
-                
+
                 // Cleanup after local mode exits
                 #[cfg(target_os = "macos")]
                 {

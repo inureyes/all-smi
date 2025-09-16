@@ -19,10 +19,11 @@ use sysinfo::{Disks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::app_state::AppState;
-use crate::common::config::AppConfig;
+#[cfg(target_os = "linux")]
+use crate::device::platform_detection::has_tenstorrent;
 use crate::device::{
     get_cpu_readers, get_gpu_readers, get_memory_readers, get_nvml_status_message,
-    platform_detection::{has_nvidia, has_tenstorrent},
+    platform_detection::has_nvidia,
     process_list::{get_all_processes, merge_gpu_processes},
     CpuInfo, CpuReader, GpuInfo, GpuReader, MemoryInfo, MemoryReader, ProcessInfo,
 };
@@ -402,7 +403,7 @@ impl DataCollectionStrategy for LocalCollector {
                 "First iteration requires app_state initialization".to_string(),
             ));
         }
-        
+
         Ok(self.collect_sequential().await)
     }
 

@@ -249,12 +249,13 @@ impl ProcessManager {
 
     /// Kill only powermetrics processes that were likely spawned by all-smi
     /// This is a more conservative approach that checks process parent/group
+    #[cfg(test)]
     pub fn kill_existing_powermetrics_processes() {
         // Only kill powermetrics processes that match our typical spawning pattern:
         // - Started with sudo
         // - Has specific all-smi related arguments
         // This prevents killing powermetrics processes started by other tools
-        
+
         // Note: For now, we don't kill any processes here to be safe
         // The actual cleanup happens via the Drop trait when ProcessManager is dropped
         // This function is kept for backward compatibility but made safer
@@ -287,7 +288,7 @@ impl ProcessManager {
                         // Kill the entire process group (sudo + powermetrics)
                         let _ = libc::killpg(pid, libc::SIGTERM);
                         thread::sleep(Duration::from_millis(100));
-                        
+
                         // If still running, force kill
                         let _ = libc::killpg(pid, libc::SIGKILL);
                     }
@@ -298,7 +299,7 @@ impl ProcessManager {
                 let _ = child.wait();
             }
         }
-        
+
         // We no longer kill all powermetrics processes
         // Only kill the specific process we started
     }

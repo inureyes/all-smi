@@ -22,8 +22,7 @@ use crate::common::config::EnvConfig;
 
 // Re-export for backward compatibility
 pub use super::data_collection::{
-    CollectionConfig, CollectionData, CollectionError, CollectionResult, DataCollectionStrategy,
-    LocalCollector, RemoteCollectorBuilder,
+    CollectionConfig, DataCollectionStrategy, LocalCollector, RemoteCollectorBuilder,
 };
 
 pub struct DataCollector {
@@ -44,7 +43,9 @@ impl DataCollector {
 
         loop {
             let mut config = CollectionConfig {
-                interval: args.interval.unwrap_or_else(|| EnvConfig::adaptive_interval(1)),
+                interval: args
+                    .interval
+                    .unwrap_or_else(|| EnvConfig::adaptive_interval(1)),
                 first_iteration,
                 hosts: Vec::new(),
             };
@@ -118,9 +119,9 @@ impl DataCollector {
 
         // Load hosts from file if specified
         let mut builder = RemoteCollectorBuilder::new().with_hosts(hosts.clone());
-        
+
         if let Some(ref file_path) = hostfile {
-            match builder.load_hosts_from_file(&file_path) {
+            match builder.load_hosts_from_file(file_path) {
                 Ok(b) => builder = b,
                 Err(e) => {
                     eprintln!("Error loading hosts from file {file_path}: {e}");

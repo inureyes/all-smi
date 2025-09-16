@@ -221,6 +221,7 @@ mod tests {
             cpu_temperature_history: VecDeque::new(),
             notifications: crate::ui::notification::NotificationManager::new(),
             nvml_notification_shown: false,
+            #[cfg(target_os = "linux")]
             tenstorrent_notification_shown: false,
             connection_status: HashMap::new(),
             known_hosts: Vec::new(),
