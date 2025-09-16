@@ -39,10 +39,21 @@ impl MetricsParser {
         Vec<MemoryInfo>,
         Vec<StorageInfo>,
     ) {
-        let mut gpu_info_map: HashMap<String, GpuInfo> = HashMap::new();
-        let mut cpu_info_map: HashMap<String, CpuInfo> = HashMap::new();
-        let mut memory_info_map: HashMap<String, MemoryInfo> = HashMap::new();
-        let mut storage_info_map: HashMap<String, StorageInfo> = HashMap::new();
+        // Limit the maximum size of HashMaps to prevent memory exhaustion
+        const MAX_DEVICES_PER_TYPE: usize = 256;
+        const MAX_TEXT_SIZE: usize = 10_485_760; // 10MB max input
+
+        // Validate input size
+        if text.len() > MAX_TEXT_SIZE {
+            eprintln!("Warning: Metrics text too large ({}), truncating to 10MB", text.len());
+            let truncated = &text[..MAX_TEXT_SIZE];
+            return self.parse_metrics(truncated, host, re);
+        }
+
+        let mut gpu_info_map: HashMap<String, GpuInfo> = HashMap::with_capacity(16);
+        let mut cpu_info_map: HashMap<String, CpuInfo> = HashMap::with_capacity(8);
+        let mut memory_info_map: HashMap<String, MemoryInfo> = HashMap::with_capacity(8);
+        let mut storage_info_map: HashMap<String, StorageInfo> = HashMap::with_capacity(32);
         let mut host_instance_name: Option<String> = None;
 
         for line in text.lines() {
@@ -56,30 +67,38 @@ impl MetricsParser {
                     }
                 }
 
-                // Process different metric types
+                // Process different metric types with size limits
                 if metric_name.starts_with("gpu_")
                     || metric_name.starts_with("npu_")
                     || metric_name == "ane_utilization"
                 {
-                    self.process_gpu_metrics(&mut gpu_info_map, &metric_name, &labels, value, host);
+                    if gpu_info_map.len() < MAX_DEVICES_PER_TYPE {
+                        self.process_gpu_metrics(&mut gpu_info_map, &metric_name, &labels, value, host);
+                    }
                 } else if metric_name.starts_with("cpu_") {
-                    self.process_cpu_metrics(&mut cpu_info_map, &metric_name, &labels, value, host);
+                    if cpu_info_map.len() < MAX_DEVICES_PER_TYPE {
+                        self.process_cpu_metrics(&mut cpu_info_map, &metric_name, &labels, value, host);
+                    }
                 } else if metric_name.starts_with("memory_") {
-                    self.process_memory_metrics(
-                        &mut memory_info_map,
-                        &metric_name,
-                        &labels,
-                        value,
-                        host,
-                    );
+                    if memory_info_map.len() < MAX_DEVICES_PER_TYPE {
+                        self.process_memory_metrics(
+                            &mut memory_info_map,
+                            &metric_name,
+                            &labels,
+                            value,
+                            host,
+                        );
+                    }
                 } else if metric_name.starts_with("storage_") || metric_name.starts_with("disk_") {
-                    self.process_storage_metrics(
-                        &mut storage_info_map,
-                        &metric_name,
-                        &labels,
-                        value,
-                        host,
-                    );
+                    if storage_info_map.len() < MAX_DEVICES_PER_TYPE {
+                        self.process_storage_metrics(
+                            &mut storage_info_map,
+                            &metric_name,
+                            &labels,
+                            value,
+                            host,
+                        );
+                    }
                 }
             }
         }

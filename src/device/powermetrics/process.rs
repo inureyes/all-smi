@@ -14,6 +14,7 @@
 
 use std::io::BufRead;
 use std::io::BufReader;
+use std::panic::{self, AssertUnwindSafe};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -56,6 +57,24 @@ impl ProcessManager {
         let (command_tx, command_rx) = mpsc::channel();
         self.command_tx = Some(command_tx);
 
+        // Set up panic handler to cleanup on panic
+        let process_clone = self.process.clone();
+        let is_running_clone = self.is_running.clone();
+        let old_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |panic_info| {
+            // Cleanup subprocess on panic
+            if let Ok(mut guard) = process_clone.lock() {
+                if let Some(mut child) = guard.take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            if let Ok(mut running) = is_running_clone.lock() {
+                *running = false;
+            }
+            old_hook(panic_info);
+        }));
+
         // Start the powermetrics process
         self.start_powermetrics_process(command_rx)?;
 
@@ -88,10 +107,12 @@ impl ProcessManager {
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
 
-        // Start reader thread
+        // Start reader thread with panic catching
         let data_buffer = self.store.get_buffer();
         thread::spawn(move || {
-            Self::reader_thread(stdout, data_buffer, command_rx);
+            let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+                Self::reader_thread(stdout, data_buffer, command_rx);
+            }));
         });
 
         let mut process_guard = self.process.lock().unwrap();
@@ -235,10 +256,12 @@ impl ProcessManager {
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
 
-        // Start new reader thread
+        // Start new reader thread with panic catching
         let data_buffer = store.get_buffer();
         thread::spawn(move || {
-            Self::reader_thread(stdout, data_buffer, command_rx);
+            let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+                Self::reader_thread(stdout, data_buffer, command_rx);
+            }));
         });
 
         let mut process_guard = process_arc.lock().unwrap();

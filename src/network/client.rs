@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use regex::Regex;
+use tokio::sync::RwLock;
 use url::Url;
 
 use crate::app_state::ConnectionStatus;
@@ -28,6 +30,57 @@ use crate::storage::info::StorageInfo;
 
 pub struct NetworkClient {
     client: reqwest::Client,
+    auth_token: Option<String>,
+    rate_limiter: Arc<RwLock<RateLimiter>>,
+}
+
+/// Simple rate limiter to prevent DoS attacks
+struct RateLimiter {
+    /// Map of host to (last_request_time, request_count)
+    host_requests: HashMap<String, (Instant, u32)>,
+    /// Maximum requests per host per second
+    max_requests_per_second: u32,
+    /// Time window in seconds
+    window_seconds: u64,
+}
+
+impl RateLimiter {
+    fn new() -> Self {
+        Self {
+            host_requests: HashMap::new(),
+            max_requests_per_second: 10, // 10 requests per second per host
+            window_seconds: 1,
+        }
+    }
+
+    /// Check if a request to a host is allowed
+    async fn check_rate_limit(&mut self, host: &str) -> bool {
+        let now = Instant::now();
+        let window = Duration::from_secs(self.window_seconds);
+
+        match self.host_requests.get_mut(host) {
+            Some((last_time, count)) => {
+                if now.duration_since(*last_time) > window {
+                    // Reset the window
+                    *last_time = now;
+                    *count = 1;
+                    true
+                } else if *count < self.max_requests_per_second {
+                    // Within window and under limit
+                    *count += 1;
+                    true
+                } else {
+                    // Rate limit exceeded
+                    false
+                }
+            }
+            None => {
+                // First request from this host
+                self.host_requests.insert(host.to_string(), (now, 1));
+                true
+            }
+        }
+    }
 }
 
 impl NetworkClient {
@@ -41,7 +94,34 @@ impl NetworkClient {
             .build()
             .unwrap();
 
-        Self { client }
+        // Check for authentication token in environment variable
+        let auth_token = std::env::var("ALL_SMI_AUTH_TOKEN").ok();
+        if auth_token.is_some() {
+            eprintln!("Using authentication token from ALL_SMI_AUTH_TOKEN environment variable");
+        }
+
+        Self {
+            client,
+            auth_token,
+            rate_limiter: Arc::new(RwLock::new(RateLimiter::new())),
+        }
+    }
+
+    pub fn with_auth_token(auth_token: Option<String>) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(AppConfig::CONNECTION_TIMEOUT_SECS))
+            .pool_idle_timeout(Duration::from_secs(AppConfig::POOL_IDLE_TIMEOUT_SECS))
+            .pool_max_idle_per_host(AppConfig::POOL_MAX_IDLE_PER_HOST)
+            .tcp_keepalive(Duration::from_secs(AppConfig::TCP_KEEPALIVE_SECS))
+            .http2_keep_alive_interval(Duration::from_secs(AppConfig::HTTP2_KEEPALIVE_SECS))
+            .build()
+            .unwrap();
+
+        Self {
+            client,
+            auth_token,
+            rate_limiter: Arc::new(RwLock::new(RateLimiter::new())),
+        }
     }
 
     /// Validate and build a secure URL from the host string
@@ -132,6 +212,8 @@ impl NetworkClient {
             let client = self.client.clone();
             let host = host.clone();
             let semaphore = semaphore.clone();
+            let auth_token = self.auth_token.clone();
+            let rate_limiter = self.rate_limiter.clone();
 
             let future = tokio::spawn(async move {
                 // Stagger connection attempts to avoid overwhelming the listen queue
@@ -140,6 +222,18 @@ impl NetworkClient {
 
                 // Acquire semaphore permit to limit concurrency
                 let _permit = semaphore.acquire().await.unwrap();
+
+                // Check rate limit before making request
+                {
+                    let mut limiter = rate_limiter.write().await;
+                    if !limiter.check_rate_limit(&host).await {
+                        return Some((
+                            host,
+                            String::new(),
+                            Some("Rate limit exceeded".to_string()),
+                        ));
+                    }
+                }
 
                 // Validate and sanitize the URL
                 let url = match Self::validate_and_build_url(&host) {
@@ -155,7 +249,13 @@ impl NetworkClient {
 
                 // Retry logic with exponential backoff
                 for attempt in 1..=AppConfig::RETRY_ATTEMPTS {
-                    match client.get(&url).send().await {
+                    // Build request with optional authentication
+                    let mut request = client.get(&url);
+                    if let Some(ref token) = auth_token {
+                        request = request.header("Authorization", format!("Bearer {}", token));
+                    }
+
+                    match request.send().await {
                         Ok(response) => {
                             if response.status().is_success() {
                                 match response.text().await {
