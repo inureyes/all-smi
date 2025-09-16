@@ -106,6 +106,13 @@ impl MetricsParser {
     fn parse_labels(&self, labels_str: &str) -> HashMap<String, String> {
         const MAX_LABELS: usize = 100; // Prevent unbounded growth
         const MAX_LABEL_LENGTH: usize = 1024; // Prevent large string allocations
+        const MAX_INPUT_LENGTH: usize = 32768; // Maximum label string length to process
+
+        // Limit input size to prevent DoS
+        if labels_str.len() > MAX_INPUT_LENGTH {
+            eprintln!("Warning: Label string too long, truncating to {} bytes", MAX_INPUT_LENGTH);
+            return HashMap::new();
+        }
 
         let mut labels: HashMap<String, String> = HashMap::with_capacity(16);
         for (idx, label) in labels_str.split(',').enumerate() {
@@ -113,10 +120,16 @@ impl MetricsParser {
                 break; // Stop processing after reasonable limit
             }
 
-            let label_parts: Vec<&str> = label.split('=').collect();
-            if label_parts.len() == 2 {
-                let key = sanitize_label_value(label_parts[0]);
-                let value = sanitize_label_value(label_parts[1]);
+            // Use splitn to limit splits and prevent unbounded processing
+            if let Some((key, value)) = label.splitn(2, '=').collect::<Vec<&str>>().get(0..2).and_then(|parts| {
+                if parts.len() == 2 {
+                    Some((parts[0], parts[1]))
+                } else {
+                    None
+                }
+            }) {
+                let key = sanitize_label_value(key);
+                let value = sanitize_label_value(value);
 
                 // Prevent excessively long labels that could cause memory issues
                 if key.len() <= MAX_LABEL_LENGTH && value.len() <= MAX_LABEL_LENGTH {

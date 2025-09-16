@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::net::IpAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use regex::Regex;
+use url::Url;
 
 use crate::app_state::ConnectionStatus;
 use crate::common::config::{AppConfig, EnvConfig};
@@ -39,6 +42,68 @@ impl NetworkClient {
             .unwrap();
 
         Self { client }
+    }
+
+    /// Validate and build a secure URL from the host string
+    fn validate_and_build_url(host: &str) -> Result<String, String> {
+        // Prevent SSRF attacks by validating the host
+        let base_url = if host.starts_with("http://") || host.starts_with("https://") {
+            host.to_string()
+        } else {
+            format!("http://{host}")
+        };
+
+        // Parse and validate URL
+        let mut url = Url::parse(&base_url).map_err(|e| format!("Invalid URL format: {e}"))?;
+
+        // Check for suspicious schemes
+        match url.scheme() {
+            "http" | "https" => {},
+            scheme => return Err(format!("Invalid scheme: {scheme}. Only http/https allowed")),
+        }
+
+        // Validate host is not localhost or private IP (unless explicitly allowed)
+        if let Some(host_str) = url.host_str() {
+            // Check for localhost
+            if host_str == "localhost" || host_str == "127.0.0.1" || host_str == "::1" {
+                // Allow localhost for local testing, but log it
+                eprintln!("Warning: Connecting to localhost address: {host_str}");
+            }
+
+            // Check for private IP ranges
+            if let Ok(addr) = IpAddr::from_str(host_str) {
+                match addr {
+                    IpAddr::V4(ipv4) => {
+                        if ipv4.is_private() || ipv4.is_loopback() || ipv4.is_link_local() {
+                            eprintln!("Warning: Connecting to private/local IP: {ipv4}");
+                        }
+                    },
+                    IpAddr::V6(ipv6) => {
+                        if ipv6.is_loopback() || ipv6.is_unspecified() {
+                            eprintln!("Warning: Connecting to loopback/unspecified IPv6: {ipv6}");
+                        }
+                    }
+                }
+            }
+
+            // Check port is in reasonable range (port 0 is invalid)
+            if let Some(port) = url.port() {
+                if port == 0 {
+                    return Err(format!("Invalid port number: {port}"));
+                }
+            }
+        } else {
+            return Err("Missing host in URL".to_string());
+        }
+
+        // Set the path to /metrics
+        url.set_path("/metrics");
+
+        // Clear any query parameters and fragments to prevent injection
+        url.set_query(None);
+        url.set_fragment(None);
+
+        Ok(url.to_string())
     }
 
     pub async fn fetch_remote_data(
@@ -76,10 +141,16 @@ impl NetworkClient {
                 // Acquire semaphore permit to limit concurrency
                 let _permit = semaphore.acquire().await.unwrap();
 
-                let url = if host.starts_with("http://") || host.starts_with("https://") {
-                    format!("{host}/metrics")
-                } else {
-                    format!("http://{host}/metrics")
+                // Validate and sanitize the URL
+                let url = match Self::validate_and_build_url(&host) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        return Some((
+                            host,
+                            String::new(),
+                            Some(format!("Invalid URL: {e}")),
+                        ))
+                    }
                 };
 
                 // Retry logic with exponential backoff

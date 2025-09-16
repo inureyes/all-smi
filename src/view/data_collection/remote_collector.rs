@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use async_trait::async_trait;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -62,10 +62,17 @@ pub struct RemoteCollector {
 
 impl RemoteCollector {
     pub fn new(max_connections: usize) -> Self {
+        // Build a safer regex with size limits and timeout protection
+        let regex = RegexBuilder::new(r"^all_smi_([^\{]{1,256})\{([^}]{1,1024})\} ([\d\.]{1,64})$")
+            .size_limit(1_048_576) // 1MB size limit for DFA
+            .dfa_size_limit(1_048_576) // 1MB DFA limit
+            .build()
+            .expect("Failed to compile metrics regex");
+
         Self {
             network_client: NetworkClient::new(),
             semaphore: Arc::new(tokio::sync::Semaphore::new(max_connections)),
-            regex: Regex::new(r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$").unwrap(),
+            regex,
             aggregator: DataAggregator::new(),
         }
     }

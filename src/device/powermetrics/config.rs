@@ -59,8 +59,53 @@ impl PowerMetricsConfig {
         }
     }
 
+    /// Validate a sampler name to prevent command injection
+    fn validate_sampler(sampler: &str) -> bool {
+        // Only allow alphanumeric characters and underscores
+        sampler.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && sampler.len() <= 32  // Reasonable length limit
+    }
+
+    /// Validate and sanitize the configuration
+    fn validate(&self) -> Result<(), String> {
+        // Validate nice value is in reasonable range
+        if self.nice_value < -20 || self.nice_value > 19 {
+            return Err(format!("Invalid nice value: {}. Must be between -20 and 19", self.nice_value));
+        }
+
+        // Validate interval is reasonable
+        if self.interval_ms < 100 || self.interval_ms > 60000 {
+            return Err(format!("Invalid interval: {}ms. Must be between 100ms and 60s", self.interval_ms));
+        }
+
+        // Validate samplers
+        for sampler in &self.samplers {
+            if !Self::validate_sampler(sampler) {
+                return Err(format!("Invalid sampler name: '{}'. Only alphanumeric and underscore allowed", sampler));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Get the command-line arguments for powermetrics
     pub fn get_powermetrics_args(&self) -> Vec<String> {
+        // Validate configuration before generating arguments
+        if let Err(e) = self.validate() {
+            eprintln!("PowerMetrics config validation failed: {e}");
+            // Return safe defaults
+            return vec![
+                "nice".to_string(),
+                "-n".to_string(),
+                "10".to_string(),
+                "powermetrics".to_string(),
+                "--samplers".to_string(),
+                "cpu_power,gpu_power".to_string(),
+                "-i".to_string(),
+                "1000".to_string(),
+            ];
+        }
+
         let mut args = vec![
             "nice".to_string(),
             "-n".to_string(),
