@@ -223,8 +223,7 @@ impl NetworkClient {
                 let safe_limit = sys_limit / 10; // Use max 10% of system limit
                 if requested > safe_limit {
                     eprintln!(
-                        "Warning: Requested pool size {} exceeds safe limit {}, using {}",
-                        requested, safe_limit, safe_limit
+                        "Warning: Requested pool size {requested} exceeds safe limit {safe_limit}, using {safe_limit}"
                     );
                     return safe_limit;
                 }
@@ -239,8 +238,7 @@ impl NetworkClient {
             MIN_POOL_SIZE
         } else if requested > MAX_POOL_SIZE {
             eprintln!(
-                "Warning: Pool size {} exceeds maximum {}, using maximum",
-                requested, MAX_POOL_SIZE
+                "Warning: Pool size {requested} exceeds maximum {MAX_POOL_SIZE}, using maximum"
             );
             MAX_POOL_SIZE
         } else {
@@ -310,7 +308,7 @@ impl NetworkClient {
                     // Build request with optional authentication
                     let mut request = client.get(&url);
                     if let Some(ref token) = auth_token {
-                        request = request.header("Authorization", format!("Bearer {}", token));
+                        request = request.header("Authorization", format!("Bearer {token}"));
                     }
 
                     match request.send().await {

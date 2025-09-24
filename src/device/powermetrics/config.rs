@@ -88,8 +88,7 @@ impl PowerMetricsConfig {
         for sampler in &self.samplers {
             if !Self::validate_sampler(sampler) {
                 return Err(format!(
-                    "Invalid sampler name: '{}'. Only alphanumeric and underscore allowed",
-                    sampler
+                    "Invalid sampler name: '{sampler}'. Only alphanumeric and underscore allowed"
                 ));
             }
         }

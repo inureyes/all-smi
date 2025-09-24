@@ -257,7 +257,7 @@ impl RemoteCollectorBuilder {
         let canonical_path = path.canonicalize().map_err(|e| {
             std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("Invalid hostfile path: {}", e),
+                format!("Invalid hostfile path: {e}"),
             )
         })?;
 
@@ -276,9 +276,8 @@ impl RemoteCollectorBuilder {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!(
-                    "Hostfile too large: {} bytes (max: {} bytes)",
-                    metadata.len(),
-                    MAX_FILE_SIZE
+                    "Hostfile too large: {} bytes (max: {MAX_FILE_SIZE} bytes)",
+                    metadata.len()
                 ),
             ));
         }
@@ -298,10 +297,7 @@ impl RemoteCollectorBuilder {
             .filter_map(|s| {
                 host_count += 1;
                 if host_count > MAX_HOSTS {
-                    eprintln!(
-                        "Warning: Hostfile contains more than {} hosts, truncating",
-                        MAX_HOSTS
-                    );
+                    eprintln!("Warning: Hostfile contains more than {MAX_HOSTS} hosts, truncating");
                     return None;
                 }
 
@@ -321,7 +317,7 @@ impl RemoteCollectorBuilder {
                 {
                     Some(host)
                 } else {
-                    eprintln!("Warning: Invalid host format skipped: {}", s);
+                    eprintln!("Warning: Invalid host format skipped: {s}");
                     None
                 }
             })

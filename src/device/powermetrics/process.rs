@@ -167,7 +167,7 @@ impl ProcessManager {
 
             if in_section {
                 // Use write! for more efficient string concatenation
-                let _ = writeln!(current_section, "{}", line);
+                let _ = writeln!(current_section, "{line}");
             }
         }
     }

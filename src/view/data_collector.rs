@@ -178,7 +178,7 @@ impl DataCollector {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Warning: Cannot access hostfile: {}", e);
+                        eprintln!("Warning: Cannot access hostfile: {e}");
                         hosts_vec
                     }
                 }

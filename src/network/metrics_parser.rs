@@ -104,16 +104,16 @@ impl MetricsParser {
                             host,
                         );
                     }
-                } else if metric_name.starts_with("storage_") || metric_name.starts_with("disk_") {
-                    if storage_info_map.len() < MAX_DEVICES_PER_TYPE {
-                        self.process_storage_metrics(
-                            &mut storage_info_map,
-                            &metric_name,
-                            &labels,
-                            value,
-                            host,
-                        );
-                    }
+                } else if (metric_name.starts_with("storage_") || metric_name.starts_with("disk_"))
+                    && storage_info_map.len() < MAX_DEVICES_PER_TYPE
+                {
+                    self.process_storage_metrics(
+                        &mut storage_info_map,
+                        &metric_name,
+                        &labels,
+                        value,
+                        host,
+                    );
                 }
             }
         }
@@ -144,10 +144,7 @@ impl MetricsParser {
 
         // Limit input size to prevent DoS
         if labels_str.len() > MAX_INPUT_LENGTH {
-            eprintln!(
-                "Warning: Label string too long, truncating to {} bytes",
-                MAX_INPUT_LENGTH
-            );
+            eprintln!("Warning: Label string too long, truncating to {MAX_INPUT_LENGTH} bytes");
             return HashMap::new();
         }
 
