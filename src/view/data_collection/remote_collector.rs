@@ -254,17 +254,18 @@ impl RemoteCollectorBuilder {
         let path = Path::new(file_path);
 
         // Resolve to absolute path and check it exists
-        let canonical_path = path.canonicalize()
-            .map_err(|e| std::io::Error::new(
+        let canonical_path = path.canonicalize().map_err(|e| {
+            std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("Invalid hostfile path: {}", e)
-            ))?;
+                format!("Invalid hostfile path: {}", e),
+            )
+        })?;
 
         // Ensure it's a file, not a directory
         if !canonical_path.is_file() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "Hostfile path is not a regular file"
+                "Hostfile path is not a regular file",
             ));
         }
 
@@ -274,7 +275,11 @@ impl RemoteCollectorBuilder {
         if metadata.len() > MAX_FILE_SIZE {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("Hostfile too large: {} bytes (max: {} bytes)", metadata.len(), MAX_FILE_SIZE)
+                format!(
+                    "Hostfile too large: {} bytes (max: {} bytes)",
+                    metadata.len(),
+                    MAX_FILE_SIZE
+                ),
             ));
         }
 
@@ -293,7 +298,10 @@ impl RemoteCollectorBuilder {
             .filter_map(|s| {
                 host_count += 1;
                 if host_count > MAX_HOSTS {
-                    eprintln!("Warning: Hostfile contains more than {} hosts, truncating", MAX_HOSTS);
+                    eprintln!(
+                        "Warning: Hostfile contains more than {} hosts, truncating",
+                        MAX_HOSTS
+                    );
                     return None;
                 }
 
@@ -307,7 +315,10 @@ impl RemoteCollectorBuilder {
                 };
 
                 // Basic validation: must contain valid characters
-                if host.chars().all(|c| c.is_ascii() && (c.is_alphanumeric() || ".-:_".contains(c))) {
+                if host
+                    .chars()
+                    .all(|c| c.is_ascii() && (c.is_alphanumeric() || ".-:_".contains(c)))
+                {
                     Some(host)
                 } else {
                     eprintln!("Warning: Invalid host format skipped: {}", s);

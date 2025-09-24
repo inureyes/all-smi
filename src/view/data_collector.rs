@@ -162,7 +162,9 @@ impl DataCollector {
                                     };
 
                                     // Basic host validation
-                                    if host.chars().all(|c| c.is_ascii() && (c.is_alphanumeric() || ".-:_".contains(c))) {
+                                    if host.chars().all(|c| {
+                                        c.is_ascii() && (c.is_alphanumeric() || ".-:_".contains(c))
+                                    }) {
                                         Some(host)
                                     } else {
                                         None
@@ -174,7 +176,7 @@ impl DataCollector {
                         } else {
                             hosts_vec
                         }
-                    },
+                    }
                     Err(e) => {
                         eprintln!("Warning: Cannot access hostfile: {}", e);
                         hosts_vec

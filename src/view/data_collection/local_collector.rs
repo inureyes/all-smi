@@ -61,10 +61,7 @@ impl LocalCollector {
 
     async fn initialize_readers(&self, app_state: Arc<Mutex<AppState>>) {
         // Use timeout to prevent deadlock
-        let initialized_result = timeout(
-            Duration::from_secs(5),
-            self.initialized.lock()
-        ).await;
+        let initialized_result = timeout(Duration::from_secs(5), self.initialized.lock()).await;
 
         let mut initialized = match initialized_result {
             Ok(lock) => lock,
@@ -80,10 +77,7 @@ impl LocalCollector {
 
         // Add startup status with timeout
         {
-            let state_result = timeout(
-                Duration::from_secs(2),
-                app_state.lock()
-            ).await;
+            let state_result = timeout(Duration::from_secs(2), app_state.lock()).await;
 
             if let Ok(mut state) = state_result {
                 state
@@ -116,30 +110,27 @@ impl LocalCollector {
 
         // Store the readers in self using RwLock with timeout
         {
-            if let Ok(mut gpu_lock) = timeout(
-                Duration::from_secs(2),
-                self.gpu_readers.write()
-            ).await {
+            if let Ok(mut gpu_lock) =
+                timeout(Duration::from_secs(2), self.gpu_readers.write()).await
+            {
                 *gpu_lock = gpu_readers;
             } else {
                 eprintln!("Warning: Timeout acquiring GPU readers lock");
             }
         }
         {
-            if let Ok(mut cpu_lock) = timeout(
-                Duration::from_secs(2),
-                self.cpu_readers.write()
-            ).await {
+            if let Ok(mut cpu_lock) =
+                timeout(Duration::from_secs(2), self.cpu_readers.write()).await
+            {
                 *cpu_lock = cpu_readers;
             } else {
                 eprintln!("Warning: Timeout acquiring CPU readers lock");
             }
         }
         {
-            if let Ok(mut mem_lock) = timeout(
-                Duration::from_secs(2),
-                self.memory_readers.write()
-            ).await {
+            if let Ok(mut mem_lock) =
+                timeout(Duration::from_secs(2), self.memory_readers.write()).await
+            {
                 *mem_lock = memory_readers;
             } else {
                 eprintln!("Warning: Timeout acquiring memory readers lock");

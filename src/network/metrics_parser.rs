@@ -45,7 +45,10 @@ impl MetricsParser {
 
         // Validate input size
         if text.len() > MAX_TEXT_SIZE {
-            eprintln!("Warning: Metrics text too large ({}), truncating to 10MB", text.len());
+            eprintln!(
+                "Warning: Metrics text too large ({}), truncating to 10MB",
+                text.len()
+            );
             let truncated = &text[..MAX_TEXT_SIZE];
             return self.parse_metrics(truncated, host, re);
         }
@@ -73,11 +76,23 @@ impl MetricsParser {
                     || metric_name == "ane_utilization"
                 {
                     if gpu_info_map.len() < MAX_DEVICES_PER_TYPE {
-                        self.process_gpu_metrics(&mut gpu_info_map, &metric_name, &labels, value, host);
+                        self.process_gpu_metrics(
+                            &mut gpu_info_map,
+                            &metric_name,
+                            &labels,
+                            value,
+                            host,
+                        );
                     }
                 } else if metric_name.starts_with("cpu_") {
                     if cpu_info_map.len() < MAX_DEVICES_PER_TYPE {
-                        self.process_cpu_metrics(&mut cpu_info_map, &metric_name, &labels, value, host);
+                        self.process_cpu_metrics(
+                            &mut cpu_info_map,
+                            &metric_name,
+                            &labels,
+                            value,
+                            host,
+                        );
                     }
                 } else if metric_name.starts_with("memory_") {
                     if memory_info_map.len() < MAX_DEVICES_PER_TYPE {
@@ -129,7 +144,10 @@ impl MetricsParser {
 
         // Limit input size to prevent DoS
         if labels_str.len() > MAX_INPUT_LENGTH {
-            eprintln!("Warning: Label string too long, truncating to {} bytes", MAX_INPUT_LENGTH);
+            eprintln!(
+                "Warning: Label string too long, truncating to {} bytes",
+                MAX_INPUT_LENGTH
+            );
             return HashMap::new();
         }
 

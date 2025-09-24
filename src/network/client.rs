@@ -144,7 +144,7 @@ impl NetworkClient {
 
         // Check for suspicious schemes
         match url.scheme() {
-            "http" | "https" => {},
+            "http" | "https" => {}
             scheme => return Err(format!("Invalid scheme: {scheme}. Only http/https allowed")),
         }
 
@@ -163,7 +163,7 @@ impl NetworkClient {
                         if ipv4.is_private() || ipv4.is_loopback() || ipv4.is_link_local() {
                             eprintln!("Warning: Connecting to private/local IP: {ipv4}");
                         }
-                    },
+                    }
                     IpAddr::V6(ipv6) => {
                         if ipv6.is_loopback() || ipv6.is_unspecified() {
                             eprintln!("Warning: Connecting to loopback/unspecified IPv6: {ipv6}");
@@ -222,8 +222,10 @@ impl NetworkClient {
             if let Some(sys_limit) = limit {
                 let safe_limit = sys_limit / 10; // Use max 10% of system limit
                 if requested > safe_limit {
-                    eprintln!("Warning: Requested pool size {} exceeds safe limit {}, using {}",
-                             requested, safe_limit, safe_limit);
+                    eprintln!(
+                        "Warning: Requested pool size {} exceeds safe limit {}, using {}",
+                        requested, safe_limit, safe_limit
+                    );
                     return safe_limit;
                 }
             }
@@ -236,8 +238,10 @@ impl NetworkClient {
         if requested < MIN_POOL_SIZE {
             MIN_POOL_SIZE
         } else if requested > MAX_POOL_SIZE {
-            eprintln!("Warning: Pool size {} exceeds maximum {}, using maximum",
-                     requested, MAX_POOL_SIZE);
+            eprintln!(
+                "Warning: Pool size {} exceeds maximum {}, using maximum",
+                requested, MAX_POOL_SIZE
+            );
             MAX_POOL_SIZE
         } else {
             requested
@@ -297,11 +301,7 @@ impl NetworkClient {
                 let url = match Self::validate_and_build_url(&host) {
                     Ok(u) => u,
                     Err(e) => {
-                        return Some((
-                            host,
-                            String::new(),
-                            Some(format!("Invalid URL: {e}")),
-                        ))
+                        return Some((host, String::new(), Some(format!("Invalid URL: {e}"))))
                     }
                 };
 
