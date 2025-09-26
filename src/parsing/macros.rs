@@ -61,7 +61,12 @@ macro_rules! parse_prometheus {
                 .and_then(|m| m.as_str().parse::<f64>().ok())
                 .unwrap_or(0.0);
             if let (Some(name), Some(labels)) = (name, labels) {
-                Some((name, labels, value))
+                // Add length validation that was previously enforced by bounded quantifiers
+                if name.len() > 256 || labels.len() > 1024 {
+                    None
+                } else {
+                    Some((name, labels, value))
+                }
             } else {
                 None
             }

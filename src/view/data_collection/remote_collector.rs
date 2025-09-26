@@ -62,10 +62,11 @@ pub struct RemoteCollector {
 
 impl RemoteCollector {
     pub fn new(max_connections: usize) -> Self {
-        // Build a safer regex with size limits and timeout protection
-        let regex = RegexBuilder::new(r"^all_smi_([^\{]{1,256})\{([^}]{1,1024})\} ([\d\.]{1,64})$")
-            .size_limit(1_048_576) // 1MB size limit for DFA
-            .dfa_size_limit(1_048_576) // 1MB DFA limit
+        // Use simpler quantifiers to avoid DFA explosion
+        // The + quantifier is much more efficient than bounded quantifiers
+        let regex = RegexBuilder::new(r"^all_smi_([^\{]+)\{([^}]+)\} ([\d\.]+)$")
+            .size_limit(10_485_760) // 10MB size limit for DFA (increased for safety)
+            .dfa_size_limit(10_485_760) // 10MB DFA limit
             .build()
             .expect("Failed to compile metrics regex");
 
