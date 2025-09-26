@@ -31,7 +31,7 @@ api:
 	cargo run --bin all-smi -- api
 
 remote:
-	cargo run --bin all-smi -- view --hostfile ./hosts.csv
+	SUPPRESS_LOCALHOST_WARNING=1 cargo run --bin all-smi -- view --hostfile ./hosts.csv
 
 mock:
 	cargo run --features mock --bin all-smi-mock-server -- --port-range 10001-10050

@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::Once;
 use std::time::{Duration, Instant};
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
@@ -152,8 +153,13 @@ impl NetworkClient {
         if let Some(host_str) = url.host_str() {
             // Check for localhost
             if host_str == "localhost" || host_str == "127.0.0.1" || host_str == "::1" {
-                // Allow localhost for local testing, but log it
-                eprintln!("Warning: Connecting to localhost address: {host_str}");
+                // Allow localhost for local testing, but log it once unless suppressed
+                static LOCALHOST_WARNING: Once = Once::new();
+                if std::env::var("SUPPRESS_LOCALHOST_WARNING").is_err() {
+                    LOCALHOST_WARNING.call_once(|| {
+                        eprintln!("Warning: Connecting to localhost address (subsequent warnings suppressed)");
+                    });
+                }
             }
 
             // Check for private IP ranges
@@ -161,12 +167,22 @@ impl NetworkClient {
                 match addr {
                     IpAddr::V4(ipv4) => {
                         if ipv4.is_private() || ipv4.is_loopback() || ipv4.is_link_local() {
-                            eprintln!("Warning: Connecting to private/local IP: {ipv4}");
+                            static PRIVATE_IP_WARNING: Once = Once::new();
+                            if std::env::var("SUPPRESS_LOCALHOST_WARNING").is_err() {
+                                PRIVATE_IP_WARNING.call_once(|| {
+                                    eprintln!("Warning: Connecting to private/local IP addresses (subsequent warnings suppressed)");
+                                });
+                            }
                         }
                     }
                     IpAddr::V6(ipv6) => {
                         if ipv6.is_loopback() || ipv6.is_unspecified() {
-                            eprintln!("Warning: Connecting to loopback/unspecified IPv6: {ipv6}");
+                            static IPV6_WARNING: Once = Once::new();
+                            if std::env::var("SUPPRESS_LOCALHOST_WARNING").is_err() {
+                                IPV6_WARNING.call_once(|| {
+                                    eprintln!("Warning: Connecting to loopback/unspecified IPv6 addresses (subsequent warnings suppressed)");
+                                });
+                            }
                         }
                     }
                 }
