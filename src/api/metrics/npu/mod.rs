@@ -16,6 +16,7 @@ pub mod common;
 pub mod exporter_trait;
 pub mod furiosa;
 pub mod rebellions;
+#[cfg(target_os = "linux")]
 pub mod tenstorrent;
 
 use crate::api::metrics::{MetricBuilder, MetricExporter};
@@ -36,11 +37,13 @@ impl<'a> NpuMetricExporter<'a> {
     pub fn new(npu_info: &'a [GpuInfo]) -> Self {
         // Initialize the exporter pool once
         EXPORTER_POOL.get_or_init(|| {
-            vec![
-                Box::new(tenstorrent::TenstorrentExporter::new()),
+            let mut exporters: Vec<Box<dyn NpuExporter + Send + Sync>> = vec![
                 Box::new(rebellions::RebellionsExporter::new()),
                 Box::new(furiosa::FuriosaExporter::new()),
-            ]
+            ];
+            #[cfg(target_os = "linux")]
+            exporters.insert(0, Box::new(tenstorrent::TenstorrentExporter::new()));
+            exporters
         });
 
         Self {
@@ -57,12 +60,20 @@ impl<'a> NpuMetricExporter<'a> {
             let name = &info.name;
 
             // Direct index access for known vendors (most common first)
+            #[cfg(target_os = "linux")]
             if name.contains("Tenstorrent") {
                 return Some(exporters[0].as_ref());
-            } else if name.contains("Rebellions") {
-                return Some(exporters[1].as_ref());
+            }
+
+            #[cfg(target_os = "linux")]
+            let (rebellions_idx, furiosa_idx) = (1, 2);
+            #[cfg(not(target_os = "linux"))]
+            let (rebellions_idx, furiosa_idx) = (0, 1);
+
+            if name.contains("Rebellions") {
+                return Some(exporters[rebellions_idx].as_ref());
             } else if name.contains("Furiosa") || name.contains("RNGD") || name.contains("Warboy") {
-                return Some(exporters[2].as_ref());
+                return Some(exporters[furiosa_idx].as_ref());
             }
 
             // Fallback to dynamic check for unknown patterns

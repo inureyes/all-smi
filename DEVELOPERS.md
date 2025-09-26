@@ -24,7 +24,7 @@ This guide provides comprehensive information for developers and contributors wo
 - **Rust**: 1.88 or later (install via [rustup](https://rustup.rs/))
 - **Cargo**: Comes with Rust installation
 - **Git**: For version control
-- **protoc**: Protocol buffer compiler (required for Linux builds)
+- **protoc**: Protocol buffer compiler (only required for Linux builds with Tenstorrent support)
 
 #### Platform-Specific Requirements
 
@@ -45,8 +45,8 @@ sudo pacman -S pkg-config openssl protobuf
 # Install Homebrew if not present
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Install dependencies
-brew install protobuf
+# No additional dependencies required for macOS
+# Note: protobuf is NOT needed on macOS as Tenstorrent NPU support is Linux-only
 ```
 
 **Windows:**
@@ -110,7 +110,7 @@ cargo build --release --target aarch64-unknown-linux-gnu
 If you encounter build errors:
 
 1. **OpenSSL Issues (musl/aarch64)**: The project automatically uses vendored OpenSSL for these targets
-2. **Protobuf Errors**: Ensure protoc is installed and in PATH
+2. **Protobuf Errors**: Ensure protoc is installed and in PATH (Linux only, required for Tenstorrent NPU support)
 3. **Dependency Resolution**: Run `cargo clean` and rebuild
 
 ## Development Workflow
@@ -370,10 +370,11 @@ The CI builds for these platforms:
 
 ### NPU Support
 
-**Tenstorrent NPUs:**
+**Tenstorrent NPUs (Linux only):**
 - Uses `luwen` library for telemetry
 - Supports Grayskull, Wormhole, Blackhole architectures
 - Located in `src/gpu/tenstorrent.rs`
+- Requires `protobuf-compiler` on Linux for building
 
 **Rebellions NPUs:**
 - Uses `rbln-stat` command
