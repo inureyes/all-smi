@@ -3,6 +3,17 @@
 echo "Testing powermetrics cleanup on app termination..."
 echo "============================================="
 
+# Get the project root directory (parent of tests)
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ALL_SMI_BIN="$PROJECT_ROOT/target/release/all-smi"
+
+# Check if all-smi binary exists
+if [ ! -f "$ALL_SMI_BIN" ]; then
+    echo "ERROR: all-smi binary not found at $ALL_SMI_BIN"
+    echo "Please build the project first: cargo build --release"
+    exit 1
+fi
+
 # Kill any existing powermetrics processes first
 echo "Cleaning up any existing powermetrics processes..."
 pkill -f powermetrics 2>/dev/null
@@ -20,7 +31,7 @@ fi
 echo ""
 echo "Starting all-smi in background (will auto-terminate after 5 seconds)..."
 # Start all-smi and send 'q' after 5 seconds to quit
-(sleep 5 && echo 'q') | sudo ./target/release/all-smi &
+(sleep 5 && echo 'q') | sudo "$ALL_SMI_BIN" &
 APP_PID=$!
 
 # Wait for app to start and initialize powermetrics
