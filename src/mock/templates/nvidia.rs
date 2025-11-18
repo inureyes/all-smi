@@ -189,12 +189,21 @@ impl NvidiaMockGenerator {
             self.instance_name
         ));
 
-        template.push_str("# HELP all_smi_cpu_cores Number of CPU cores\n");
-        template.push_str("# TYPE all_smi_cpu_cores gauge\n");
+        template.push_str("# HELP all_smi_cpu_core_count Total number of CPU cores\n");
+        template.push_str("# TYPE all_smi_cpu_core_count gauge\n");
         template.push_str(&format!(
-            "all_smi_cpu_cores{{instance=\"{}\"}} {}\n",
+            "all_smi_cpu_core_count{{instance=\"{}\"}} {}\n",
             self.instance_name, cpu.core_count
         ));
+
+        template.push_str("# HELP all_smi_cpu_temperature_celsius CPU temperature in celsius\n");
+        template.push_str("# TYPE all_smi_cpu_temperature_celsius gauge\n");
+        if let Some(temp) = cpu.temperature_celsius {
+            template.push_str(&format!(
+                "all_smi_cpu_temperature_celsius{{instance=\"{}\"}} {}\n",
+                self.instance_name, temp
+            ));
+        }
 
         // Memory metrics
         template.push_str("# HELP all_smi_memory_used_bytes System memory used in bytes\n");

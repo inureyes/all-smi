@@ -76,10 +76,16 @@ pub fn add_system_metrics(template: &mut String, instance_name: &str) {
         "all_smi_cpu_utilization{{instance=\"{instance_name}\"}} {{{{CPU_UTIL}}}}\n"
     ));
 
-    template.push_str("# HELP all_smi_cpu_cores Number of CPU cores\n");
-    template.push_str("# TYPE all_smi_cpu_cores gauge\n");
+    template.push_str("# HELP all_smi_cpu_core_count Total number of CPU cores\n");
+    template.push_str("# TYPE all_smi_cpu_core_count gauge\n");
     template.push_str(&format!(
-        "all_smi_cpu_cores{{instance=\"{instance_name}\"}} {{{{CPU_CORES}}}}\n"
+        "all_smi_cpu_core_count{{instance=\"{instance_name}\"}} {{{{CPU_CORES}}}}\n"
+    ));
+
+    template.push_str("# HELP all_smi_cpu_temperature_celsius CPU temperature in celsius\n");
+    template.push_str("# TYPE all_smi_cpu_temperature_celsius gauge\n");
+    template.push_str(&format!(
+        "all_smi_cpu_temperature_celsius{{instance=\"{instance_name}\"}} {{{{CPU_TEMP}}}}\n"
     ));
 
     // Memory metrics
@@ -136,6 +142,7 @@ pub fn render_system_metrics(mut response: String) -> String {
             &format!("{:.2}", rng.random_range(10.0..90.0)),
         )
         .replace("{{CPU_CORES}}", "128")
+        .replace("{{CPU_TEMP}}", &rng.random_range(35..75).to_string())
         .replace(
             "{{MEM_USED}}",
             &rng.random_range(10_000_000_000u64..500_000_000_000u64)
