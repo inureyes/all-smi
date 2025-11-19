@@ -45,6 +45,7 @@ pub fn extract_gpu_memory_gb(gpu_name: &str) -> u64 {
 pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics> {
     let gpu_memory_gb = match platform {
         PlatformType::Furiosa => 48, // Furiosa RNGD has 48GB HBM3 (51539607552 bytes)
+        PlatformType::AmdGpu => extract_gpu_memory_gb(gpu_name), // AMD GPUs have varying memory sizes
         _ => extract_gpu_memory_gb(gpu_name),
     };
     let memory_total_bytes = gpu_memory_gb * 1024 * 1024 * 1024;
@@ -548,6 +549,47 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 frequency_mhz: rng.random_range(2400..3600),
                 temperature_celsius: Some(rng.random_range(55..85)),
                 power_consumption_watts: Some(rng.random_range(280.0..450.0)),
+                socket_utilizations,
+                p_core_count: None,
+                e_core_count: None,
+                gpu_core_count: None,
+                p_core_utilization: None,
+                e_core_utilization: None,
+                p_cluster_frequency_mhz: None,
+                e_cluster_frequency_mhz: None,
+                per_core_utilization,
+            }
+        }
+        PlatformType::AmdGpu => {
+            // AMD GPU server (typically AMD CPU)
+            let models = ["AMD EPYC 7763", "AMD EPYC 9554", "AMD EPYC 7713P"];
+            let model = models[rng.random_range(0..models.len())].to_string();
+
+            let socket_count = rng.random_range(1..=2);
+            let cores_per_socket = rng.random_range(32..64);
+            let total_cores = socket_count * cores_per_socket;
+            let total_threads = total_cores * 2;
+
+            let per_core_utilization: Vec<f32> = (0..total_cores)
+                .map(|_| rng.random_range(20.0..80.0))
+                .collect();
+
+            let overall_util =
+               per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
+
+            let socket_utilizations: Vec<f32> = (0..socket_count)
+                .map(|_| overall_util + rng.random_range(-3.0..3.0))
+                .collect();
+
+            CpuMetrics {
+                model,
+                utilization: overall_util,
+                socket_count,
+                core_count: total_cores,
+                thread_count: total_threads,
+                frequency_mhz: rng.random_range(2450..3800),
+                temperature_celsius: Some(rng.random_range(55..75)),
+                power_consumption_watts: Some(rng.random_range(180.0..320.0)),
                 socket_utilizations,
                 p_core_count: None,
                 e_core_count: None,

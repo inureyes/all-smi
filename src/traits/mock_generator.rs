@@ -55,6 +55,7 @@ pub enum MockPlatform {
     Nvidia,
     AppleSilicon,
     Jetson,
+    AmdGpu,
     Tenstorrent,
     Rebellions,
     Furiosa,

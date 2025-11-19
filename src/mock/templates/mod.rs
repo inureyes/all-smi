@@ -20,6 +20,7 @@ pub mod disk;
 pub mod furiosa;
 pub mod jetson;
 pub mod nvidia;
+pub mod amd_gpu;
 pub mod rebellions;
 pub mod tenstorrent;
 
