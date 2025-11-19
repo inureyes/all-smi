@@ -34,12 +34,12 @@ impl AmdGpuMockGenerator {
     /// - "AMD Radeon RX 7900 XT 20GB"
     /// - "AMD Radeon RX 7800 XT 16GB"
     /// - "AMD Radeon RX 6900 XT 16GB"
+    /// - "AMD Radeon RX 9070 XT 16GB"
     /// 
     /// Data Center GPUs (Instinct):
+    /// - "AMD Instinct MI325X 256GB"
     /// - "AMD Instinct MI300X 192GB"
     /// - "AMD Instinct MI250X 128GB"
-    /// - "AMD Instinct MI210 64GB"
-    /// - "AMD Instinct MI100 32GB"
     pub fn new(gpu_name: Option<String>, instance_name: String) -> Self {
         Self {
             gpu_name: gpu_name.unwrap_or_else(|| crate::mock::constants::DEFAULT_AMD_GPU_NAME.to_string()),
