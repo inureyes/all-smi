@@ -16,6 +16,8 @@
 
 // General configuration constants
 pub const DEFAULT_GPU_NAME: &str = "NVIDIA H200 141GB HBM3";
+pub const DEFAULT_AMD_GPU_NAME: &str = "AMD Radeon RX 7900 XTX 24GB";
+pub const DEFAULT_AMD_INSTINCT_NAME: &str = "AMD Instinct MI300X 192GB";
 pub const DEFAULT_TENSTORRENT_NAME: &str = "Tenstorrent Grayskull e75 120W";
 pub const DEFAULT_FURIOSA_NAME: &str = "Furiosa RNGD";
 pub const NUM_GPUS: usize = 8;

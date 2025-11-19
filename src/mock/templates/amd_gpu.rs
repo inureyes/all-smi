@@ -26,9 +26,23 @@ pub struct AmdGpuMockGenerator {
 }
 
 impl AmdGpuMockGenerator {
+    /// Create a new AMD GPU mock generator
+    /// 
+    /// Supported AMD GPU models (pass via --gpu-name):
+    /// Consumer GPUs:
+    /// - "AMD Radeon RX 7900 XTX 24GB" (default)
+    /// - "AMD Radeon RX 7900 XT 20GB"
+    /// - "AMD Radeon RX 7800 XT 16GB"
+    /// - "AMD Radeon RX 6900 XT 16GB"
+    /// 
+    /// Data Center GPUs (Instinct):
+    /// - "AMD Instinct MI300X 192GB"
+    /// - "AMD Instinct MI250X 128GB"
+    /// - "AMD Instinct MI210 64GB"
+    /// - "AMD Instinct MI100 32GB"
     pub fn new(gpu_name: Option<String>, instance_name: String) -> Self {
         Self {
-            gpu_name: gpu_name.unwrap_or_else(|| "AMD Radeon RX 7900 XTX 24GB".to_string()),
+            gpu_name: gpu_name.unwrap_or_else(|| crate::mock::constants::DEFAULT_AMD_GPU_NAME.to_string()),
             instance_name,
         }
     }
