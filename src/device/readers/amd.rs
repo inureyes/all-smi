@@ -91,6 +91,12 @@ impl GpuReader for AmdGpuReader {
                     if let Some(link) = sensors.current_link {
                         detail.insert("Current Link".to_string(), format!("Gen{} x{}", link.gen, link.width));
                     }
+                    if let Some(fan) = sensors.fan_rpm {
+                        detail.insert("Fan Speed".to_string(), format!("{} RPM", fan));
+                    }
+                    if let Some(mclk) = sensors.mclk {
+                        detail.insert("Memory Clock".to_string(), format!("{} MHz", mclk));
+                    }
                 }
 
                 let mut utilization = 0.0;
