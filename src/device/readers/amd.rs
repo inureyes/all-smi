@@ -35,8 +35,17 @@ impl GpuReader for AmdGpuReader {
 
         for device_path in device_path_list {
             if let Ok(amdgpu_dev) = device_path.init() {
-                let ext_info = amdgpu_dev.device_info().unwrap();
-                let memory_info = amdgpu_dev.memory_info().unwrap();
+                // Get device info with error handling
+                let ext_info = match amdgpu_dev.device_info() {
+                    Ok(info) => info,
+                    Err(_) => continue, // Skip this GPU if we can't get device info
+                };
+                
+                let memory_info = match amdgpu_dev.memory_info() {
+                    Ok(info) => info,
+                    Err(_) => continue, // Skip this GPU if we can't get memory info
+                };
+                
                 let sensors = libamdgpu_top::stat::Sensors::new(&amdgpu_dev, &device_path.pci, &ext_info);
                 
                 let app_device_info = AppDeviceInfo::new(
