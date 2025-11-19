@@ -77,6 +77,38 @@ pub fn has_nvidia() -> bool {
     false
 }
 
+#[cfg(target_os = "linux")]
+pub fn has_amd() -> bool {
+    // On Linux, check for AMD GPUs
+    if std::env::consts::OS == "linux" {
+        // Check lspci for AMD devices (Vendor ID 1002)
+        if let Ok(output) = execute_command_default("lspci", &["-n"]) {
+            if output.status == 0 {
+                for line in output.stdout.lines() {
+                    if line.contains(":1002:") {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Fallback: check /sys/class/drm
+        if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path().join("device/vendor");
+                    if let Ok(vendor) = std::fs::read_to_string(path) {
+                        if vendor.trim() == "0x1002" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 pub fn is_jetson() -> bool {
     if let Ok(compatible) = std::fs::read_to_string("/proc/device-tree/compatible") {
         return compatible.contains("tegra");
