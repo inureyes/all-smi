@@ -156,6 +156,20 @@ impl AmdGpuMockGenerator {
             self.instance_name, cpu.core_count
         ));
 
+        template.push_str("# HELP all_smi_cpu_model CPU model name\n");
+        template.push_str("# TYPE all_smi_cpu_model info\n");
+        template.push_str(&format!(
+            "all_smi_cpu_model{{instance=\"{}\", model=\"{}\"}} 1\n",
+            self.instance_name, cpu.model
+        ));
+
+        template.push_str("# HELP all_smi_cpu_frequency_mhz CPU frequency in MHz\n");
+        template.push_str("# TYPE all_smi_cpu_frequency_mhz gauge\n");
+        template.push_str(&format!(
+            "all_smi_cpu_frequency_mhz{{instance=\"{}\"}} {}\n",
+            self.instance_name, cpu.frequency_mhz
+        ));
+
         template.push_str("# HELP all_smi_cpu_temperature_celsius CPU temperature in celsius\n");
         template.push_str("# TYPE all_smi_cpu_temperature_celsius gauge\n");
         if let Some(temp) = cpu.temperature_celsius {
