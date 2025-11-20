@@ -133,41 +133,6 @@ impl NvidiaMockGenerator {
                 "all_smi_gpu_process_count{{{labels}}} {{{{PROC_COUNT_{i}}}}}\n"
             ));
         }
-
-        // Process utilization
-        template.push_str("# HELP all_smi_gpu_process_utilization Process GPU utilization\n");
-        template.push_str("# TYPE all_smi_gpu_process_utilization gauge\n");
-
-        // Add placeholders for multiple processes per GPU
-        for (gpu_idx, gpu) in gpus.iter().enumerate() {
-            for proc_idx in 0..MAX_PROCESSES_PER_GPU {
-                let labels = format!(
-                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{gpu_idx}\", \
-                     pid=\"{{{{PID_{gpu_idx}_{proc_idx}}}}}\", name=\"{{{{PROC_NAME_{gpu_idx}_{proc_idx}}}}}\"",
-                    self.gpu_name, self.instance_name, gpu.uuid
-                );
-                template.push_str(&format!(
-                    "all_smi_gpu_process_utilization{{{labels}}} {{{{PROC_UTIL_{gpu_idx}_{proc_idx}}}}}\n"
-                ));
-            }
-        }
-
-        // Process memory usage
-        template.push_str("# HELP all_smi_gpu_process_memory_bytes Process GPU memory usage\n");
-        template.push_str("# TYPE all_smi_gpu_process_memory_bytes gauge\n");
-
-        for (gpu_idx, gpu) in gpus.iter().enumerate() {
-            for proc_idx in 0..MAX_PROCESSES_PER_GPU {
-                let labels = format!(
-                    "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{gpu_idx}\", \
-                     pid=\"{{{{PID_{gpu_idx}_{proc_idx}}}}}\", name=\"{{{{PROC_NAME_{gpu_idx}_{proc_idx}}}}}\"",
-                    self.gpu_name, self.instance_name, gpu.uuid
-                );
-                template.push_str(&format!(
-                    "all_smi_gpu_process_memory_bytes{{{labels}}} {{{{PROC_MEM_{gpu_idx}_{proc_idx}}}}}\n"
-                ));
-            }
-        }
     }
 
     fn add_driver_metrics(&self, template: &mut String) {
@@ -286,14 +251,6 @@ impl NvidiaMockGenerator {
 
             // Process metrics (simplified for now - no actual processes)
             response = response.replace(&format!("{{{{PROC_COUNT_{i}}}}}"), "0");
-
-            for proc_idx in 0..MAX_PROCESSES_PER_GPU {
-                response = response
-                    .replace(&format!("{{{{PID_{i}_{proc_idx}}}}}"), "0")
-                    .replace(&format!("{{{{PROC_NAME_{i}_{proc_idx}}}}}"), "none")
-                    .replace(&format!("{{{{PROC_UTIL_{i}_{proc_idx}}}}}"), "0")
-                    .replace(&format!("{{{{PROC_MEM_{i}_{proc_idx}}}}}"), "0");
-            }
         }
 
         // Replace CPU and memory metrics
