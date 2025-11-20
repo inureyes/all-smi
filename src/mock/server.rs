@@ -205,7 +205,7 @@ pub async fn start_servers(args: Args) -> Result<()> {
     let mut instance_counter = args.start_index;
 
     // Use appropriate GPU/NPU name based on platform
-    let device_name = if args.gpu_name == crate::mock::constants::DEFAULT_GPU_NAME {
+    let device_name = if args.gpu_name == crate::mock::constants::DEFAULT_NVIDIA_GPU_NAME {
         // If using default GPU name, switch to platform-specific default
         match platform_type {
             PlatformType::Tenstorrent => {

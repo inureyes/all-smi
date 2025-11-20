@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::mock::constants::DEFAULT_GPU_NAME;
+use crate::mock::constants::DEFAULT_NVIDIA_GPU_NAME;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -23,7 +23,7 @@ pub struct Args {
     #[arg(long, help = "Port range, e.g., 10001-10010 or 10001")]
     pub port_range: Option<String>,
 
-    #[arg(long, default_value = DEFAULT_GPU_NAME, help = "GPU name")]
+    #[arg(long, default_value = DEFAULT_NVIDIA_GPU_NAME, help = "GPU name")]
     pub gpu_name: String,
 
     #[arg(

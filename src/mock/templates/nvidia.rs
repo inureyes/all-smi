@@ -399,6 +399,3 @@ impl MockGenerator for NvidiaMockGenerator {
         MockPlatform::Nvidia
     }
 }
-
-// Constants
-const MAX_PROCESSES_PER_GPU: usize = 10;
