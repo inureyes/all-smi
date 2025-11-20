@@ -40,14 +40,15 @@ impl GpuReader for AmdGpuReader {
                     Ok(info) => info,
                     Err(_) => continue, // Skip this GPU if we can't get device info
                 };
-                
+
                 let memory_info = match amdgpu_dev.memory_info() {
                     Ok(info) => info,
                     Err(_) => continue, // Skip this GPU if we can't get memory info
                 };
-                
-                let sensors = libamdgpu_top::stat::Sensors::new(&amdgpu_dev, &device_path.pci, &ext_info);
-                
+
+                let sensors =
+                    libamdgpu_top::stat::Sensors::new(&amdgpu_dev, &device_path.pci, &ext_info);
+
                 let app_device_info = AppDeviceInfo::new(
                     &amdgpu_dev,
                     &ext_info,
@@ -57,18 +58,30 @@ impl GpuReader for AmdGpuReader {
                 );
 
                 let mut detail = HashMap::new();
-                detail.insert("Device Name".to_string(), app_device_info.marketing_name.clone());
+                detail.insert(
+                    "Device Name".to_string(),
+                    app_device_info.marketing_name.clone(),
+                );
                 detail.insert("PCI Bus".to_string(), app_device_info.pci_bus.to_string());
-                
+
                 if let Some(ver) = libamdgpu_top::get_rocm_version() {
-                     detail.insert("ROCm Version".to_string(), ver);
+                    detail.insert("ROCm Version".to_string(), ver);
                 }
 
                 // Add more details
-                detail.insert("Device ID".to_string(), format!("{:#06x}", ext_info.device_id()));
-                detail.insert("Revision ID".to_string(), format!("{:#04x}", ext_info.pci_rev_id()));
-                detail.insert("ASIC Name".to_string(), app_device_info.asic_name.to_string());
-                
+                detail.insert(
+                    "Device ID".to_string(),
+                    format!("{:#06x}", ext_info.device_id()),
+                );
+                detail.insert(
+                    "Revision ID".to_string(),
+                    format!("{:#04x}", ext_info.pci_rev_id()),
+                );
+                detail.insert(
+                    "ASIC Name".to_string(),
+                    app_device_info.asic_name.to_string(),
+                );
+
                 if let Some(ref vbios) = app_device_info.vbios {
                     detail.insert("VBIOS Version".to_string(), vbios.version.clone());
                     detail.insert("VBIOS Date".to_string(), vbios.date.clone());
@@ -81,24 +94,39 @@ impl GpuReader for AmdGpuReader {
                 }
 
                 if let Some(link) = app_device_info.max_gpu_link {
-                    detail.insert("Max GPU Link".to_string(), format!("Gen{} x{}", link.gen, link.width));
+                    detail.insert(
+                        "Max GPU Link".to_string(),
+                        format!("Gen{} x{}", link.gen, link.width),
+                    );
                 }
-                
+
                 if let Some(link) = app_device_info.max_system_link {
-                    detail.insert("Max System Link".to_string(), format!("Gen{} x{}", link.gen, link.width));
+                    detail.insert(
+                        "Max System Link".to_string(),
+                        format!("Gen{} x{}", link.gen, link.width),
+                    );
                 }
 
                 if let Some(min_dpm_link) = app_device_info.min_dpm_link {
-                    detail.insert("Min DPM Link".to_string(), format!("Gen{} x{}", min_dpm_link.gen, min_dpm_link.width));
+                    detail.insert(
+                        "Min DPM Link".to_string(),
+                        format!("Gen{} x{}", min_dpm_link.gen, min_dpm_link.width),
+                    );
                 }
 
                 if let Some(max_dpm_link) = app_device_info.max_dpm_link {
-                    detail.insert("Max DPM Link".to_string(), format!("Gen{} x{}", max_dpm_link.gen, max_dpm_link.width));
+                    detail.insert(
+                        "Max DPM Link".to_string(),
+                        format!("Gen{} x{}", max_dpm_link.gen, max_dpm_link.width),
+                    );
                 }
-                
+
                 if let Some(ref sensors) = sensors {
                     if let Some(link) = sensors.current_link {
-                        detail.insert("Current Link".to_string(), format!("Gen{} x{}", link.gen, link.width));
+                        detail.insert(
+                            "Current Link".to_string(),
+                            format!("Gen{} x{}", link.gen, link.width),
+                        );
                     }
                     if let Some(fan) = sensors.fan_rpm {
                         detail.insert("Fan Speed".to_string(), format!("{} RPM", fan));
@@ -115,20 +143,20 @@ impl GpuReader for AmdGpuReader {
 
                 // Try to get metrics from GpuMetrics first
                 if let Ok(metrics) = GpuMetrics::get_from_sysfs_path(&device_path.sysfs_path) {
-                     if let Some(gfx_activity) = metrics.get_average_gfx_activity() {
-                         utilization = gfx_activity as f64;
-                     }
-                     if let Some(power) = metrics.get_average_socket_power() {
-                         power_consumption = power as f64;
-                     }
-                     if let Some(temp) = metrics.get_temperature_edge() {
-                         temperature = temp as i64;
-                     }
-                     if let Some(freq) = metrics.get_current_gfxclk() {
-                         frequency = freq as u64;
-                     }
-                } 
-                
+                    if let Some(gfx_activity) = metrics.get_average_gfx_activity() {
+                        utilization = gfx_activity as f64;
+                    }
+                    if let Some(power) = metrics.get_average_socket_power() {
+                        power_consumption = power as f64;
+                    }
+                    if let Some(temp) = metrics.get_temperature_edge() {
+                        temperature = temp as i64;
+                    }
+                    if let Some(freq) = metrics.get_current_gfxclk() {
+                        frequency = freq as u64;
+                    }
+                }
+
                 // Fallback to sensors if metrics failed or missing
                 if let Some(ref s) = sensors {
                     if utilization == 0.0 {
@@ -143,9 +171,9 @@ impl GpuReader for AmdGpuReader {
                         }
                     }
                     if temperature == 0 {
-                         if let Some(ref t) = s.edge_temp {
-                             temperature = t.current as i64;
-                         }
+                        if let Some(ref t) = s.edge_temp {
+                            temperature = t.current as i64;
+                        }
                     }
                     if frequency == 0 {
                         if let Some(clk) = s.sclk {

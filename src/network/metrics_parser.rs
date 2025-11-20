@@ -318,6 +318,26 @@ impl MetricsParser {
         });
 
         match metric_name {
+            "cpu_model" => {
+                // Handle all_smi_cpu_model info metric
+                if let Some(model) = labels.get("model") {
+                    cpu_info.cpu_model = model.clone();
+
+                    // Update platform type based on new model info
+                    cpu_info.platform_type = if model.contains("Apple") {
+                        CpuPlatformType::AppleSilicon
+                    } else if model.contains("Intel") {
+                        CpuPlatformType::Intel
+                    } else if model.contains("AMD")
+                        || model.contains("EPYC")
+                        || model.contains("Ryzen")
+                    {
+                        CpuPlatformType::Amd
+                    } else {
+                        CpuPlatformType::Other("Unknown".to_string())
+                    };
+                }
+            }
             "cpu_frequency_mhz" => {
                 cpu_info.base_frequency_mhz = value as u32;
                 cpu_info.max_frequency_mhz = value as u32;

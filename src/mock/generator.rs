@@ -575,7 +575,7 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 .collect();
 
             let overall_util =
-               per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
+                per_core_utilization.iter().sum::<f32>() / per_core_utilization.len() as f32;
 
             let socket_utilizations: Vec<f32> = (0..socket_count)
                 .map(|_| overall_util + rng.random_range(-3.0..3.0))

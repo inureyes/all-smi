@@ -37,7 +37,7 @@ impl<'a> NpuMetricExporter<'a> {
     pub fn new(npu_info: &'a [GpuInfo]) -> Self {
         // Initialize the exporter pool once
         EXPORTER_POOL.get_or_init(|| {
-            let mut exporters: Vec<Box<dyn NpuExporter + Send + Sync>> = vec![
+            let exporters: Vec<Box<dyn NpuExporter + Send + Sync>> = vec![
                 Box::new(rebellions::RebellionsExporter::new()),
                 Box::new(furiosa::FuriosaExporter::new()),
             ];
