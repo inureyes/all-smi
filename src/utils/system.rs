@@ -176,6 +176,22 @@ fn get_sudo_messages(
 fn request_sudo_with_explanation(platform: SudoPlatform, return_bool: bool) -> bool {
     // Check if we already have sudo privileges
     if has_sudo_privileges() {
+        // On Linux, having sudo timestamp is not enough - process must run as root
+        #[cfg(target_os = "linux")]
+        {
+            if matches!(platform, SudoPlatform::Linux) && unsafe { libc::geteuid() } != 0 {
+                println!();
+                println!("⚠️  Sudo timestamp is valid, but the process is not running as root.");
+                println!();
+                println!("AMD GPU monitoring requires the program itself to run with sudo:");
+                println!("   → sudo all-smi");
+                println!();
+                println!("(Unlike macOS, Linux requires root privileges for /dev/dri access)");
+                println!();
+                std::process::exit(1);
+            }
+        }
+
         println!();
         println!("✅ Administrator privileges already available.");
         println!("   Starting system monitoring...");
