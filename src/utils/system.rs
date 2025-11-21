@@ -54,8 +54,19 @@ pub fn ensure_sudo_permissions() {
         let _ = io::stderr().flush();
 
         request_sudo_with_explanation(false);
+    } else if cfg!(target_os = "linux") {
+        // On Linux, check if we have AMD GPUs that require sudo
+        #[cfg(target_os = "linux")]
+        {
+            use crate::device::platform_detection::has_amd;
+
+            if has_amd() {
+                // AMD GPUs require sudo to access /dev/dri devices
+                request_sudo_with_explanation_linux(false);
+            }
+        }
     } else {
-        // For non-macOS systems, we might need different handling
+        // For other systems, we might need different handling
         eprintln!("Note: This platform may not require sudo for hardware monitoring.");
     }
 }
@@ -151,6 +162,91 @@ fn request_sudo_with_explanation(return_bool: bool) -> bool {
         println!("   • Make sure you entered the correct password");
         println!("   • Ensure your user account has administrator privileges");
         println!("   • Try running 'sudo -v' manually to test sudo access");
+        println!();
+        println!("   For remote monitoring without sudo, use:");
+        println!("   → all-smi view --hosts <url1> <url2>");
+        println!();
+        std::process::exit(1);
+    }
+
+    println!("✅ Administrator privileges granted successfully.");
+    println!("   Starting system monitoring...");
+    println!();
+
+    true // Always return true if we reach this point (sudo was successful)
+}
+
+#[cfg(target_os = "linux")]
+fn request_sudo_with_explanation_linux(return_bool: bool) -> bool {
+    // Check if we already have sudo privileges
+    if has_sudo_privileges() {
+        println!();
+        println!("✅ Administrator privileges already available.");
+        println!("   Starting system monitoring...");
+        println!();
+        if return_bool {
+            return true;
+        } else {
+            // Add a small delay so user can see the message before terminal is cleared
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            return false; // This return value won't be used when return_bool is false
+        }
+    }
+
+    // Always show the explanation first, regardless of sudo status
+    println!();
+    println!("🔧 all-smi: System Monitoring Interface");
+    println!("============================================");
+    println!();
+    println!("This application monitors GPU, CPU, and memory usage on your system.");
+    println!();
+    println!("🔒 Administrator privileges are required because:");
+    println!("   • Access to AMD GPU devices requires read/write permissions on /dev/dri");
+    println!("   • These devices are typically only accessible by root or video/render group");
+    println!("   • This includes GPU utilization, memory usage, temperature, and power data");
+    println!();
+    println!("🛡️  Security Information:");
+    println!("   • all-smi only reads GPU metrics - it does not modify your system");
+    println!("   • The sudo access is used exclusively for accessing AMD GPU devices");
+    println!("   • No data is transmitted externally without your explicit configuration");
+    println!();
+    println!("📋 What will be monitored:");
+    println!("   • AMD GPU: Utilization, VRAM usage, temperature, power, clock speeds");
+    println!("   • CPU: Core utilization and performance metrics");
+    println!("   • Memory: System RAM usage and allocation");
+    println!("   • Storage: Disk usage and performance");
+    println!();
+    println!("💡 Alternative: Add your user to the 'video' and 'render' groups:");
+    println!("   sudo usermod -a -G video,render $USER");
+    println!("   (requires logout/login to take effect)");
+    println!();
+
+    // Give user a choice to continue
+    print!("To proceed, you need to enter your sudo password.");
+    println!();
+    println!("🔑 Requesting administrator privileges...");
+    println!("   (You may be prompted for your password)");
+    println!();
+
+    // Flush output to ensure all messages are displayed before sudo prompt
+    io::stdout().flush().unwrap();
+
+    // Attempt to get sudo privileges
+    let status = Command::new("sudo")
+        .arg("-v")
+        .status()
+        .expect("Failed to execute sudo command");
+
+    if !status.success() {
+        println!("❌ Failed to acquire administrator privileges.");
+        println!();
+        println!("💡 Troubleshooting:");
+        println!("   • Make sure you entered the correct password");
+        println!("   • Ensure your user account has sudo privileges");
+        println!("   • Try running 'sudo -v' manually to test sudo access");
+        println!();
+        println!("   Alternative: Add your user to video/render groups:");
+        println!("   → sudo usermod -a -G video,render $USER");
         println!();
         println!("   For remote monitoring without sudo, use:");
         println!("   → all-smi view --hosts <url1> <url2>");

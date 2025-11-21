@@ -52,6 +52,26 @@ impl Default for AmdGpuReader {
 
 impl AmdGpuReader {
     pub fn new() -> Self {
+        // Check if we have permission to access AMD GPU devices
+        // This prevents panic from libamdgpu_top when running without sudo
+        if !Self::check_amd_gpu_permissions() {
+            eprintln!();
+            eprintln!("❌ Error: Cannot access AMD GPU devices");
+            eprintln!();
+            eprintln!("AMD GPU monitoring requires elevated privileges to access /dev/dri devices.");
+            eprintln!();
+            eprintln!("Please run with sudo:");
+            eprintln!("  sudo all-smi");
+            eprintln!();
+            eprintln!("Or for API mode:");
+            eprintln!("  sudo all-smi api --port <port>");
+            eprintln!();
+
+            return Self {
+                devices: Vec::new(),
+            };
+        }
+
         let device_path_list = DevicePath::get_device_path_list();
         let mut devices = Vec::new();
 
@@ -86,6 +106,53 @@ impl AmdGpuReader {
         }
 
         Self { devices }
+    }
+
+    /// Check if we have permission to access AMD GPU devices
+    /// Returns false if /dev/dri devices are not accessible
+    fn check_amd_gpu_permissions() -> bool {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        // Check if /dev/dri directory exists and is accessible
+        let dri_path = std::path::Path::new("/dev/dri");
+        if !dri_path.exists() {
+            return false;
+        }
+
+        // Try to read the directory to check permissions
+        match fs::read_dir(dri_path) {
+            Ok(entries) => {
+                // Check if we can read at least one render or card device
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+                    // Check card or render devices
+                    if file_name.starts_with("card") || file_name.starts_with("render") {
+                        // Try to check if we can access the device
+                        if let Ok(metadata) = fs::metadata(&path) {
+                            let permissions = metadata.permissions();
+                            let mode = permissions.mode();
+
+                            // Check if we have read/write permissions
+                            // For root: always has access
+                            // For non-root: check if device is in video/render group and user is in that group
+                            if unsafe { libc::geteuid() } == 0 {
+                                return true; // Root always has access
+                            }
+
+                            // For non-root, check if we can actually open the device
+                            if let Ok(_file) = fs::OpenOptions::new().read(true).write(true).open(&path) {
+                                return true; // We have access
+                            }
+                        }
+                    }
+                }
+                false // No accessible devices found
+            }
+            Err(_) => false, // Cannot read /dev/dri directory
+        }
     }
 }
 
