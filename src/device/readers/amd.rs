@@ -22,11 +22,22 @@ use libamdgpu_top::{AppDeviceInfo, DevicePath, VramUsage};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-// Per-device state that needs to be cached
+// GPU metric validation constants
+const MAX_GPU_UTILIZATION: f64 = 100.0;      // Maximum utilization percentage
+const MAX_GPU_POWER_WATTS: f64 = 1000.0;     // Maximum power consumption in watts
+const MAX_GPU_TEMP_CELSIUS: u32 = 125;       // Maximum temperature in Celsius
+const MAX_GPU_FREQ_MHZ: u32 = 5000;          // Maximum frequency in MHz
+const MAX_GPU_MEMORY_BYTES: u64 = 512 * 1024 * 1024 * 1024; // 512GB max memory
+
+/// Per-device state that needs to be cached
+///
+/// SAFETY: The vram_usage Mutex protects VramUsage which must be updated
+/// atomically. We handle mutex poisoning by recreating the VramUsage from
+/// fresh memory_info if a thread panics while holding the lock.
 struct AmdGpuDevice {
     device_path: DevicePath,
     device_handle: DeviceHandle,
-    vram_usage: Mutex<VramUsage>,
+    vram_usage: Mutex<VramUsage>,  // Protected by mutex for thread-safe updates
 }
 
 pub struct AmdGpuReader {
@@ -226,21 +237,21 @@ impl GpuReader for AmdGpuReader {
             // Try to get metrics from GpuMetrics first with validation
             if let Ok(metrics) = GpuMetrics::get_from_sysfs_path(&device.device_path.sysfs_path) {
                 if let Some(gfx_activity) = metrics.get_average_gfx_activity() {
-                    // Validate utilization is within reasonable bounds (0-100%)
-                    utilization = (gfx_activity as f64).clamp(0.0, 100.0);
+                    // Validate utilization is within reasonable bounds
+                    utilization = (gfx_activity as f64).clamp(0.0, MAX_GPU_UTILIZATION);
                 }
                 if let Some(power) = metrics.get_average_socket_power() {
-                    // Validate power consumption (0-1000W reasonable for GPUs)
+                    // Validate power consumption
                     let watts = power as f64 / 1000.0; // Convert mW to W
-                    power_consumption = watts.clamp(0.0, 1000.0);
+                    power_consumption = watts.clamp(0.0, MAX_GPU_POWER_WATTS);
                 }
                 if let Some(temp) = metrics.get_temperature_edge() {
-                    // Validate temperature (0-125°C reasonable range)
-                    temperature = (temp as u32).min(125);
+                    // Validate temperature
+                    temperature = (temp as u32).min(MAX_GPU_TEMP_CELSIUS);
                 }
                 if let Some(freq) = metrics.get_current_gfxclk() {
-                    // Validate frequency (0-5000MHz reasonable range)
-                    frequency = (freq as u32).min(5000);
+                    // Validate frequency
+                    frequency = (freq as u32).min(MAX_GPU_FREQ_MHZ);
                 }
             }
 
@@ -253,20 +264,20 @@ impl GpuReader for AmdGpuReader {
                 if power_consumption == 0.0 {
                     if let Some(ref p) = s.average_power {
                         let watts = p.value as f64 / 1000.0; // Convert mW to W
-                        power_consumption = watts.clamp(0.0, 1000.0);
+                        power_consumption = watts.clamp(0.0, MAX_GPU_POWER_WATTS);
                     } else if let Some(ref p) = s.input_power {
                         let watts = p.value as f64 / 1000.0; // Convert mW to W
-                        power_consumption = watts.clamp(0.0, 1000.0);
+                        power_consumption = watts.clamp(0.0, MAX_GPU_POWER_WATTS);
                     }
                 }
                 if temperature == 0 {
                     if let Some(ref t) = s.edge_temp {
-                        temperature = (t.current as u32).min(125);
+                        temperature = (t.current as u32).min(MAX_GPU_TEMP_CELSIUS);
                     }
                 }
                 if frequency == 0 {
                     if let Some(clk) = s.sclk {
-                        frequency = clk.min(5000);
+                        frequency = clk.min(MAX_GPU_FREQ_MHZ);
                     }
                 }
             }
@@ -276,13 +287,11 @@ impl GpuReader for AmdGpuReader {
             // but we do it once per update cycle, not repeated queries
 
             // Get VRAM size - try multiple sources in order with validation
-            // Maximum reasonable GPU memory is 512GB (future-proofing)
-            const MAX_GPU_MEMORY: u64 = 512 * 1024 * 1024 * 1024; // 512GB in bytes
-
+            // Current max is MI325X with 288GB, but we allow headroom for future models
             let total_memory = if memory_info.vram.total_heap_size > 0 {
-                memory_info.vram.total_heap_size.min(MAX_GPU_MEMORY)
+                memory_info.vram.total_heap_size.min(MAX_GPU_MEMORY_BYTES)
             } else if memory_info.vram.usable_heap_size > 0 {
-                memory_info.vram.usable_heap_size.min(MAX_GPU_MEMORY)
+                memory_info.vram.usable_heap_size.min(MAX_GPU_MEMORY_BYTES)
             } else {
                 0
             };
