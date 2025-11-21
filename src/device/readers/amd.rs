@@ -16,7 +16,7 @@ use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
 use chrono::Local;
-use libamdgpu_top::AMDGPU::{DeviceHandle, GpuMetrics, MetricsInfo};
+use libamdgpu_top::AMDGPU::{DeviceHandle, GpuMetrics, MetricsInfo, GPU_INFO};
 use libamdgpu_top::{AppDeviceInfo, DevicePath, VramUsage};
 use std::collections::HashMap;
 
@@ -83,7 +83,7 @@ impl GpuReader for AmdGpuReader {
                 );
 
                 if let Some(ref vbios) = app_device_info.vbios {
-                    detail.insert("VBIOS Version".to_string(), vbios.version.clone());
+                    detail.insert("VBIOS Version".to_string(), vbios.ver.clone());
                     detail.insert("VBIOS Date".to_string(), vbios.date.clone());
                 }
 
@@ -138,8 +138,8 @@ impl GpuReader for AmdGpuReader {
 
                 let mut utilization = 0.0;
                 let mut power_consumption = 0.0;
-                let mut temperature = 0;
-                let mut frequency = 0;
+                let mut temperature: u32 = 0;
+                let mut frequency: u32 = 0;
 
                 // Try to get metrics from GpuMetrics first
                 if let Ok(metrics) = GpuMetrics::get_from_sysfs_path(&device_path.sysfs_path) {
@@ -150,10 +150,10 @@ impl GpuReader for AmdGpuReader {
                         power_consumption = power as f64;
                     }
                     if let Some(temp) = metrics.get_temperature_edge() {
-                        temperature = temp as i64;
+                        temperature = temp as u32;
                     }
                     if let Some(freq) = metrics.get_current_gfxclk() {
-                        frequency = freq as u64;
+                        frequency = freq as u32;
                     }
                 }
 
@@ -172,12 +172,12 @@ impl GpuReader for AmdGpuReader {
                     }
                     if temperature == 0 {
                         if let Some(ref t) = s.edge_temp {
-                            temperature = t.current as i64;
+                            temperature = t.current as u32;
                         }
                     }
                     if frequency == 0 {
                         if let Some(clk) = s.sclk {
-                            frequency = clk as u64;
+                            frequency = clk as u32;
                         }
                     }
                 }
