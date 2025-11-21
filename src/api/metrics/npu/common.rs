@@ -71,6 +71,7 @@ impl CommonNpuExporter {
 
     /// Helper function to parse hex register values commonly found in NPU metrics
     /// Safely handles overflow by using checked parsing and reasonable bounds
+    #[cfg(target_os = "linux")]
     pub fn parse_hex_register(value: &str) -> Option<f64> {
         let trimmed = value.trim_start_matches("0x").trim();
 
