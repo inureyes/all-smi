@@ -130,22 +130,15 @@ impl AmdGpuReader {
 
                     // Check card or render devices
                     if file_name.starts_with("card") || file_name.starts_with("render") {
-                        // Try to check if we can access the device
-                        if let Ok(metadata) = fs::metadata(&path) {
-                            let permissions = metadata.permissions();
-                            let mode = permissions.mode();
+                        // Check if we have read/write permissions
+                        // For root: always has access
+                        if unsafe { libc::geteuid() } == 0 {
+                            return true; // Root always has access
+                        }
 
-                            // Check if we have read/write permissions
-                            // For root: always has access
-                            // For non-root: check if device is in video/render group and user is in that group
-                            if unsafe { libc::geteuid() } == 0 {
-                                return true; // Root always has access
-                            }
-
-                            // For non-root, check if we can actually open the device
-                            if let Ok(_file) = fs::OpenOptions::new().read(true).write(true).open(&path) {
-                                return true; // We have access
-                            }
+                        // For non-root, check if we can actually open the device
+                        if let Ok(_file) = fs::OpenOptions::new().read(true).write(true).open(&path) {
+                            return true; // We have access
                         }
                     }
                 }
