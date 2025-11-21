@@ -108,7 +108,11 @@ pub fn ensure_sudo_permissions_with_fallback() -> bool {
                 if unsafe { libc::geteuid() } != 0 {
                     request_sudo_with_explanation(SudoPlatform::Linux, false);
                 }
-                false // This line won't be reached if sudo fails (process exits)
+                // If we're here, either:
+                // 1. We were already root (geteuid() == 0)
+                // 2. sudo request succeeded (otherwise process would have exited)
+                // In both cases, we can proceed
+                true
             } else {
                 true
             }
