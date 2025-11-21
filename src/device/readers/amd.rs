@@ -17,7 +17,7 @@ use crate::device::GpuReader;
 use crate::utils::get_hostname;
 use chrono::Local;
 use libamdgpu_top::AMDGPU::{GpuMetrics, MetricsInfo, GPU_INFO};
-use libamdgpu_top::{AppDeviceInfo, DevicePath, VramUsage};
+use libamdgpu_top::{AppDeviceInfo, DevicePath};
 use std::collections::HashMap;
 
 pub struct AmdGpuReader;
@@ -182,8 +182,19 @@ impl GpuReader for AmdGpuReader {
                     }
                 }
 
-                let mut vram_usage = VramUsage::new(&memory_info);
-                vram_usage.update_usage(&amdgpu_dev);
+                // Use memory_info directly as per libamdgpu-top library pattern
+                // This avoids GTT memory leak from VramUsage::update_usage()
+
+                // Get VRAM size - fallback to vram_gtt_info() if total_heap_size is 0
+                let total_memory = if memory_info.vram.total_heap_size == 0 {
+                    // Fallback: use vram_gtt_info() for actual VRAM size (e.g., newer GPUs)
+                    amdgpu_dev
+                        .vram_gtt_info()
+                        .map(|info| info.vram_size)
+                        .unwrap_or(memory_info.vram.usable_heap_size)
+                } else {
+                    memory_info.vram.total_heap_size
+                };
 
                 let info = GpuInfo {
                     uuid: format!("GPU-{}", device_path.pci), // AMD doesn't have UUIDs like NVIDIA, use PCI
@@ -197,8 +208,8 @@ impl GpuReader for AmdGpuReader {
                     ane_utilization: 0.0,
                     dla_utilization: None,
                     temperature,
-                    used_memory: vram_usage.0.vram.heap_usage,
-                    total_memory: vram_usage.0.vram.total_heap_size,
+                    used_memory: memory_info.vram.heap_usage,
+                    total_memory,
                     frequency,
                     power_consumption,
                     gpu_core_count: None,
