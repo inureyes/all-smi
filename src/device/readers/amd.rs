@@ -33,6 +33,12 @@ pub struct AmdGpuReader {
     devices: Vec<AmdGpuDevice>,
 }
 
+impl Default for AmdGpuReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AmdGpuReader {
     pub fn new() -> Self {
         let device_path_list = DevicePath::get_device_path_list();
@@ -172,10 +178,10 @@ impl GpuReader for AmdGpuReader {
                     );
                 }
                 if let Some(fan) = sensors.fan_rpm {
-                    detail.insert("Fan Speed".to_string(), format!("{} RPM", fan));
+                    detail.insert("Fan Speed".to_string(), format!("{fan} RPM"));
                 }
                 if let Some(mclk) = sensors.mclk {
-                    detail.insert("Memory Clock".to_string(), format!("{} MHz", mclk));
+                    detail.insert("Memory Clock".to_string(), format!("{mclk} MHz"));
                 }
             }
 
@@ -220,7 +226,7 @@ impl GpuReader for AmdGpuReader {
                 }
                 if frequency == 0 {
                     if let Some(clk) = s.sclk {
-                        frequency = clk as u32;
+                        frequency = clk;
                     }
                 }
             }

@@ -24,6 +24,12 @@ use crate::ui::widgets::draw_bar;
 #[allow(dead_code)]
 pub struct StorageRenderer;
 
+impl Default for StorageRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[allow(dead_code)]
 impl StorageRenderer {
     pub fn new() -> Self {

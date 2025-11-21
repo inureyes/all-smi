@@ -26,6 +26,12 @@ use super::widgets::gauges::get_utilization_block;
 #[allow(dead_code)]
 pub struct CpuRenderer;
 
+impl Default for CpuRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[allow(dead_code)]
 impl CpuRenderer {
     pub fn new() -> Self {

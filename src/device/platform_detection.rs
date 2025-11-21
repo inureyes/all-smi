@@ -94,13 +94,11 @@ pub fn has_amd() -> bool {
 
         // Fallback: check /sys/class/drm
         if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path().join("device/vendor");
-                    if let Ok(vendor) = std::fs::read_to_string(path) {
-                        if vendor.trim() == "0x1002" {
-                            return true;
-                        }
+            for entry in entries.flatten() {
+                let path = entry.path().join("device/vendor");
+                if let Ok(vendor) = std::fs::read_to_string(path) {
+                    if vendor.trim() == "0x1002" {
+                        return true;
                     }
                 }
             }

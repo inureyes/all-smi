@@ -24,6 +24,12 @@ use crate::ui::widgets::draw_bar;
 #[allow(dead_code)]
 pub struct GpuRenderer;
 
+impl Default for GpuRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[allow(dead_code)]
 impl GpuRenderer {
     pub fn new() -> Self {

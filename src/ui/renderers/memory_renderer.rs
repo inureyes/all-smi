@@ -24,6 +24,12 @@ use crate::ui::widgets::{draw_bar_multi, BarSegment};
 #[allow(dead_code)]
 pub struct MemoryRenderer;
 
+impl Default for MemoryRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[allow(dead_code)]
 impl MemoryRenderer {
     pub fn new() -> Self {

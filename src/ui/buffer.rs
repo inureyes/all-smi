@@ -24,6 +24,12 @@ pub struct BufferWriter {
     line_count: usize,
 }
 
+impl Default for BufferWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BufferWriter {
     pub fn new() -> Self {
         Self {
