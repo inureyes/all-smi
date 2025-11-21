@@ -147,7 +147,7 @@ impl GpuReader for AmdGpuReader {
                         utilization = gfx_activity as f64;
                     }
                     if let Some(power) = metrics.get_average_socket_power() {
-                        power_consumption = power as f64;
+                        power_consumption = power as f64 / 1000.0; // Convert mW to W
                     }
                     if let Some(temp) = metrics.get_temperature_edge() {
                         temperature = temp as u32;
@@ -165,9 +165,9 @@ impl GpuReader for AmdGpuReader {
                     }
                     if power_consumption == 0.0 {
                         if let Some(ref p) = s.average_power {
-                            power_consumption = p.value as f64;
+                            power_consumption = p.value as f64 / 1000.0; // Convert mW to W
                         } else if let Some(ref p) = s.input_power {
-                            power_consumption = p.value as f64;
+                            power_consumption = p.value as f64 / 1000.0; // Convert mW to W
                         }
                     }
                     if temperature == 0 {
