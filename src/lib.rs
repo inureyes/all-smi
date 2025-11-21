@@ -13,10 +13,15 @@
 // limitations under the License.
 
 // Re-export modules for testing
-pub mod device;
 #[macro_use]
 pub mod parsing;
+pub mod app_state;
+pub mod cli;
+pub mod device;
+pub mod network;
+pub mod storage;
 pub mod traits;
+pub mod ui;
 pub mod utils;
 
 // Re-export just the config module from common for library users

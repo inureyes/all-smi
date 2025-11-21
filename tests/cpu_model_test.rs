@@ -1,4 +1,5 @@
-use crate::network::metrics_parser::MetricsParser;
+use all_smi::device::CpuPlatformType;
+use all_smi::network::metrics_parser::MetricsParser;
 use regex::Regex;
 
 #[test]
@@ -24,8 +25,5 @@ all_smi_cpu_frequency_mhz{instance="node-0001"} 2450
     assert_eq!(cpu.utilization, 50.0);
     assert_eq!(cpu.total_cores, 128);
     assert_eq!(cpu.base_frequency_mhz, 2450);
-    assert!(matches!(
-        cpu.platform_type,
-        crate::device::CpuPlatformType::Amd
-    ));
+    assert!(matches!(cpu.platform_type, CpuPlatformType::Amd));
 }
