@@ -16,6 +16,7 @@ use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
 use chrono::Local;
+use libamdgpu_top::stat::{self, FdInfoStat, ProcInfo};
 use libamdgpu_top::AMDGPU::{DeviceHandle, GpuMetrics, MetricsInfo, GPU_INFO};
 use libamdgpu_top::{AppDeviceInfo, DevicePath, VramUsage};
 use std::collections::HashMap;
@@ -263,9 +264,75 @@ impl GpuReader for AmdGpuReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        // TODO: Implement process info using fdinfo from libamdgpu_top
-        // This requires more complex fdinfo parsing which libamdgpu_top provides
-        // For now, return empty list
-        Vec::new()
+        let mut process_info_list = Vec::new();
+
+        // Get system process list for enriching with system metrics
+        let system_processes = crate::device::process_list::get_all_processes();
+        let process_map: HashMap<u32, _> = system_processes.iter().map(|p| (p.pid, p)).collect();
+
+        // Get process list for fdinfo parsing
+        let proc_list = stat::get_process_list();
+
+        for (device_idx, device) in self.devices.iter().enumerate() {
+            // Build process index for this device
+            let mut proc_index: Vec<ProcInfo> = Vec::new();
+            stat::update_index_by_all_proc(
+                &mut proc_index,
+                &[&device.device_path.render, &device.device_path.card],
+                &proc_list,
+            );
+
+            // Get fdinfo usage for all processes
+            let mut fdinfo = FdInfoStat::default();
+            fdinfo.get_all_proc_usage(&proc_index);
+
+            // Process each entry
+            for proc_usage in fdinfo.proc_usage {
+                let vram_usage_kib = proc_usage.usage.vram_usage;
+                let gtt_usage_kib = proc_usage.usage.gtt_usage;
+
+                // Include process if it uses VRAM or GTT (GPU memory)
+                if vram_usage_kib == 0 && gtt_usage_kib == 0 {
+                    continue;
+                }
+
+                // Convert to bytes and prioritize VRAM, fallback to GTT
+                let gpu_memory_bytes = if vram_usage_kib > 0 {
+                    vram_usage_kib * 1024
+                } else {
+                    gtt_usage_kib * 1024
+                };
+
+                // Get system process info or use defaults
+                let sys_proc = process_map.get(&(proc_usage.pid as u32));
+
+                let process_info = ProcessInfo {
+                    device_id: device_idx,
+                    device_uuid: format!("GPU-{}", device.device_path.pci),
+                    pid: proc_usage.pid as u32,
+                    process_name: proc_usage.name.clone(),
+                    used_memory: gpu_memory_bytes,
+                    cpu_percent: sys_proc.map(|p| p.cpu_percent).unwrap_or(0.0),
+                    memory_percent: sys_proc.map(|p| p.memory_percent).unwrap_or(0.0),
+                    memory_rss: sys_proc.map(|p| p.memory_rss).unwrap_or(0),
+                    memory_vms: sys_proc.map(|p| p.memory_vms).unwrap_or(0),
+                    user: sys_proc.map(|p| p.user.clone()).unwrap_or_default(),
+                    state: sys_proc.map(|p| p.state.clone()).unwrap_or_default(),
+                    start_time: sys_proc.map(|p| p.start_time.clone()).unwrap_or_default(),
+                    cpu_time: sys_proc.map(|p| p.cpu_time).unwrap_or(0),
+                    command: sys_proc.map(|p| p.command.clone()).unwrap_or_default(),
+                    ppid: sys_proc.map(|p| p.ppid).unwrap_or(0),
+                    threads: sys_proc.map(|p| p.threads).unwrap_or(0),
+                    uses_gpu: true,
+                    priority: sys_proc.map(|p| p.priority).unwrap_or(0),
+                    nice_value: sys_proc.map(|p| p.nice_value).unwrap_or(0),
+                    gpu_utilization: 0.0, // fdinfo doesn't directly provide this per-process
+                };
+
+                process_info_list.push(process_info);
+            }
+        }
+
+        process_info_list
     }
 }
