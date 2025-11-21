@@ -31,9 +31,30 @@ const MAX_GPU_MEMORY_BYTES: u64 = 512 * 1024 * 1024 * 1024; // 512GB max memory
 
 /// Per-device state that needs to be cached
 ///
-/// SAFETY: The vram_usage Mutex protects VramUsage which must be updated
-/// atomically. We handle mutex poisoning by recreating the VramUsage from
-/// fresh memory_info if a thread panics while holding the lock.
+/// # Thread Safety
+///
+/// The `vram_usage` field is protected by a `Mutex` to ensure thread-safe access
+/// across multiple concurrent readers. The VramUsage struct from libamdgpu_top
+/// maintains internal state that must be updated atomically.
+///
+/// ## Synchronization Guarantees
+/// - All reads and writes to `vram_usage` are serialized through the mutex
+/// - The mutex ensures memory ordering: all writes before unlock are visible after lock
+/// - No data races can occur as long as all access goes through the mutex
+///
+/// ## Mutex Poisoning Recovery
+/// If a thread panics while holding the mutex lock, the mutex becomes "poisoned"
+/// to prevent other threads from observing potentially inconsistent state.
+/// We handle this by:
+/// 1. Detecting the poisoned state
+/// 2. Attempting to recover with fresh data from the driver
+/// 3. Using `catch_unwind` to handle potential panics during recovery
+/// 4. Skipping the device if recovery fails to maintain system stability
+///
+/// ## Performance Considerations
+/// - Mutex contention is minimal as updates are quick (microseconds)
+/// - Each device has its own mutex, preventing global bottlenecks
+/// - The lock is held only during the VramUsage update operations
 struct AmdGpuDevice {
     device_path: DevicePath,
     device_handle: DeviceHandle,
@@ -121,6 +142,9 @@ impl AmdGpuReader {
                     if file_name.starts_with("card") || file_name.starts_with("render") {
                         // Check if we have read/write permissions
                         // For root: always has access
+                        // SAFETY: libc::geteuid() is always safe to call - it's a simple
+                        // system call that reads the effective user ID from the kernel.
+                        // It cannot fail and doesn't access any memory we provide.
                         if unsafe { libc::geteuid() } == 0 {
                             return true; // Root always has access
                         }
@@ -179,15 +203,32 @@ impl GpuReader for AmdGpuReader {
                         // Try to get fresh memory info from the device
                         match device.device_handle.memory_info() {
                             Ok(fresh_memory_info) => {
-                                // Clear the poison and update with fresh data
-                                let mut guard = poisoned.into_inner();
-                                *guard = VramUsage::new(&fresh_memory_info);
-                                guard.update_usage(&device.device_handle);
-                                guard.update_usable_heap_size(&device.device_handle);
-                                guard.0
+                                // Attempt to recover the poisoned mutex safely
+                                // into_inner() can theoretically panic if the mutex is in an
+                                // inconsistent state, though this is extremely rare with modern
+                                // standard library implementations
+                                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    poisoned.into_inner()
+                                })) {
+                                    Ok(mut guard) => {
+                                        // Successfully recovered the guard
+                                        *guard = VramUsage::new(&fresh_memory_info);
+                                        guard.update_usage(&device.device_handle);
+                                        guard.update_usable_heap_size(&device.device_handle);
+                                        guard.0
+                                    }
+                                    Err(_) => {
+                                        // Recovery failed - skip this GPU
+                                        eprintln!(
+                                            "Critical: Failed to recover poisoned mutex for device {}, skipping",
+                                            device.device_path.pci
+                                        );
+                                        continue;
+                                    }
+                                }
                             }
                             Err(e) => {
-                                eprintln!("Failed to recover from poisoned mutex: {e}");
+                                eprintln!("Failed to get fresh memory info during recovery: {e}");
                                 continue; // Skip this GPU if we can't recover
                             }
                         }
@@ -220,13 +261,28 @@ impl GpuReader for AmdGpuReader {
                 detail.insert("ROCm Version".to_string(), ver);
             }
 
-            // Add driver version from DRM
+            // Add driver version from DRM with validation
             if let Ok(drm) = device.device_handle.get_drm_version_struct() {
-                let driver_version = format!(
-                    "{}.{}.{}",
-                    drm.version_major, drm.version_minor, drm.version_patchlevel
-                );
-                detail.insert("Driver Version".to_string(), driver_version);
+                // Validate version components are reasonable (prevent malformed data)
+                // Linux kernel versions typically don't exceed 999 for any component
+                const MAX_VERSION_COMPONENT: i32 = 999;
+
+                if drm.version_major >= 0 && drm.version_major <= MAX_VERSION_COMPONENT
+                    && drm.version_minor >= 0 && drm.version_minor <= MAX_VERSION_COMPONENT
+                    && drm.version_patchlevel >= 0 && drm.version_patchlevel <= MAX_VERSION_COMPONENT
+                {
+                    let driver_version = format!(
+                        "{}.{}.{}",
+                        drm.version_major, drm.version_minor, drm.version_patchlevel
+                    );
+                    detail.insert("Driver Version".to_string(), driver_version);
+                } else {
+                    eprintln!(
+                        "Warning: Invalid driver version components detected: {}.{}.{} for device {}",
+                        drm.version_major, drm.version_minor, drm.version_patchlevel,
+                        device.device_path.pci
+                    );
+                }
             }
 
             // Add more details

@@ -116,12 +116,10 @@ impl NvidiaMockGenerator {
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", \
-                 driver_version=\"{}\", cuda_version=\"{}\"",
+                 driver_version=\"{DEFAULT_NVIDIA_DRIVER_VERSION}\", cuda_version=\"{DEFAULT_CUDA_VERSION}\"",
                 self.gpu_name,
                 self.instance_name,
-                gpu.uuid,
-                DEFAULT_NVIDIA_DRIVER_VERSION,
-                DEFAULT_CUDA_VERSION
+                gpu.uuid
             );
             template.push_str(&format!("all_smi_gpu_info{{{labels}}} 1\n"));
         }
