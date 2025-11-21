@@ -287,49 +287,28 @@ impl GpuReader for AmdGpuReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        use std::collections::HashSet;
+        use std::collections::{HashMap, HashSet};
         use sysinfo::System;
 
         let mut process_info_list = Vec::new();
 
-        // Get process list for fdinfo parsing
+        // Get process list once for fdinfo parsing
         let proc_list = stat::get_process_list();
 
-        // First pass: collect all GPU PIDs from fdinfo
-        let mut gpu_pids = HashSet::new();
-
-        for device in &self.devices {
-            // Build process index for this device
-            let mut proc_index: Vec<ProcInfo> = Vec::new();
-            stat::update_index_by_all_proc(
-                &mut proc_index,
-                &[&device.device_path.render, &device.device_path.card],
-                &proc_list,
-            );
-
-            // Get fdinfo usage for all processes
-            let mut fdinfo = FdInfoStat::default();
-            fdinfo.get_all_proc_usage(&proc_index);
-
-            // Collect GPU PIDs
-            for proc_usage in &fdinfo.proc_usage {
-                let vram_usage_kib = proc_usage.usage.vram_usage;
-                let gtt_usage_kib = proc_usage.usage.gtt_usage;
-
-                // Include process if it uses VRAM or GTT (GPU memory)
-                if vram_usage_kib > 0 || gtt_usage_kib > 0 {
-                    gpu_pids.insert(proc_usage.pid as u32);
-                }
-            }
+        // Collect all GPU process data in a single pass
+        struct GpuProcessData {
+            device_id: usize,
+            device_uuid: String,
+            pid: u32,
+            name: String,
+            vram_usage_kib: u64,
+            gtt_usage_kib: u64,
         }
 
-        // Get system process information for GPU processes
-        let mut system = System::new_all();
-        system.refresh_all();
-        let system_processes = crate::device::process_list::get_all_processes(&system, &gpu_pids);
-        let process_map: HashMap<u32, _> = system_processes.iter().map(|p| (p.pid, p)).collect();
+        let mut gpu_processes = Vec::new();
+        let mut gpu_pids = HashSet::new();
 
-        // Second pass: create ProcessInfo entries
+        // Single pass: collect all GPU process data
         for (device_idx, device) in self.devices.iter().enumerate() {
             // Build process index for this device
             let mut proc_index: Vec<ProcInfo> = Vec::new();
@@ -343,51 +322,70 @@ impl GpuReader for AmdGpuReader {
             let mut fdinfo = FdInfoStat::default();
             fdinfo.get_all_proc_usage(&proc_index);
 
-            // Process each entry
+            // Collect process data
             for proc_usage in fdinfo.proc_usage {
                 let vram_usage_kib = proc_usage.usage.vram_usage;
                 let gtt_usage_kib = proc_usage.usage.gtt_usage;
 
                 // Include process if it uses VRAM or GTT (GPU memory)
-                if vram_usage_kib == 0 && gtt_usage_kib == 0 {
-                    continue;
+                if vram_usage_kib > 0 || gtt_usage_kib > 0 {
+                    let pid = proc_usage.pid as u32;
+                    gpu_pids.insert(pid);
+
+                    gpu_processes.push(GpuProcessData {
+                        device_id: device_idx,
+                        device_uuid: format!("GPU-{}", device.device_path.pci),
+                        pid,
+                        name: proc_usage.name,
+                        vram_usage_kib,
+                        gtt_usage_kib,
+                    });
                 }
-
-                // Convert to bytes and prioritize VRAM, fallback to GTT
-                let gpu_memory_bytes = if vram_usage_kib > 0 {
-                    vram_usage_kib * 1024
-                } else {
-                    gtt_usage_kib * 1024
-                };
-
-                // Get system process info or use defaults
-                let sys_proc = process_map.get(&(proc_usage.pid as u32));
-
-                let process_info = ProcessInfo {
-                    device_id: device_idx,
-                    device_uuid: format!("GPU-{}", device.device_path.pci),
-                    pid: proc_usage.pid as u32,
-                    process_name: proc_usage.name.clone(),
-                    used_memory: gpu_memory_bytes,
-                    cpu_percent: sys_proc.map(|p| p.cpu_percent).unwrap_or(0.0),
-                    memory_percent: sys_proc.map(|p| p.memory_percent).unwrap_or(0.0),
-                    memory_rss: sys_proc.map(|p| p.memory_rss).unwrap_or(0),
-                    memory_vms: sys_proc.map(|p| p.memory_vms).unwrap_or(0),
-                    user: sys_proc.map(|p| p.user.clone()).unwrap_or_default(),
-                    state: sys_proc.map(|p| p.state.clone()).unwrap_or_default(),
-                    start_time: sys_proc.map(|p| p.start_time.clone()).unwrap_or_default(),
-                    cpu_time: sys_proc.map(|p| p.cpu_time).unwrap_or(0),
-                    command: sys_proc.map(|p| p.command.clone()).unwrap_or_default(),
-                    ppid: sys_proc.map(|p| p.ppid).unwrap_or(0),
-                    threads: sys_proc.map(|p| p.threads).unwrap_or(0),
-                    uses_gpu: true,
-                    priority: sys_proc.map(|p| p.priority).unwrap_or(0),
-                    nice_value: sys_proc.map(|p| p.nice_value).unwrap_or(0),
-                    gpu_utilization: 0.0, // fdinfo doesn't directly provide this per-process
-                };
-
-                process_info_list.push(process_info);
             }
+        }
+
+        // Get system process information once for all GPU processes
+        let mut system = System::new_all();
+        system.refresh_all();
+        let system_processes = crate::device::process_list::get_all_processes(&system, &gpu_pids);
+        let process_map: HashMap<u32, _> = system_processes.iter().map(|p| (p.pid, p)).collect();
+
+        // Build final ProcessInfo list efficiently
+        for gpu_proc in gpu_processes {
+            // Convert to bytes and prioritize VRAM, fallback to GTT
+            let gpu_memory_bytes = if gpu_proc.vram_usage_kib > 0 {
+                gpu_proc.vram_usage_kib * 1024
+            } else {
+                gpu_proc.gtt_usage_kib * 1024
+            };
+
+            // Get system process info or use defaults
+            let sys_proc = process_map.get(&gpu_proc.pid);
+
+            let process_info = ProcessInfo {
+                device_id: gpu_proc.device_id,
+                device_uuid: gpu_proc.device_uuid,
+                pid: gpu_proc.pid,
+                process_name: gpu_proc.name,
+                used_memory: gpu_memory_bytes,
+                cpu_percent: sys_proc.map(|p| p.cpu_percent).unwrap_or(0.0),
+                memory_percent: sys_proc.map(|p| p.memory_percent).unwrap_or(0.0),
+                memory_rss: sys_proc.map(|p| p.memory_rss).unwrap_or(0),
+                memory_vms: sys_proc.map(|p| p.memory_vms).unwrap_or(0),
+                user: sys_proc.map(|p| p.user.clone()).unwrap_or_default(),
+                state: sys_proc.map(|p| p.state.clone()).unwrap_or_default(),
+                start_time: sys_proc.map(|p| p.start_time.clone()).unwrap_or_default(),
+                cpu_time: sys_proc.map(|p| p.cpu_time).unwrap_or(0),
+                command: sys_proc.map(|p| p.command.clone()).unwrap_or_default(),
+                ppid: sys_proc.map(|p| p.ppid).unwrap_or(0),
+                threads: sys_proc.map(|p| p.threads).unwrap_or(0),
+                uses_gpu: true,
+                priority: sys_proc.map(|p| p.priority).unwrap_or(0),
+                nice_value: sys_proc.map(|p| p.nice_value).unwrap_or(0),
+                gpu_utilization: 0.0, // fdinfo doesn't directly provide this per-process
+            };
+
+            process_info_list.push(process_info);
         }
 
         process_info_list
