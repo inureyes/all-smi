@@ -264,15 +264,49 @@ impl GpuReader for AmdGpuReader {
     }
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
-        let mut process_info_list = Vec::new();
+        use std::collections::HashSet;
+        use sysinfo::System;
 
-        // Get system process list for enriching with system metrics
-        let system_processes = crate::device::process_list::get_all_processes();
-        let process_map: HashMap<u32, _> = system_processes.iter().map(|p| (p.pid, p)).collect();
+        let mut process_info_list = Vec::new();
 
         // Get process list for fdinfo parsing
         let proc_list = stat::get_process_list();
 
+        // First pass: collect all GPU PIDs from fdinfo
+        let mut gpu_pids = HashSet::new();
+
+        for device in &self.devices {
+            // Build process index for this device
+            let mut proc_index: Vec<ProcInfo> = Vec::new();
+            stat::update_index_by_all_proc(
+                &mut proc_index,
+                &[&device.device_path.render, &device.device_path.card],
+                &proc_list,
+            );
+
+            // Get fdinfo usage for all processes
+            let mut fdinfo = FdInfoStat::default();
+            fdinfo.get_all_proc_usage(&proc_index);
+
+            // Collect GPU PIDs
+            for proc_usage in &fdinfo.proc_usage {
+                let vram_usage_kib = proc_usage.usage.vram_usage;
+                let gtt_usage_kib = proc_usage.usage.gtt_usage;
+
+                // Include process if it uses VRAM or GTT (GPU memory)
+                if vram_usage_kib > 0 || gtt_usage_kib > 0 {
+                    gpu_pids.insert(proc_usage.pid as u32);
+                }
+            }
+        }
+
+        // Get system process information for GPU processes
+        let mut system = System::new_all();
+        system.refresh_all();
+        let system_processes = crate::device::process_list::get_all_processes(&system, &gpu_pids);
+        let process_map: HashMap<u32, _> = system_processes.iter().map(|p| (p.pid, p)).collect();
+
+        // Second pass: create ProcessInfo entries
         for (device_idx, device) in self.devices.iter().enumerate() {
             // Build process index for this device
             let mut proc_index: Vec<ProcInfo> = Vec::new();
