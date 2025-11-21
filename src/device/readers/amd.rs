@@ -70,16 +70,16 @@ impl AmdGpuReader {
                         }
                         Err(e) => {
                             eprintln!(
-                                "Warning: Failed to get memory info for AMD GPU {}: {}",
-                                device_path.pci, e
+                                "Warning: Failed to get memory info for AMD GPU {}: {e}",
+                                device_path.pci
                             );
                         }
                     }
                 }
                 Err(e) => {
                     eprintln!(
-                        "Warning: Failed to initialize AMD GPU {}: {}",
-                        device_path.pci, e
+                        "Warning: Failed to initialize AMD GPU {}: {e}",
+                        device_path.pci
                     );
                 }
             }
@@ -99,8 +99,8 @@ impl GpuReader for AmdGpuReader {
                 Ok(info) => info,
                 Err(e) => {
                     eprintln!(
-                        "Warning: Failed to get device info for AMD GPU {}: {}",
-                        device.device_path.pci, e
+                        "Warning: Failed to get device info for AMD GPU {}: {e}",
+                        device.device_path.pci
                     );
                     continue; // Skip this GPU if we can't get device info
                 }
@@ -137,7 +137,7 @@ impl GpuReader for AmdGpuReader {
                                 guard.0
                             }
                             Err(e) => {
-                                eprintln!("Failed to recover from poisoned mutex: {}", e);
+                                eprintln!("Failed to recover from poisoned mutex: {e}");
                                 continue; // Skip this GPU if we can't recover
                             }
                         }
