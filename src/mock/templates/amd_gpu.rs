@@ -27,6 +27,51 @@ pub struct AmdGpuMockGenerator {
 }
 
 impl AmdGpuMockGenerator {
+    /// Get the memory size for the specified GPU model
+    fn get_gpu_memory_bytes(&self) -> u64 {
+        // Parse memory from GPU name, or use appropriate defaults
+        if self.gpu_name.contains("288GB") {
+            288 * 1024 * 1024 * 1024  // 288GB
+        } else if self.gpu_name.contains("256GB") {
+            256 * 1024 * 1024 * 1024  // 256GB
+        } else if self.gpu_name.contains("192GB") {
+            192 * 1024 * 1024 * 1024  // 192GB
+        } else if self.gpu_name.contains("141GB") {
+            141 * 1024 * 1024 * 1024  // 141GB
+        } else if self.gpu_name.contains("128GB") {
+            128 * 1024 * 1024 * 1024  // 128GB
+        } else if self.gpu_name.contains("96GB") {
+            96 * 1024 * 1024 * 1024   // 96GB
+        } else if self.gpu_name.contains("80GB") {
+            80 * 1024 * 1024 * 1024   // 80GB
+        } else if self.gpu_name.contains("48GB") {
+            48 * 1024 * 1024 * 1024   // 48GB
+        } else if self.gpu_name.contains("40GB") {
+            40 * 1024 * 1024 * 1024   // 40GB
+        } else if self.gpu_name.contains("32GB") {
+            32 * 1024 * 1024 * 1024   // 32GB
+        } else if self.gpu_name.contains("24GB") {
+            24 * 1024 * 1024 * 1024   // 24GB
+        } else if self.gpu_name.contains("20GB") {
+            20 * 1024 * 1024 * 1024   // 20GB
+        } else if self.gpu_name.contains("16GB") {
+            16 * 1024 * 1024 * 1024   // 16GB
+        } else if self.gpu_name.contains("12GB") {
+            12 * 1024 * 1024 * 1024   // 12GB
+        } else if self.gpu_name.contains("8GB") {
+            8 * 1024 * 1024 * 1024    // 8GB
+        } else if self.gpu_name.contains("6GB") {
+            6 * 1024 * 1024 * 1024    // 6GB
+        } else if self.gpu_name.contains("4GB") {
+            4 * 1024 * 1024 * 1024    // 4GB
+        } else {
+            // Default for unknown models
+            24 * 1024 * 1024 * 1024   // 24GB default
+        }
+    }
+}
+
+impl AmdGpuMockGenerator {
     /// Create a new AMD GPU mock generator
     ///
     /// Supported AMD GPU models (pass via --gpu-name):
@@ -262,13 +307,16 @@ impl MockGenerator for AmdGpuMockGenerator {
         // Generate initial GPU metrics
         // Use a single RNG instance for better performance
         let mut rng = thread_rng();
+        let memory_total_bytes = self.get_gpu_memory_bytes();
+        let memory_used_max = (memory_total_bytes as f64 * 0.8) as u64; // Max 80% usage
+
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|_| {
                 GpuMetrics {
                     uuid: crate::mock::metrics::gpu::generate_uuid(),
                     utilization: rng.gen_range(0.0..100.0),
-                    memory_used_bytes: rng.gen_range(1_000_000_000..20_000_000_000),
-                    memory_total_bytes: 25_769_803_776, // 24GB
+                    memory_used_bytes: rng.gen_range(1_000_000_000..memory_used_max.max(2_000_000_000)),
+                    memory_total_bytes,
                     temperature_celsius: rng.gen_range(35..75),
                     power_consumption_watts: rng.gen_range(100.0..350.0),
                     frequency_mhz: rng.gen_range(1500..2500),
@@ -329,12 +377,13 @@ impl MockGenerator for AmdGpuMockGenerator {
         self.validate_config(config)?;
 
         // Generate sample metrics for template
+        let memory_total_bytes = self.get_gpu_memory_bytes();
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|i| GpuMetrics {
                 uuid: format!("GPU-{:08x}", i as u32),
                 utilization: 0.0,
                 memory_used_bytes: 0,
-                memory_total_bytes: 25_769_803_776,
+                memory_total_bytes,
                 temperature_celsius: 0,
                 power_consumption_watts: 0.0,
                 frequency_mhz: 0,
