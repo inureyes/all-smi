@@ -18,6 +18,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Install AMD GPU development libraries
+      - name: Install AMD GPU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdrm-dev libdrm-amdgpu1
+
       # protoc: cached install via composite action
       - name: Setup protoc
         uses: ./.github/actions/setup-protoc
@@ -52,6 +58,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Install AMD GPU development libraries
+      - name: Install AMD GPU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdrm-dev libdrm-amdgpu1
 
       # protoc: cached install via composite action
       - name: Setup protoc
