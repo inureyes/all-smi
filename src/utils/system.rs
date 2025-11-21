@@ -94,6 +94,24 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
 pub fn ensure_sudo_permissions_with_fallback() -> bool {
     if cfg!(target_os = "macos") {
         request_sudo_with_explanation(true)
+    } else if cfg!(target_os = "linux") {
+        // On Linux, check if we have AMD GPUs that require sudo
+        #[cfg(target_os = "linux")]
+        {
+            use crate::device::platform_detection::has_amd;
+
+            if has_amd() {
+                // AMD GPUs require sudo - don't allow fallback, exit if no sudo
+                request_sudo_with_explanation_linux(false);
+                false // This line won't be reached if sudo fails (process exits)
+            } else {
+                true
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            true
+        }
     } else {
         true
     }

@@ -54,19 +54,9 @@ impl AmdGpuReader {
     pub fn new() -> Self {
         // Check if we have permission to access AMD GPU devices
         // This prevents panic from libamdgpu_top when running without sudo
+        // If no permission, silently return empty device list
+        // The main program will handle showing sudo message before TUI starts
         if !Self::check_amd_gpu_permissions() {
-            eprintln!();
-            eprintln!("❌ Error: Cannot access AMD GPU devices");
-            eprintln!();
-            eprintln!("AMD GPU monitoring requires elevated privileges to access /dev/dri devices.");
-            eprintln!();
-            eprintln!("Please run with sudo:");
-            eprintln!("  sudo all-smi");
-            eprintln!();
-            eprintln!("Or for API mode:");
-            eprintln!("  sudo all-smi api --port <port>");
-            eprintln!();
-
             return Self {
                 devices: Vec::new(),
             };
