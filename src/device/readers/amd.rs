@@ -112,7 +112,6 @@ impl AmdGpuReader {
     /// Returns false if /dev/dri devices are not accessible
     fn check_amd_gpu_permissions() -> bool {
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
 
         // Check if /dev/dri directory exists and is accessible
         let dri_path = std::path::Path::new("/dev/dri");
