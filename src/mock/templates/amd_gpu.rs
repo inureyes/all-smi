@@ -171,6 +171,29 @@ impl AmdGpuMockGenerator {
                 template.push_str(&format!("{metric_name}{{{labels}}} {placeholder}\n"));
             }
         }
+
+        // Add GPU info metric with driver and ROCm version
+        self.add_gpu_info_metric(template, gpus);
+    }
+
+    fn add_gpu_info_metric(&self, template: &mut String, gpus: &[GpuMetrics]) {
+        use crate::mock::constants::{DEFAULT_AMD_DRIVER_VERSION, DEFAULT_AMD_ROCM_VERSION};
+
+        template.push_str("# HELP all_smi_gpu_info GPU device information\n");
+        template.push_str("# TYPE all_smi_gpu_info gauge\n");
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            let labels = format!(
+                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", type=\"GPU\", \
+                 driver_version=\"{}\", rocm_version=\"{}\"",
+                self.gpu_name,
+                self.instance_name,
+                gpu.uuid,
+                DEFAULT_AMD_DRIVER_VERSION,
+                DEFAULT_AMD_ROCM_VERSION
+            );
+            template.push_str(&format!("all_smi_gpu_info{{{labels}}} 1\n"));
+        }
     }
 
     fn add_fan_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {

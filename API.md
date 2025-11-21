@@ -61,6 +61,8 @@ AMD GPUs (Radeon and Instinct series) provide comprehensive monitoring through R
 | `all_smi_gpu_memory_vram_bytes`| VRAM (Video RAM) usage                  | bytes   | `gpu_index`, `gpu_name`                     |
 
 **Additional Details Available** (in `all_smi_gpu_info` labels):
+- **Driver Version**: AMDGPU kernel driver version (e.g., "6.12.0")
+- **ROCm Version**: ROCm software stack version (e.g., "6.3.0")
 - **PCIe Information**: Current link generation and width, max GPU/system link capabilities
 - **VBIOS**: Version and date information
 - **Power Management**: Current, minimum, and maximum power cap values

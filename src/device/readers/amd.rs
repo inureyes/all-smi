@@ -220,6 +220,15 @@ impl GpuReader for AmdGpuReader {
                 detail.insert("ROCm Version".to_string(), ver);
             }
 
+            // Add driver version from DRM
+            if let Ok(drm) = device.device_handle.get_drm_version_struct() {
+                let driver_version = format!(
+                    "{}.{}.{}",
+                    drm.version_major, drm.version_minor, drm.version_patchlevel
+                );
+                detail.insert("Driver Version".to_string(), driver_version);
+            }
+
             // Add more details
             detail.insert(
                 "Device ID".to_string(),

@@ -21,6 +21,8 @@ pub const DEFAULT_CUDA_VERSION: &str = "13.0";
 pub const DEFAULT_AMD_GPU_NAME: &str = "AMD Instinct MI355X 288GB HBM3";
 #[allow(dead_code)]
 pub const DEFAULT_AMD_INSTINCT_NAME: &str = "AMD Instinct MI300X 192GB";
+pub const DEFAULT_AMD_DRIVER_VERSION: &str = "6.12.0";
+pub const DEFAULT_AMD_ROCM_VERSION: &str = "6.3.0";
 pub const DEFAULT_TENSTORRENT_NAME: &str = "Tenstorrent Grayskull e75 120W";
 pub const DEFAULT_FURIOSA_NAME: &str = "Furiosa RNGD";
 pub const NUM_GPUS: usize = 8;
