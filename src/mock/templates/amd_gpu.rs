@@ -18,7 +18,7 @@ use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics};
 use all_smi::traits::mock_generator::{
     MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
 };
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 
 // Fan speed constants (RPM)
 const FAN_SPEED_HIGH_TEMP: u32 = 70; // Temperature threshold for high fan speed
@@ -232,8 +232,8 @@ impl AmdGpuMockGenerator {
         template.push_str("# TYPE all_smi_cpu_temperature_celsius gauge\n");
         if let Some(temp) = cpu.temperature_celsius {
             template.push_str(&format!(
-                "all_smi_cpu_temperature_celsius{{instance=\"{}\"}} {}\n",
-                self.instance_name, temp
+                "all_smi_cpu_temperature_celsius{{instance=\"{}\"}} {temp}\n",
+                self.instance_name
             ));
         }
 
@@ -290,13 +290,13 @@ impl AmdGpuMockGenerator {
 
             // AMD GPUs - fan speed based on temperature thresholds
             // Use a single RNG instance for efficiency
-            let mut rng = thread_rng();
+            let mut rng = rng();
             let fan_rpm = if gpu.temperature_celsius > FAN_SPEED_HIGH_TEMP {
-                rng.gen_range(FAN_RPM_HIGH_MIN..FAN_RPM_HIGH_MAX)
+                rng.random_range(FAN_RPM_HIGH_MIN..FAN_RPM_HIGH_MAX)
             } else if gpu.temperature_celsius > FAN_SPEED_MID_TEMP {
-                rng.gen_range(FAN_RPM_MID_MIN..FAN_RPM_MID_MAX)
+                rng.random_range(FAN_RPM_MID_MIN..FAN_RPM_MID_MAX)
             } else {
-                rng.gen_range(FAN_RPM_LOW_MIN..FAN_RPM_LOW_MAX)
+                rng.random_range(FAN_RPM_LOW_MIN..FAN_RPM_LOW_MAX)
             };
             response = response.replace(&format!("{{{{FAN_{i}}}}}"), &fan_rpm.to_string());
         }
@@ -316,19 +316,20 @@ impl MockGenerator for AmdGpuMockGenerator {
 
         // Generate initial GPU metrics
         // Use a single RNG instance for better performance
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let memory_total_bytes = self.get_gpu_memory_bytes();
         let memory_used_max = (memory_total_bytes as f64 * 0.8) as u64; // Max 80% usage
 
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|_| GpuMetrics {
                 uuid: crate::mock::metrics::gpu::generate_uuid(),
-                utilization: rng.gen_range(0.0..100.0),
-                memory_used_bytes: rng.gen_range(1_000_000_000..memory_used_max.max(2_000_000_000)),
+                utilization: rng.random_range(0.0..100.0),
+                memory_used_bytes: rng
+                    .random_range(1_000_000_000..memory_used_max.max(2_000_000_000)),
                 memory_total_bytes,
-                temperature_celsius: rng.gen_range(35..75),
-                power_consumption_watts: rng.gen_range(100.0..350.0),
-                frequency_mhz: rng.gen_range(1500..2500),
+                temperature_celsius: rng.random_range(35..75),
+                power_consumption_watts: rng.random_range(100.0..350.0),
+                frequency_mhz: rng.random_range(1500..2500),
                 ane_utilization_watts: 0.0,
                 thermal_pressure_level: None,
             })
@@ -338,14 +339,14 @@ impl MockGenerator for AmdGpuMockGenerator {
         // Reuse the existing RNG instance
         let cpu = CpuMetrics {
             model: "AMD EPYC 7763".to_string(),
-            utilization: rng.gen_range(10.0..90.0),
+            utilization: rng.random_range(10.0..90.0),
             socket_count: 2,
             core_count: 128,
             thread_count: 256,
             frequency_mhz: 2450,
             temperature_celsius: Some(65),
             power_consumption_watts: Some(280.0),
-            socket_utilizations: vec![rng.gen_range(10.0..90.0), rng.gen_range(10.0..90.0)],
+            socket_utilizations: vec![rng.random_range(10.0..90.0), rng.random_range(10.0..90.0)],
             p_core_count: None,
             e_core_count: None,
             gpu_core_count: None,
@@ -358,15 +359,15 @@ impl MockGenerator for AmdGpuMockGenerator {
 
         let memory = MemoryMetrics {
             total_bytes: 1099511627776, // 1TB
-            used_bytes: rng.gen_range(10_000_000_000..500_000_000_000),
-            available_bytes: rng.gen_range(100_000_000_000..600_000_000_000),
-            free_bytes: rng.gen_range(50_000_000_000..400_000_000_000),
-            cached_bytes: rng.gen_range(10_000_000_000..100_000_000_000),
-            buffers_bytes: rng.gen_range(1_000_000_000..10_000_000_000),
+            used_bytes: rng.random_range(10_000_000_000..500_000_000_000),
+            available_bytes: rng.random_range(100_000_000_000..600_000_000_000),
+            free_bytes: rng.random_range(50_000_000_000..400_000_000_000),
+            cached_bytes: rng.random_range(10_000_000_000..100_000_000_000),
+            buffers_bytes: rng.random_range(1_000_000_000..10_000_000_000),
             swap_total_bytes: 0,
             swap_used_bytes: 0,
             swap_free_bytes: 0,
-            utilization: rng.gen_range(10.0..90.0),
+            utilization: rng.random_range(10.0..90.0),
         };
 
         // Build and render template
