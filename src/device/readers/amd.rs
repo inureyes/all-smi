@@ -228,32 +228,12 @@ impl GpuReader for AmdGpuReader {
             // The update_usable_heap_size() call updates total_heap_size from vram_gtt_info()
             // but we do it once per update cycle, not repeated queries
 
-            // Debug: Print memory values to diagnose 0GB issue
-            eprintln!(
-                "[DEBUG] GPU {}: total_heap_size={} bytes ({} MB), usable_heap_size={} bytes ({} MB), heap_usage={} bytes ({} MB)",
-                device.device_path.pci,
-                memory_info.vram.total_heap_size,
-                memory_info.vram.total_heap_size >> 20,
-                memory_info.vram.usable_heap_size,
-                memory_info.vram.usable_heap_size >> 20,
-                memory_info.vram.heap_usage,
-                memory_info.vram.heap_usage >> 20
-            );
-
             // Get VRAM size - try multiple sources in order
             let total_memory = if memory_info.vram.total_heap_size > 0 {
                 memory_info.vram.total_heap_size
             } else if memory_info.vram.usable_heap_size > 0 {
-                eprintln!(
-                    "[DEBUG] GPU {}: Using usable_heap_size as fallback",
-                    device.device_path.pci
-                );
                 memory_info.vram.usable_heap_size
             } else {
-                eprintln!(
-                    "[ERROR] GPU {}: All VRAM size sources returned 0!",
-                    device.device_path.pci
-                );
                 0
             };
 

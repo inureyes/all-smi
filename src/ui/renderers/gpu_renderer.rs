@@ -106,7 +106,13 @@ pub fn print_gpu_info<W: Write>(
     let vram_display = if info.detail.get("metrics_available") == Some(&"false".to_string()) {
         format!("{:>11}", "N/A")
     } else {
-        format!("{:>11}", format!("{memory_gb:.1}/{total_memory_gb:.0}GB"))
+        // Format total memory with proper precision: 1 decimal for sub-GB, 0 decimal for GB+
+        let total_fmt = if total_memory_gb < 1.0 {
+            format!("{total_memory_gb:.1}")
+        } else {
+            format!("{total_memory_gb:.0}")
+        };
+        format!("{:>11}", format!("{memory_gb:.1}/{total_fmt}GB"))
     };
     print_colored_text(stdout, &vram_display, Color::White, None, None);
     print_colored_text(stdout, " Temp:", Color::Magenta, None, None);
