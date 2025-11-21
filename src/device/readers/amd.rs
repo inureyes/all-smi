@@ -74,22 +74,39 @@ impl GpuReader for AmdGpuReader {
             };
 
             // Update the VramUsage from the driver (following libamdgpu-top pattern)
-            {
-                let mut vram_usage = match device.vram_usage.lock() {
-                    Ok(guard) => guard,
-                    Err(_) => continue, // Skip if mutex is poisoned
-                };
-                vram_usage.update_usage(&device.device_handle);
-                vram_usage.update_usable_heap_size(&device.device_handle);
-            }
-
-            // Now read the updated memory info from VramUsage
+            // SAFETY: We handle mutex poisoning by recreating the VramUsage from fresh memory_info
             let memory_info = {
-                let vram_usage = match device.vram_usage.lock() {
-                    Ok(guard) => guard,
-                    Err(_) => continue,
-                };
-                vram_usage.0 // VramUsage is a tuple struct wrapping drm_amdgpu_memory_info
+                let mut vram_usage_result = device.vram_usage.lock();
+
+                match vram_usage_result {
+                    Ok(mut vram_usage) => {
+                        // Normal path: update and read
+                        vram_usage.update_usage(&device.device_handle);
+                        vram_usage.update_usable_heap_size(&device.device_handle);
+                        vram_usage.0 // VramUsage is a tuple struct wrapping drm_amdgpu_memory_info
+                    }
+                    Err(poisoned) => {
+                        // Mutex was poisoned - recover by getting fresh memory info
+                        // This prevents denial of service from panics in other threads
+                        eprintln!("Warning: VramUsage mutex was poisoned for device {}, recovering...", device.device_path.pci);
+
+                        // Try to get fresh memory info from the device
+                        match device.device_handle.memory_info() {
+                            Ok(fresh_memory_info) => {
+                                // Clear the poison and update with fresh data
+                                let mut guard = poisoned.into_inner();
+                                *guard = VramUsage::new(&fresh_memory_info);
+                                guard.update_usage(&device.device_handle);
+                                guard.update_usable_heap_size(&device.device_handle);
+                                guard.0
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to recover from poisoned mutex: {}", e);
+                                continue; // Skip this GPU if we can't recover
+                            }
+                        }
+                    }
+                }
             };
 
             let sensors = libamdgpu_top::stat::Sensors::new(
