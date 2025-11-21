@@ -163,13 +163,11 @@ fn request_sudo_with_explanation(platform: SudoPlatform, return_bool: bool) -> b
         println!("✅ Administrator privileges already available.");
         println!("   Starting system monitoring...");
         println!();
-        if return_bool {
-            return true;
-        } else {
-            // Add a small delay so user can see the message before terminal is cleared
+        // Add a small delay for non-fallback mode so user can see the message
+        if !return_bool {
             std::thread::sleep(std::time::Duration::from_millis(300));
-            return false; // This return value won't be used when return_bool is false
         }
+        return true; // Always return true if sudo is available
     }
 
     let (required_reasons, security_info, monitored_items, alternative, additional_troubleshooting) =
