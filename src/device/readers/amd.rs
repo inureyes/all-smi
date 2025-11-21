@@ -207,23 +207,28 @@ impl GpuReader for AmdGpuReader {
             let mut temperature: u32 = 0;
             let mut frequency: u32 = 0;
 
-            // Try to get metrics from GpuMetrics first
+            // Try to get metrics from GpuMetrics first with validation
             if let Ok(metrics) = GpuMetrics::get_from_sysfs_path(&device.device_path.sysfs_path) {
                 if let Some(gfx_activity) = metrics.get_average_gfx_activity() {
-                    utilization = gfx_activity as f64;
+                    // Validate utilization is within reasonable bounds (0-100%)
+                    utilization = (gfx_activity as f64).clamp(0.0, 100.0);
                 }
                 if let Some(power) = metrics.get_average_socket_power() {
-                    power_consumption = power as f64 / 1000.0; // Convert mW to W
+                    // Validate power consumption (0-1000W reasonable for GPUs)
+                    let watts = power as f64 / 1000.0; // Convert mW to W
+                    power_consumption = watts.clamp(0.0, 1000.0);
                 }
                 if let Some(temp) = metrics.get_temperature_edge() {
-                    temperature = temp as u32;
+                    // Validate temperature (0-125°C reasonable range)
+                    temperature = (temp as u32).min(125);
                 }
                 if let Some(freq) = metrics.get_current_gfxclk() {
-                    frequency = freq as u32;
+                    // Validate frequency (0-5000MHz reasonable range)
+                    frequency = (freq as u32).min(5000);
                 }
             }
 
-            // Fallback to sensors if metrics failed or missing
+            // Fallback to sensors if metrics failed or missing (with validation)
             if let Some(ref s) = sensors {
                 if utilization == 0.0 {
                     // Approximate utilization from load if available, or leave 0
@@ -231,19 +236,21 @@ impl GpuReader for AmdGpuReader {
                 }
                 if power_consumption == 0.0 {
                     if let Some(ref p) = s.average_power {
-                        power_consumption = p.value as f64 / 1000.0; // Convert mW to W
+                        let watts = p.value as f64 / 1000.0; // Convert mW to W
+                        power_consumption = watts.clamp(0.0, 1000.0);
                     } else if let Some(ref p) = s.input_power {
-                        power_consumption = p.value as f64 / 1000.0; // Convert mW to W
+                        let watts = p.value as f64 / 1000.0; // Convert mW to W
+                        power_consumption = watts.clamp(0.0, 1000.0);
                     }
                 }
                 if temperature == 0 {
                     if let Some(ref t) = s.edge_temp {
-                        temperature = t.current as u32;
+                        temperature = (t.current as u32).min(125);
                     }
                 }
                 if frequency == 0 {
                     if let Some(clk) = s.sclk {
-                        frequency = clk;
+                        frequency = clk.min(5000);
                     }
                 }
             }
@@ -252,14 +259,20 @@ impl GpuReader for AmdGpuReader {
             // The update_usable_heap_size() call updates total_heap_size from vram_gtt_info()
             // but we do it once per update cycle, not repeated queries
 
-            // Get VRAM size - try multiple sources in order
+            // Get VRAM size - try multiple sources in order with validation
+            // Maximum reasonable GPU memory is 512GB (future-proofing)
+            const MAX_GPU_MEMORY: u64 = 512 * 1024 * 1024 * 1024; // 512GB in bytes
+
             let total_memory = if memory_info.vram.total_heap_size > 0 {
-                memory_info.vram.total_heap_size
+                memory_info.vram.total_heap_size.min(MAX_GPU_MEMORY)
             } else if memory_info.vram.usable_heap_size > 0 {
-                memory_info.vram.usable_heap_size
+                memory_info.vram.usable_heap_size.min(MAX_GPU_MEMORY)
             } else {
                 0
             };
+
+            // Validate used memory doesn't exceed total
+            let used_memory = memory_info.vram.heap_usage.min(total_memory);
 
             let info = GpuInfo {
                 uuid: format!("GPU-{}", device.device_path.pci), // AMD doesn't have UUIDs like NVIDIA, use PCI
@@ -273,7 +286,7 @@ impl GpuReader for AmdGpuReader {
                 ane_utilization: 0.0,
                 dla_utilization: None,
                 temperature,
-                used_memory: memory_info.vram.heap_usage,
+                used_memory,
                 total_memory,
                 frequency,
                 power_consumption,
