@@ -62,7 +62,10 @@ pub fn ensure_sudo_permissions() {
 
             if has_amd() {
                 // AMD GPUs require sudo to access /dev/dri devices
-                request_sudo_with_explanation(SudoPlatform::Linux, false);
+                // Check if running as root
+                if unsafe { libc::geteuid() } != 0 {
+                    request_sudo_with_explanation(SudoPlatform::Linux, false);
+                }
             }
         }
     } else {
@@ -101,8 +104,10 @@ pub fn ensure_sudo_permissions_with_fallback() -> bool {
             use crate::device::platform_detection::has_amd;
 
             if has_amd() {
-                // AMD GPUs require sudo - don't allow fallback, exit if no sudo
-                request_sudo_with_explanation(SudoPlatform::Linux, false);
+                // AMD GPUs require sudo - check if running as root
+                if unsafe { libc::geteuid() } != 0 {
+                    request_sudo_with_explanation(SudoPlatform::Linux, false);
+                }
                 false // This line won't be reached if sudo fails (process exits)
             } else {
                 true
@@ -126,7 +131,15 @@ enum SudoPlatform {
 }
 
 /// Get platform-specific sudo explanation messages
-fn get_sudo_messages(platform: SudoPlatform) -> (&'static str, &'static str, &'static str, Option<&'static str>, Option<&'static str>) {
+fn get_sudo_messages(
+    platform: SudoPlatform,
+) -> (
+    &'static str,
+    &'static str,
+    &'static str,
+    Option<&'static str>,
+    Option<&'static str>,
+) {
     match platform {
         SudoPlatform::MacOS => (
             // Required reasons
@@ -217,8 +230,14 @@ fn request_sudo_with_explanation(platform: SudoPlatform, return_bool: bool) -> b
         println!();
         println!("💡 Troubleshooting:");
         println!("   • Make sure you entered the correct password");
-        println!("   • Ensure your user account has {}",
-            if matches!(platform, SudoPlatform::MacOS) { "administrator privileges" } else { "sudo privileges" });
+        println!(
+            "   • Ensure your user account has {}",
+            if matches!(platform, SudoPlatform::MacOS) {
+                "administrator privileges"
+            } else {
+                "sudo privileges"
+            }
+        );
         println!("   • Try running 'sudo -v' manually to test sudo access");
         println!();
 

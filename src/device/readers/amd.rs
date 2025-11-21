@@ -126,7 +126,8 @@ impl AmdGpuReader {
                         }
 
                         // For non-root, check if we can actually open the device
-                        if let Ok(_file) = fs::OpenOptions::new().read(true).write(true).open(&path) {
+                        if let Ok(_file) = fs::OpenOptions::new().read(true).write(true).open(&path)
+                        {
                             return true; // We have access
                         }
                     }
