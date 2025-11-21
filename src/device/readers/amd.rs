@@ -45,15 +45,27 @@ impl AmdGpuReader {
         let mut devices = Vec::new();
 
         for device_path in device_path_list {
-            if let Ok(amdgpu_dev) = device_path.init() {
-                // Get initial memory_info to create VramUsage
-                if let Ok(memory_info) = amdgpu_dev.memory_info() {
-                    let vram_usage = VramUsage::new(&memory_info);
-                    devices.push(AmdGpuDevice {
-                        device_path,
-                        device_handle: amdgpu_dev,
-                        vram_usage: Mutex::new(vram_usage),
-                    });
+            match device_path.init() {
+                Ok(amdgpu_dev) => {
+                    // Get initial memory_info to create VramUsage
+                    match amdgpu_dev.memory_info() {
+                        Ok(memory_info) => {
+                            let vram_usage = VramUsage::new(&memory_info);
+                            devices.push(AmdGpuDevice {
+                                device_path: device_path.clone(),
+                                device_handle: amdgpu_dev,
+                                vram_usage: Mutex::new(vram_usage),
+                            });
+                        }
+                        Err(e) => {
+                            eprintln!("Warning: Failed to get memory info for AMD GPU {}: {}",
+                                     device_path.pci, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to initialize AMD GPU {}: {}",
+                             device_path.pci, e);
                 }
             }
         }
@@ -70,7 +82,11 @@ impl GpuReader for AmdGpuReader {
             // Get device info with error handling
             let ext_info = match device.device_handle.device_info() {
                 Ok(info) => info,
-                Err(_) => continue, // Skip this GPU if we can't get device info
+                Err(e) => {
+                    eprintln!("Warning: Failed to get device info for AMD GPU {}: {}",
+                             device.device_path.pci, e);
+                    continue; // Skip this GPU if we can't get device info
+                }
             };
 
             // Update the VramUsage from the driver (following libamdgpu-top pattern)
