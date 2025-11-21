@@ -23,10 +23,10 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 // GPU metric validation constants
-const MAX_GPU_UTILIZATION: f64 = 100.0;      // Maximum utilization percentage
-const MAX_GPU_POWER_WATTS: f64 = 1000.0;     // Maximum power consumption in watts
-const MAX_GPU_TEMP_CELSIUS: u32 = 125;       // Maximum temperature in Celsius
-const MAX_GPU_FREQ_MHZ: u32 = 5000;          // Maximum frequency in MHz
+const MAX_GPU_UTILIZATION: f64 = 100.0; // Maximum utilization percentage
+const MAX_GPU_POWER_WATTS: f64 = 1000.0; // Maximum power consumption in watts
+const MAX_GPU_TEMP_CELSIUS: u32 = 125; // Maximum temperature in Celsius
+const MAX_GPU_FREQ_MHZ: u32 = 5000; // Maximum frequency in MHz
 const MAX_GPU_MEMORY_BYTES: u64 = 512 * 1024 * 1024 * 1024; // 512GB max memory
 
 /// Per-device state that needs to be cached
@@ -37,7 +37,7 @@ const MAX_GPU_MEMORY_BYTES: u64 = 512 * 1024 * 1024 * 1024; // 512GB max memory
 struct AmdGpuDevice {
     device_path: DevicePath,
     device_handle: DeviceHandle,
-    vram_usage: Mutex<VramUsage>,  // Protected by mutex for thread-safe updates
+    vram_usage: Mutex<VramUsage>, // Protected by mutex for thread-safe updates
 }
 
 pub struct AmdGpuReader {
@@ -69,14 +69,18 @@ impl AmdGpuReader {
                             });
                         }
                         Err(e) => {
-                            eprintln!("Warning: Failed to get memory info for AMD GPU {}: {}",
-                                     device_path.pci, e);
+                            eprintln!(
+                                "Warning: Failed to get memory info for AMD GPU {}: {}",
+                                device_path.pci, e
+                            );
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("Warning: Failed to initialize AMD GPU {}: {}",
-                             device_path.pci, e);
+                    eprintln!(
+                        "Warning: Failed to initialize AMD GPU {}: {}",
+                        device_path.pci, e
+                    );
                 }
             }
         }
@@ -94,8 +98,10 @@ impl GpuReader for AmdGpuReader {
             let ext_info = match device.device_handle.device_info() {
                 Ok(info) => info,
                 Err(e) => {
-                    eprintln!("Warning: Failed to get device info for AMD GPU {}: {}",
-                             device.device_path.pci, e);
+                    eprintln!(
+                        "Warning: Failed to get device info for AMD GPU {}: {}",
+                        device.device_path.pci, e
+                    );
                     continue; // Skip this GPU if we can't get device info
                 }
             };
@@ -103,7 +109,7 @@ impl GpuReader for AmdGpuReader {
             // Update the VramUsage from the driver (following libamdgpu-top pattern)
             // SAFETY: We handle mutex poisoning by recreating the VramUsage from fresh memory_info
             let memory_info = {
-                let mut vram_usage_result = device.vram_usage.lock();
+                let vram_usage_result = device.vram_usage.lock();
 
                 match vram_usage_result {
                     Ok(mut vram_usage) => {
@@ -115,7 +121,10 @@ impl GpuReader for AmdGpuReader {
                     Err(poisoned) => {
                         // Mutex was poisoned - recover by getting fresh memory info
                         // This prevents denial of service from panics in other threads
-                        eprintln!("Warning: VramUsage mutex was poisoned for device {}, recovering...", device.device_path.pci);
+                        eprintln!(
+                            "Warning: VramUsage mutex was poisoned for device {}, recovering...",
+                            device.device_path.pci
+                        );
 
                         // Try to get fresh memory info from the device
                         match device.device_handle.memory_info() {

@@ -21,14 +21,14 @@ use all_smi::traits::mock_generator::{
 use rand::{thread_rng, Rng};
 
 // Fan speed constants (RPM)
-const FAN_SPEED_HIGH_TEMP: u32 = 70;    // Temperature threshold for high fan speed
-const FAN_SPEED_MID_TEMP: u32 = 50;     // Temperature threshold for medium fan speed
-const FAN_RPM_HIGH_MIN: u32 = 2000;     // Min RPM for high temperature
-const FAN_RPM_HIGH_MAX: u32 = 3000;     // Max RPM for high temperature
-const FAN_RPM_MID_MIN: u32 = 1200;      // Min RPM for medium temperature
-const FAN_RPM_MID_MAX: u32 = 2000;      // Max RPM for medium temperature
-const FAN_RPM_LOW_MIN: u32 = 800;       // Min RPM for low temperature
-const FAN_RPM_LOW_MAX: u32 = 1200;      // Max RPM for low temperature
+const FAN_SPEED_HIGH_TEMP: u32 = 70; // Temperature threshold for high fan speed
+const FAN_SPEED_MID_TEMP: u32 = 50; // Temperature threshold for medium fan speed
+const FAN_RPM_HIGH_MIN: u32 = 2000; // Min RPM for high temperature
+const FAN_RPM_HIGH_MAX: u32 = 3000; // Max RPM for high temperature
+const FAN_RPM_MID_MIN: u32 = 1200; // Min RPM for medium temperature
+const FAN_RPM_MID_MAX: u32 = 2000; // Max RPM for medium temperature
+const FAN_RPM_LOW_MIN: u32 = 800; // Min RPM for low temperature
+const FAN_RPM_LOW_MAX: u32 = 1200; // Max RPM for low temperature
 
 /// AMD GPU mock generator
 pub struct AmdGpuMockGenerator {
@@ -41,42 +41,42 @@ impl AmdGpuMockGenerator {
     fn get_gpu_memory_bytes(&self) -> u64 {
         // Parse memory from GPU name, or use appropriate defaults
         if self.gpu_name.contains("288GB") {
-            288 * 1024 * 1024 * 1024  // 288GB
+            288 * 1024 * 1024 * 1024 // 288GB
         } else if self.gpu_name.contains("256GB") {
-            256 * 1024 * 1024 * 1024  // 256GB
+            256 * 1024 * 1024 * 1024 // 256GB
         } else if self.gpu_name.contains("192GB") {
-            192 * 1024 * 1024 * 1024  // 192GB
+            192 * 1024 * 1024 * 1024 // 192GB
         } else if self.gpu_name.contains("141GB") {
-            141 * 1024 * 1024 * 1024  // 141GB
+            141 * 1024 * 1024 * 1024 // 141GB
         } else if self.gpu_name.contains("128GB") {
-            128 * 1024 * 1024 * 1024  // 128GB
+            128 * 1024 * 1024 * 1024 // 128GB
         } else if self.gpu_name.contains("96GB") {
-            96 * 1024 * 1024 * 1024   // 96GB
+            96 * 1024 * 1024 * 1024 // 96GB
         } else if self.gpu_name.contains("80GB") {
-            80 * 1024 * 1024 * 1024   // 80GB
+            80 * 1024 * 1024 * 1024 // 80GB
         } else if self.gpu_name.contains("48GB") {
-            48 * 1024 * 1024 * 1024   // 48GB
+            48 * 1024 * 1024 * 1024 // 48GB
         } else if self.gpu_name.contains("40GB") {
-            40 * 1024 * 1024 * 1024   // 40GB
+            40 * 1024 * 1024 * 1024 // 40GB
         } else if self.gpu_name.contains("32GB") {
-            32 * 1024 * 1024 * 1024   // 32GB
+            32 * 1024 * 1024 * 1024 // 32GB
         } else if self.gpu_name.contains("24GB") {
-            24 * 1024 * 1024 * 1024   // 24GB
+            24 * 1024 * 1024 * 1024 // 24GB
         } else if self.gpu_name.contains("20GB") {
-            20 * 1024 * 1024 * 1024   // 20GB
+            20 * 1024 * 1024 * 1024 // 20GB
         } else if self.gpu_name.contains("16GB") {
-            16 * 1024 * 1024 * 1024   // 16GB
+            16 * 1024 * 1024 * 1024 // 16GB
         } else if self.gpu_name.contains("12GB") {
-            12 * 1024 * 1024 * 1024   // 12GB
+            12 * 1024 * 1024 * 1024 // 12GB
         } else if self.gpu_name.contains("8GB") {
-            8 * 1024 * 1024 * 1024    // 8GB
+            8 * 1024 * 1024 * 1024 // 8GB
         } else if self.gpu_name.contains("6GB") {
-            6 * 1024 * 1024 * 1024    // 6GB
+            6 * 1024 * 1024 * 1024 // 6GB
         } else if self.gpu_name.contains("4GB") {
-            4 * 1024 * 1024 * 1024    // 4GB
+            4 * 1024 * 1024 * 1024 // 4GB
         } else {
             // Default for unknown models
-            24 * 1024 * 1024 * 1024   // 24GB default
+            24 * 1024 * 1024 * 1024 // 24GB default
         }
     }
 }
@@ -321,18 +321,16 @@ impl MockGenerator for AmdGpuMockGenerator {
         let memory_used_max = (memory_total_bytes as f64 * 0.8) as u64; // Max 80% usage
 
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
-            .map(|_| {
-                GpuMetrics {
-                    uuid: crate::mock::metrics::gpu::generate_uuid(),
-                    utilization: rng.gen_range(0.0..100.0),
-                    memory_used_bytes: rng.gen_range(1_000_000_000..memory_used_max.max(2_000_000_000)),
-                    memory_total_bytes,
-                    temperature_celsius: rng.gen_range(35..75),
-                    power_consumption_watts: rng.gen_range(100.0..350.0),
-                    frequency_mhz: rng.gen_range(1500..2500),
-                    ane_utilization_watts: 0.0,
-                    thermal_pressure_level: None,
-                }
+            .map(|_| GpuMetrics {
+                uuid: crate::mock::metrics::gpu::generate_uuid(),
+                utilization: rng.gen_range(0.0..100.0),
+                memory_used_bytes: rng.gen_range(1_000_000_000..memory_used_max.max(2_000_000_000)),
+                memory_total_bytes,
+                temperature_celsius: rng.gen_range(35..75),
+                power_consumption_watts: rng.gen_range(100.0..350.0),
+                frequency_mhz: rng.gen_range(1500..2500),
+                ane_utilization_watts: 0.0,
+                thermal_pressure_level: None,
             })
             .collect();
 
