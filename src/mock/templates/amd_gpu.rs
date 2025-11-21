@@ -286,6 +286,9 @@ impl AmdGpuMockGenerator {
     ) -> String {
         let mut response = template.to_string();
 
+        // Create a single RNG instance outside the loop for better performance
+        let mut rng = rng();
+
         // Replace GPU metrics
         for (i, gpu) in gpus.iter().enumerate() {
             response = response
@@ -312,8 +315,7 @@ impl AmdGpuMockGenerator {
                 .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
 
             // AMD GPUs - fan speed based on temperature thresholds
-            // Use a single RNG instance for efficiency
-            let mut rng = rng();
+            // Reuse the RNG instance created outside the loop
             let fan_rpm = if gpu.temperature_celsius > FAN_SPEED_HIGH_TEMP {
                 rng.random_range(FAN_RPM_HIGH_MIN..FAN_RPM_HIGH_MAX)
             } else if gpu.temperature_celsius > FAN_SPEED_MID_TEMP {
@@ -341,7 +343,9 @@ impl MockGenerator for AmdGpuMockGenerator {
         // Use a single RNG instance for better performance
         let mut rng = rng();
         let memory_total_bytes = self.get_gpu_memory_bytes();
-        let memory_used_max = (memory_total_bytes as f64 * 0.8) as u64; // Max 80% usage
+        // Prevent integer overflow by using saturating multiplication
+        // Max 80% usage, safely calculated to avoid overflow
+        let memory_used_max = memory_total_bytes.saturating_mul(8) / 10;
 
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|_| GpuMetrics {

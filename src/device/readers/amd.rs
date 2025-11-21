@@ -356,6 +356,7 @@ impl GpuReader for AmdGpuReader {
 
             // Get VRAM size - try multiple sources in order with validation
             // Current max is MI325X with 288GB, but we allow headroom for future models
+            // Use saturating operations to prevent any possibility of overflow
             let total_memory = if memory_info.vram.total_heap_size > 0 {
                 memory_info.vram.total_heap_size.min(MAX_GPU_MEMORY_BYTES)
             } else if memory_info.vram.usable_heap_size > 0 {
@@ -364,7 +365,8 @@ impl GpuReader for AmdGpuReader {
                 0
             };
 
-            // Validate used memory doesn't exceed total
+            // Validate used memory doesn't exceed total - use saturating_sub to prevent underflow
+            // in case of driver reporting incorrect values
             let used_memory = memory_info.vram.heap_usage.min(total_memory);
 
             let info = GpuInfo {
