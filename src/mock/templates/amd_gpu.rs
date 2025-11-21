@@ -18,6 +18,7 @@ use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics};
 use all_smi::traits::mock_generator::{
     MockConfig, MockData, MockGenerator, MockPlatform, MockResult,
 };
+use rand::{thread_rng, Rng};
 
 /// AMD GPU mock generator
 pub struct AmdGpuMockGenerator {
@@ -233,18 +234,14 @@ impl AmdGpuMockGenerator {
                 .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
 
             // AMD GPUs - fan speed based on temperature
+            // Use a single RNG instance for efficiency
+            let mut rng = thread_rng();
             let fan_rpm = if gpu.temperature_celsius > 70 {
-                use rand::{rng, Rng};
-                let mut rng = rng();
-                rng.random_range(2000..3000)
+                rng.gen_range(2000..3000)
             } else if gpu.temperature_celsius > 50 {
-                use rand::{rng, Rng};
-                let mut rng = rng();
-                rng.random_range(1200..2000)
+                rng.gen_range(1200..2000)
             } else {
-                use rand::{rng, Rng};
-                let mut rng = rng();
-                rng.random_range(800..1200)
+                rng.gen_range(800..1200)
             };
             response = response.replace(&format!("{{{{FAN_{i}}}}}"), &fan_rpm.to_string());
         }
@@ -263,19 +260,18 @@ impl MockGenerator for AmdGpuMockGenerator {
         self.validate_config(config)?;
 
         // Generate initial GPU metrics
+        // Use a single RNG instance for better performance
+        let mut rng = thread_rng();
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|_| {
-                use rand::{rng, Rng};
-                let mut rng = rng();
-
                 GpuMetrics {
                     uuid: crate::mock::metrics::gpu::generate_uuid(),
-                    utilization: rng.random_range(0.0..100.0),
-                    memory_used_bytes: rng.random_range(1_000_000_000..20_000_000_000),
+                    utilization: rng.gen_range(0.0..100.0),
+                    memory_used_bytes: rng.gen_range(1_000_000_000..20_000_000_000),
                     memory_total_bytes: 25_769_803_776, // 24GB
-                    temperature_celsius: rng.random_range(35..75),
-                    power_consumption_watts: rng.random_range(100.0..350.0),
-                    frequency_mhz: rng.random_range(1500..2500),
+                    temperature_celsius: rng.gen_range(35..75),
+                    power_consumption_watts: rng.gen_range(100.0..350.0),
+                    frequency_mhz: rng.gen_range(1500..2500),
                     ane_utilization_watts: 0.0,
                     thermal_pressure_level: None,
                 }
@@ -283,18 +279,17 @@ impl MockGenerator for AmdGpuMockGenerator {
             .collect();
 
         // Generate CPU and memory metrics
-        use rand::{rng, Rng};
-        let mut rng = rng();
+        // Reuse the existing RNG instance
         let cpu = CpuMetrics {
             model: "AMD EPYC 7763".to_string(),
-            utilization: rng.random_range(10.0..90.0),
+            utilization: rng.gen_range(10.0..90.0),
             socket_count: 2,
             core_count: 128,
             thread_count: 256,
             frequency_mhz: 2450,
             temperature_celsius: Some(65),
             power_consumption_watts: Some(280.0),
-            socket_utilizations: vec![rng.random_range(10.0..90.0), rng.random_range(10.0..90.0)],
+            socket_utilizations: vec![rng.gen_range(10.0..90.0), rng.gen_range(10.0..90.0)],
             p_core_count: None,
             e_core_count: None,
             gpu_core_count: None,
@@ -307,15 +302,15 @@ impl MockGenerator for AmdGpuMockGenerator {
 
         let memory = MemoryMetrics {
             total_bytes: 1099511627776, // 1TB
-            used_bytes: rng.random_range(10_000_000_000..500_000_000_000),
-            available_bytes: rng.random_range(100_000_000_000..600_000_000_000),
-            free_bytes: rng.random_range(50_000_000_000..400_000_000_000),
-            cached_bytes: rng.random_range(10_000_000_000..100_000_000_000),
-            buffers_bytes: rng.random_range(1_000_000_000..10_000_000_000),
+            used_bytes: rng.gen_range(10_000_000_000..500_000_000_000),
+            available_bytes: rng.gen_range(100_000_000_000..600_000_000_000),
+            free_bytes: rng.gen_range(50_000_000_000..400_000_000_000),
+            cached_bytes: rng.gen_range(10_000_000_000..100_000_000_000),
+            buffers_bytes: rng.gen_range(1_000_000_000..10_000_000_000),
             swap_total_bytes: 0,
             swap_used_bytes: 0,
             swap_free_bytes: 0,
-            utilization: rng.random_range(10.0..90.0),
+            utilization: rng.gen_range(10.0..90.0),
         };
 
         // Build and render template
