@@ -16,207 +16,267 @@ use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
 use chrono::Local;
-use libamdgpu_top::AMDGPU::{GpuMetrics, MetricsInfo, GPU_INFO};
-use libamdgpu_top::{AppDeviceInfo, DevicePath};
+use libamdgpu_top::AMDGPU::{DeviceHandle, GpuMetrics, MetricsInfo, GPU_INFO};
+use libamdgpu_top::{AppDeviceInfo, DevicePath, VramUsage};
 use std::collections::HashMap;
+use std::sync::Mutex;
 
-pub struct AmdGpuReader;
+// Per-device state that needs to be cached
+struct AmdGpuDevice {
+    device_path: DevicePath,
+    device_handle: DeviceHandle,
+    vram_usage: Mutex<VramUsage>,
+}
+
+pub struct AmdGpuReader {
+    devices: Vec<AmdGpuDevice>,
+}
 
 impl AmdGpuReader {
     pub fn new() -> Self {
-        Self
+        let device_path_list = DevicePath::get_device_path_list();
+        let mut devices = Vec::new();
+
+        for device_path in device_path_list {
+            if let Ok(amdgpu_dev) = device_path.init() {
+                // Get initial memory_info to create VramUsage
+                if let Ok(memory_info) = amdgpu_dev.memory_info() {
+                    let vram_usage = VramUsage::new(&memory_info);
+                    devices.push(AmdGpuDevice {
+                        device_path,
+                        device_handle: amdgpu_dev,
+                        vram_usage: Mutex::new(vram_usage),
+                    });
+                }
+            }
+        }
+
+        Self { devices }
     }
 }
 
 impl GpuReader for AmdGpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
         let mut gpu_info = Vec::new();
-        let device_path_list = DevicePath::get_device_path_list();
 
-        for device_path in device_path_list {
-            if let Ok(amdgpu_dev) = device_path.init() {
-                // Get device info with error handling
-                let ext_info = match amdgpu_dev.device_info() {
-                    Ok(info) => info,
-                    Err(_) => continue, // Skip this GPU if we can't get device info
+        for device in &self.devices {
+            // Get device info with error handling
+            let ext_info = match device.device_handle.device_info() {
+                Ok(info) => info,
+                Err(_) => continue, // Skip this GPU if we can't get device info
+            };
+
+            // Update the VramUsage from the driver (following libamdgpu-top pattern)
+            {
+                let mut vram_usage = match device.vram_usage.lock() {
+                    Ok(guard) => guard,
+                    Err(_) => continue, // Skip if mutex is poisoned
                 };
-
-                let memory_info = match amdgpu_dev.memory_info() {
-                    Ok(info) => info,
-                    Err(_) => continue, // Skip this GPU if we can't get memory info
-                };
-
-                let sensors =
-                    libamdgpu_top::stat::Sensors::new(&amdgpu_dev, &device_path.pci, &ext_info);
-
-                let app_device_info = AppDeviceInfo::new(
-                    &amdgpu_dev,
-                    &ext_info,
-                    &memory_info,
-                    &sensors,
-                    &device_path,
-                );
-
-                let mut detail = HashMap::new();
-                detail.insert(
-                    "Device Name".to_string(),
-                    app_device_info.marketing_name.clone(),
-                );
-                detail.insert("PCI Bus".to_string(), app_device_info.pci_bus.to_string());
-
-                if let Some(ver) = libamdgpu_top::get_rocm_version() {
-                    detail.insert("ROCm Version".to_string(), ver);
-                }
-
-                // Add more details
-                detail.insert(
-                    "Device ID".to_string(),
-                    format!("{:#06x}", ext_info.device_id()),
-                );
-                detail.insert(
-                    "Revision ID".to_string(),
-                    format!("{:#04x}", ext_info.pci_rev_id()),
-                );
-                detail.insert(
-                    "ASIC Name".to_string(),
-                    app_device_info.asic_name.to_string(),
-                );
-
-                if let Some(ref vbios) = app_device_info.vbios {
-                    detail.insert("VBIOS Version".to_string(), vbios.ver.clone());
-                    detail.insert("VBIOS Date".to_string(), vbios.date.clone());
-                }
-
-                if let Some(ref cap) = app_device_info.power_cap {
-                    detail.insert("Power Cap".to_string(), format!("{} W", cap.current));
-                    detail.insert("Power Cap (Min)".to_string(), format!("{} W", cap.min));
-                    detail.insert("Power Cap (Max)".to_string(), format!("{} W", cap.max));
-                }
-
-                if let Some(link) = app_device_info.max_gpu_link {
-                    detail.insert(
-                        "Max GPU Link".to_string(),
-                        format!("Gen{} x{}", link.gen, link.width),
-                    );
-                }
-
-                if let Some(link) = app_device_info.max_system_link {
-                    detail.insert(
-                        "Max System Link".to_string(),
-                        format!("Gen{} x{}", link.gen, link.width),
-                    );
-                }
-
-                if let Some(min_dpm_link) = app_device_info.min_dpm_link {
-                    detail.insert(
-                        "Min DPM Link".to_string(),
-                        format!("Gen{} x{}", min_dpm_link.gen, min_dpm_link.width),
-                    );
-                }
-
-                if let Some(max_dpm_link) = app_device_info.max_dpm_link {
-                    detail.insert(
-                        "Max DPM Link".to_string(),
-                        format!("Gen{} x{}", max_dpm_link.gen, max_dpm_link.width),
-                    );
-                }
-
-                if let Some(ref sensors) = sensors {
-                    if let Some(link) = sensors.current_link {
-                        detail.insert(
-                            "Current Link".to_string(),
-                            format!("Gen{} x{}", link.gen, link.width),
-                        );
-                    }
-                    if let Some(fan) = sensors.fan_rpm {
-                        detail.insert("Fan Speed".to_string(), format!("{} RPM", fan));
-                    }
-                    if let Some(mclk) = sensors.mclk {
-                        detail.insert("Memory Clock".to_string(), format!("{} MHz", mclk));
-                    }
-                }
-
-                let mut utilization = 0.0;
-                let mut power_consumption = 0.0;
-                let mut temperature: u32 = 0;
-                let mut frequency: u32 = 0;
-
-                // Try to get metrics from GpuMetrics first
-                if let Ok(metrics) = GpuMetrics::get_from_sysfs_path(&device_path.sysfs_path) {
-                    if let Some(gfx_activity) = metrics.get_average_gfx_activity() {
-                        utilization = gfx_activity as f64;
-                    }
-                    if let Some(power) = metrics.get_average_socket_power() {
-                        power_consumption = power as f64 / 1000.0; // Convert mW to W
-                    }
-                    if let Some(temp) = metrics.get_temperature_edge() {
-                        temperature = temp as u32;
-                    }
-                    if let Some(freq) = metrics.get_current_gfxclk() {
-                        frequency = freq as u32;
-                    }
-                }
-
-                // Fallback to sensors if metrics failed or missing
-                if let Some(ref s) = sensors {
-                    if utilization == 0.0 {
-                        // Approximate utilization from load if available, or leave 0
-                        // libamdgpu_top doesn't expose a simple "gpu load" sensor easily without GpuMetrics or fdinfo
-                    }
-                    if power_consumption == 0.0 {
-                        if let Some(ref p) = s.average_power {
-                            power_consumption = p.value as f64 / 1000.0; // Convert mW to W
-                        } else if let Some(ref p) = s.input_power {
-                            power_consumption = p.value as f64 / 1000.0; // Convert mW to W
-                        }
-                    }
-                    if temperature == 0 {
-                        if let Some(ref t) = s.edge_temp {
-                            temperature = t.current as u32;
-                        }
-                    }
-                    if frequency == 0 {
-                        if let Some(clk) = s.sclk {
-                            frequency = clk as u32;
-                        }
-                    }
-                }
-
-                // Use memory_info directly as per libamdgpu-top library pattern
-                // This avoids GTT memory leak from VramUsage::update_usage()
-
-                // Get VRAM size - fallback to vram_gtt_info() if total_heap_size is 0
-                let total_memory = if memory_info.vram.total_heap_size == 0 {
-                    // Fallback: use vram_gtt_info() for actual VRAM size (e.g., newer GPUs)
-                    amdgpu_dev
-                        .vram_gtt_info()
-                        .map(|info| info.vram_size)
-                        .unwrap_or(memory_info.vram.usable_heap_size)
-                } else {
-                    memory_info.vram.total_heap_size
-                };
-
-                let info = GpuInfo {
-                    uuid: format!("GPU-{}", device_path.pci), // AMD doesn't have UUIDs like NVIDIA, use PCI
-                    time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                    name: app_device_info.marketing_name,
-                    device_type: "GPU".to_string(),
-                    host_id: get_hostname(),
-                    hostname: get_hostname(),
-                    instance: get_hostname(),
-                    utilization,
-                    ane_utilization: 0.0,
-                    dla_utilization: None,
-                    temperature,
-                    used_memory: memory_info.vram.heap_usage,
-                    total_memory,
-                    frequency,
-                    power_consumption,
-                    gpu_core_count: None,
-                    detail,
-                };
-                gpu_info.push(info);
+                vram_usage.update_usage(&device.device_handle);
+                vram_usage.update_usable_heap_size(&device.device_handle);
             }
+
+            // Now read the updated memory info from VramUsage
+            let memory_info = {
+                let vram_usage = match device.vram_usage.lock() {
+                    Ok(guard) => guard,
+                    Err(_) => continue,
+                };
+                vram_usage.0 // VramUsage is a tuple struct wrapping drm_amdgpu_memory_info
+            };
+
+            let sensors = libamdgpu_top::stat::Sensors::new(
+                &device.device_handle,
+                &device.device_path.pci,
+                &ext_info,
+            );
+
+            let app_device_info = AppDeviceInfo::new(
+                &device.device_handle,
+                &ext_info,
+                &memory_info,
+                &sensors,
+                &device.device_path,
+            );
+
+            let mut detail = HashMap::new();
+            detail.insert(
+                "Device Name".to_string(),
+                app_device_info.marketing_name.clone(),
+            );
+            detail.insert("PCI Bus".to_string(), app_device_info.pci_bus.to_string());
+
+            if let Some(ver) = libamdgpu_top::get_rocm_version() {
+                detail.insert("ROCm Version".to_string(), ver);
+            }
+
+            // Add more details
+            detail.insert(
+                "Device ID".to_string(),
+                format!("{:#06x}", ext_info.device_id()),
+            );
+            detail.insert(
+                "Revision ID".to_string(),
+                format!("{:#04x}", ext_info.pci_rev_id()),
+            );
+            detail.insert(
+                "ASIC Name".to_string(),
+                app_device_info.asic_name.to_string(),
+            );
+
+            if let Some(ref vbios) = app_device_info.vbios {
+                detail.insert("VBIOS Version".to_string(), vbios.ver.clone());
+                detail.insert("VBIOS Date".to_string(), vbios.date.clone());
+            }
+
+            if let Some(ref cap) = app_device_info.power_cap {
+                detail.insert("Power Cap".to_string(), format!("{} W", cap.current));
+                detail.insert("Power Cap (Min)".to_string(), format!("{} W", cap.min));
+                detail.insert("Power Cap (Max)".to_string(), format!("{} W", cap.max));
+            }
+
+            if let Some(link) = app_device_info.max_gpu_link {
+                detail.insert(
+                    "Max GPU Link".to_string(),
+                    format!("Gen{} x{}", link.gen, link.width),
+                );
+            }
+
+            if let Some(link) = app_device_info.max_system_link {
+                detail.insert(
+                    "Max System Link".to_string(),
+                    format!("Gen{} x{}", link.gen, link.width),
+                );
+            }
+
+            if let Some(min_dpm_link) = app_device_info.min_dpm_link {
+                detail.insert(
+                    "Min DPM Link".to_string(),
+                    format!("Gen{} x{}", min_dpm_link.gen, min_dpm_link.width),
+                );
+            }
+
+            if let Some(max_dpm_link) = app_device_info.max_dpm_link {
+                detail.insert(
+                    "Max DPM Link".to_string(),
+                    format!("Gen{} x{}", max_dpm_link.gen, max_dpm_link.width),
+                );
+            }
+
+            if let Some(ref sensors) = sensors {
+                if let Some(link) = sensors.current_link {
+                    detail.insert(
+                        "Current Link".to_string(),
+                        format!("Gen{} x{}", link.gen, link.width),
+                    );
+                }
+                if let Some(fan) = sensors.fan_rpm {
+                    detail.insert("Fan Speed".to_string(), format!("{} RPM", fan));
+                }
+                if let Some(mclk) = sensors.mclk {
+                    detail.insert("Memory Clock".to_string(), format!("{} MHz", mclk));
+                }
+            }
+
+            let mut utilization = 0.0;
+            let mut power_consumption = 0.0;
+            let mut temperature: u32 = 0;
+            let mut frequency: u32 = 0;
+
+            // Try to get metrics from GpuMetrics first
+            if let Ok(metrics) = GpuMetrics::get_from_sysfs_path(&device.device_path.sysfs_path) {
+                if let Some(gfx_activity) = metrics.get_average_gfx_activity() {
+                    utilization = gfx_activity as f64;
+                }
+                if let Some(power) = metrics.get_average_socket_power() {
+                    power_consumption = power as f64 / 1000.0; // Convert mW to W
+                }
+                if let Some(temp) = metrics.get_temperature_edge() {
+                    temperature = temp as u32;
+                }
+                if let Some(freq) = metrics.get_current_gfxclk() {
+                    frequency = freq as u32;
+                }
+            }
+
+            // Fallback to sensors if metrics failed or missing
+            if let Some(ref s) = sensors {
+                if utilization == 0.0 {
+                    // Approximate utilization from load if available, or leave 0
+                    // libamdgpu_top doesn't expose a simple "gpu load" sensor easily without GpuMetrics or fdinfo
+                }
+                if power_consumption == 0.0 {
+                    if let Some(ref p) = s.average_power {
+                        power_consumption = p.value as f64 / 1000.0; // Convert mW to W
+                    } else if let Some(ref p) = s.input_power {
+                        power_consumption = p.value as f64 / 1000.0; // Convert mW to W
+                    }
+                }
+                if temperature == 0 {
+                    if let Some(ref t) = s.edge_temp {
+                        temperature = t.current as u32;
+                    }
+                }
+                if frequency == 0 {
+                    if let Some(clk) = s.sclk {
+                        frequency = clk as u32;
+                    }
+                }
+            }
+
+            // Use memory_info from VramUsage (already updated above)
+            // The update_usable_heap_size() call updates total_heap_size from vram_gtt_info()
+            // but we do it once per update cycle, not repeated queries
+
+            // Debug: Print memory values to diagnose 0GB issue
+            eprintln!(
+                "[DEBUG] GPU {}: total_heap_size={} bytes ({} MB), usable_heap_size={} bytes ({} MB), heap_usage={} bytes ({} MB)",
+                device.device_path.pci,
+                memory_info.vram.total_heap_size,
+                memory_info.vram.total_heap_size >> 20,
+                memory_info.vram.usable_heap_size,
+                memory_info.vram.usable_heap_size >> 20,
+                memory_info.vram.heap_usage,
+                memory_info.vram.heap_usage >> 20
+            );
+
+            // Get VRAM size - try multiple sources in order
+            let total_memory = if memory_info.vram.total_heap_size > 0 {
+                memory_info.vram.total_heap_size
+            } else if memory_info.vram.usable_heap_size > 0 {
+                eprintln!(
+                    "[DEBUG] GPU {}: Using usable_heap_size as fallback",
+                    device.device_path.pci
+                );
+                memory_info.vram.usable_heap_size
+            } else {
+                eprintln!(
+                    "[ERROR] GPU {}: All VRAM size sources returned 0!",
+                    device.device_path.pci
+                );
+                0
+            };
+
+            let info = GpuInfo {
+                uuid: format!("GPU-{}", device.device_path.pci), // AMD doesn't have UUIDs like NVIDIA, use PCI
+                time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                name: app_device_info.marketing_name,
+                device_type: "GPU".to_string(),
+                host_id: get_hostname(),
+                hostname: get_hostname(),
+                instance: get_hostname(),
+                utilization,
+                ane_utilization: 0.0,
+                dla_utilization: None,
+                temperature,
+                used_memory: memory_info.vram.heap_usage,
+                total_memory,
+                frequency,
+                power_consumption,
+                gpu_core_count: None,
+                detail,
+            };
+            gpu_info.push(info);
         }
 
         gpu_info

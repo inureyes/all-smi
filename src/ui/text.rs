@@ -56,6 +56,9 @@ pub fn truncate_to_width(s: &str, max_width: usize) -> String {
 pub fn format_ram_value(gb_value: f64) -> String {
     if gb_value >= 1024.0 {
         format!("{:.2}TB", gb_value / 1024.0)
+    } else if gb_value < 1.0 {
+        // For sub-GB values (like 512MB = 0.5GB), show with 2 decimal places
+        format!("{gb_value:.2}GB")
     } else {
         format!("{gb_value:.0}GB")
     }
