@@ -171,7 +171,12 @@ impl GpuMetrics {
 
 /// Generate a unique GPU UUID
 pub fn generate_uuid() -> String {
-    let mut rng = rng();
+    generate_uuid_with_rng(&mut rng())
+}
+
+/// Generate a UUID using an existing RNG instance for better performance
+/// when generating multiple UUIDs in a loop
+pub fn generate_uuid_with_rng<R: rand::Rng>(rng: &mut R) -> String {
     let bytes: [u8; 16] = rng.random();
     format!(
         "{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",

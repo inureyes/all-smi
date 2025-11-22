@@ -347,7 +347,7 @@ impl MockGenerator for AmdGpuMockGenerator {
 
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|_| GpuMetrics {
-                uuid: crate::mock::metrics::gpu::generate_uuid(),
+                uuid: crate::mock::metrics::gpu::generate_uuid_with_rng(&mut rng),
                 utilization: rng.random_range(0.0..100.0),
                 memory_used_bytes: rng
                     .random_range(1_000_000_000..memory_used_max.max(2_000_000_000)),

@@ -155,11 +155,13 @@ pub fn render_system_metrics(mut response: String) -> String {
 
 /// Generate GPU metrics with random values
 pub fn generate_gpu_metrics(count: usize, memory_total: u64) -> Vec<GpuMetrics> {
+    // Create a single RNG instance outside the loop for better performance
+    let mut rng = rng();
+
     (0..count)
         .map(|_| {
-            let mut rng = rng();
             GpuMetrics {
-                uuid: crate::mock::metrics::gpu::generate_uuid(),
+                uuid: crate::mock::metrics::gpu::generate_uuid_with_rng(&mut rng),
                 utilization: rng.random_range(0.0..100.0),
                 memory_used_bytes: rng.random_range(1_000_000_000..memory_total),
                 memory_total_bytes: memory_total,
