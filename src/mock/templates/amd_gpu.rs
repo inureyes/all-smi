@@ -343,7 +343,8 @@ impl MockGenerator for AmdGpuMockGenerator {
         let memory_total_bytes = self.get_gpu_memory_bytes();
         // Prevent integer overflow by using saturating multiplication
         // Max 80% usage, safely calculated to avoid overflow
-        let memory_used_max = memory_total_bytes.saturating_mul(8) / 10;
+        // Calculate 80% of total memory safely - divide first to prevent overflow
+        let memory_used_max = (memory_total_bytes / 10).saturating_mul(8);
 
         let gpus: Vec<GpuMetrics> = (0..config.device_count)
             .map(|_| GpuMetrics {

@@ -262,7 +262,8 @@ impl GpuReader for AmdGpuReader {
             }
 
             // Add driver version from DRM with validation
-            if let Ok(drm) = device.device_handle.get_drm_version_struct() {
+            match device.device_handle.get_drm_version_struct() {
+                Ok(drm) => {
                 // Validate version components are reasonable (prevent malformed data)
                 // Linux kernel versions typically don't exceed 999 for any component
                 const MAX_VERSION_COMPONENT: i32 = 999;
@@ -280,6 +281,13 @@ impl GpuReader for AmdGpuReader {
                     eprintln!(
                         "Warning: Invalid driver version components detected: {}.{}.{} for device {}",
                         drm.version_major, drm.version_minor, drm.version_patchlevel,
+                        device.device_path.pci
+                    );
+                }
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Failed to get driver version for device {}: {e}",
                         device.device_path.pci
                     );
                 }
