@@ -191,15 +191,28 @@ pub fn print_gpu_info<W: Write>(
         None,
     );
 
-    // Display CUDA version and Driver version if available
-    if let Some(cuda_version) = info.detail.get("cuda_version") {
-        print_colored_text(stdout, " CUDA:", Color::Green, None, None);
-        print_colored_text(stdout, cuda_version, Color::White, None, None);
+    // Display driver version if available
+    if let Some(driver_version) = info.detail.get("Driver Version") {
+        print_colored_text(stdout, " Drv:", Color::Green, None, None);
+        print_colored_text(stdout, driver_version, Color::White, None, None);
     }
 
-    if let Some(driver_version) = info.detail.get("driver_version") {
-        print_colored_text(stdout, " Driver:", Color::Green, None, None);
-        print_colored_text(stdout, driver_version, Color::White, None, None);
+    // Display AI library name and version using unified fields
+    // Falls back to platform-specific fields for backward compatibility
+    if let Some(lib_name) = info.detail.get("lib_name") {
+        if let Some(lib_version) = info.detail.get("lib_version") {
+            print_colored_text(stdout, &format!(" {lib_name}:"), Color::Green, None, None);
+            print_colored_text(stdout, lib_version, Color::White, None, None);
+        }
+    } else {
+        // Backward compatibility: try platform-specific fields
+        if let Some(cuda_version) = info.detail.get("CUDA Version") {
+            print_colored_text(stdout, " CUDA:", Color::Green, None, None);
+            print_colored_text(stdout, cuda_version, Color::White, None, None);
+        } else if let Some(rocm_version) = info.detail.get("ROCm Version") {
+            print_colored_text(stdout, " ROCm:", Color::Green, None, None);
+            print_colored_text(stdout, rocm_version, Color::White, None, None);
+        }
     }
 
     queue!(stdout, Print("\r\n")).unwrap();
