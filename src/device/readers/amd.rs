@@ -102,7 +102,11 @@ impl AmdGpuReader {
         let device_path_list = DevicePath::get_device_path_list();
         let mut devices = Vec::new();
 
-        for device_path in device_path_list {
+        // Add device count validation to prevent unbounded growth
+        const MAX_DEVICES: usize = 256;
+        let device_paths_to_process: Vec<_> = device_path_list.into_iter().take(MAX_DEVICES).collect();
+
+        for device_path in device_paths_to_process {
             match device_path.init() {
                 Ok(amdgpu_dev) => {
                     // Get initial memory_info to create VramUsage
@@ -147,7 +151,7 @@ impl AmdGpuReader {
     }
 
     /// Get cached static device info for a device, initializing if needed
-    fn get_device_static_info(&self, device: &AmdGpuDevice) -> DeviceStaticInfo {
+    fn get_device_static_info(&self, device: &AmdGpuDevice) -> &DeviceStaticInfo {
         device
             .static_info
             .get_or_init(|| {
@@ -287,7 +291,6 @@ impl AmdGpuReader {
                     detail,
                 }
             })
-            .clone()
     }
 
     /// Check if we have permission to access AMD GPU devices
@@ -341,8 +344,8 @@ impl GpuReader for AmdGpuReader {
         for device in &self.devices {
             // Get cached static device information (fetched only once)
             let static_info = self.get_device_static_info(device);
-            let mut detail = static_info.detail;
-            let device_name = static_info.device_name;
+            let mut detail = static_info.detail.clone();
+            let device_name = static_info.device_name.clone();
 
             // Get device info for dynamic metrics only
             let ext_info = match device.device_handle.device_info() {

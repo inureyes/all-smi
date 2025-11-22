@@ -148,7 +148,10 @@ impl FuriosaNpuReader {
             {
                 if let Ok(devices) = serde_json::from_str::<Vec<FuriosaSmiInfoJson>>(&output.stdout)
                 {
-                    for device in devices {
+                    // Add device count validation to prevent unbounded growth
+                    const MAX_DEVICES: usize = 256;
+                    let devices_to_process: Vec<_> = devices.into_iter().take(MAX_DEVICES).collect();
+                    for device in devices_to_process {
                         let mut detail = HashMap::new();
 
                         // Extract static fields
@@ -191,7 +194,10 @@ impl FuriosaNpuReader {
             let mut device_info_map = HashMap::new();
 
             if let Ok(devices) = list_devices() {
-                for device in devices.iter() {
+                // Add device count validation to prevent unbounded growth
+                const MAX_DEVICES: usize = 256;
+                let devices_to_process: Vec<_> = devices.iter().take(MAX_DEVICES).collect();
+                for device in devices_to_process {
                     if let Ok(info) = device.device_info() {
                         let mut detail = HashMap::new();
 

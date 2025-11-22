@@ -134,7 +134,10 @@ impl RebellionsNpuReader {
         // Initialize device static info
         self.device_static_info.get_or_init(|| {
             let mut device_map = HashMap::new();
-            for device in &response.devices {
+            // Add device count validation to prevent unbounded growth
+            const MAX_DEVICES: usize = 256;
+            let devices_to_process: Vec<_> = response.devices.iter().take(MAX_DEVICES).collect();
+            for device in devices_to_process {
                 let static_info = DeviceStaticInfo {
                     uuid: device.uuid.clone(),
                     name: device.name.clone(),
@@ -159,10 +162,10 @@ impl RebellionsNpuReader {
     }
 
     /// Get cached static device info
-    fn get_device_static_info(&self, uuid: &str) -> Option<DeviceStaticInfo> {
+    fn get_device_static_info(&self, uuid: &str) -> Option<&DeviceStaticInfo> {
         self.device_static_info
             .get()
-            .and_then(|map| map.get(uuid).cloned())
+            .and_then(|map| map.get(uuid))
     }
 
     /// Determine which command to use (rbln-stat or rbln-smi)
@@ -324,7 +327,7 @@ impl GpuReader for RebellionsNpuReader {
 
 fn create_gpu_info_from_device(
     device: RblnDevice,
-    static_info: Option<DeviceStaticInfo>,
+    static_info: Option<&DeviceStaticInfo>,
     kmd_version: &str,
     time: &str,
     hostname: &str,
@@ -343,7 +346,7 @@ fn create_gpu_info_from_device(
         pci_numa_node,
         pci_link_speed,
         pci_link_width,
-    ) = if let Some(ref info) = static_info {
+    ) = if let Some(info) = static_info {
         (
             info.uuid.clone(),
             info.name.clone(),
