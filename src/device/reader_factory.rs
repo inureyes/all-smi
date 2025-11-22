@@ -53,7 +53,7 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
         "linux" => {
             // Only create NVIDIA reader if we actually have NVIDIA GPUs
             if is_jetson() && has_nvidia() {
-                readers.push(Box::new(nvidia_jetson::NvidiaJetsonGpuReader {}));
+                readers.push(Box::new(nvidia_jetson::NvidiaJetsonGpuReader::new()));
             } else if has_nvidia() && !is_jetson() {
                 readers.push(Box::new(nvidia::NvidiaGpuReader::new()));
             }

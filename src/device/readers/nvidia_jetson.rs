@@ -20,19 +20,105 @@ use crate::utils::{get_hostname, hz_to_mhz, millicelsius_to_celsius};
 use chrono::Local;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::sync::OnceLock;
 use sysinfo::System;
 
-pub struct NvidiaJetsonGpuReader;
+/// Cached static device information that doesn't change during runtime
+#[derive(Clone, Debug)]
+struct DeviceStaticInfo {
+    /// Device name (e.g., "NVIDIA Jetson AGX Orin")
+    name: String,
+    /// Static device details (CUDA version, JetPack, L4T, etc.)
+    detail: HashMap<String, String>,
+}
+
+pub struct NvidiaJetsonGpuReader {
+    /// Cached static device information (fetched only once)
+    static_info: OnceLock<DeviceStaticInfo>,
+}
+
+impl Default for NvidiaJetsonGpuReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NvidiaJetsonGpuReader {
+    pub fn new() -> Self {
+        Self {
+            static_info: OnceLock::new(),
+        }
+    }
+
+    /// Get cached static device info, initializing if needed
+    fn get_static_info(&self) -> &DeviceStaticInfo {
+        self.static_info.get_or_init(|| {
+            let mut detail = HashMap::new();
+
+            // Get device name
+            let name = fs::read_to_string("/proc/device-tree/model")
+                .unwrap_or_else(|_| "NVIDIA Jetson".to_string())
+                .trim_end_matches('\0')
+                .to_string();
+
+            // Try to get CUDA version from nvidia-smi if available
+            if let Ok(output) = execute_command_default("nvidia-smi", &[]) {
+                if output.status == 0 {
+                    // Parse CUDA version from header
+                    for line in output.stdout.lines() {
+                        if line.contains("CUDA Version:") {
+                            if let Some(version_part) = line.split("CUDA Version:").nth(1) {
+                                let version = version_part
+                                    .split_whitespace()
+                                    .next()
+                                    .unwrap_or("Unknown")
+                                    .to_string();
+                                detail.insert("CUDA Version".to_string(), version.clone());
+                                // Add unified AI acceleration library labels
+                                detail.insert("lib_name".to_string(), "CUDA".to_string());
+                                detail.insert("lib_version".to_string(), version);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Get JetPack version if available
+            if let Ok(jetpack) = fs::read_to_string("/etc/nv_jetpack_release") {
+                let version = jetpack
+                    .lines()
+                    .find(|line| line.starts_with("JETPACK_VERSION"))
+                    .and_then(|line| line.split('=').nth(1))
+                    .map(|v| v.trim().to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+                detail.insert("JetPack Version".to_string(), version);
+            }
+
+            // Get L4T version
+            if let Ok(l4t) = fs::read_to_string("/etc/nv_tegra_release") {
+                if let Some(version) = l4t.split_whitespace().nth(1) {
+                    detail.insert("L4T Version".to_string(), version.to_string());
+                }
+            }
+
+            // Static hardware info
+            detail.insert("GPU Type".to_string(), "Integrated".to_string());
+            detail.insert("Architecture".to_string(), "Tegra".to_string());
+
+            DeviceStaticInfo { name, detail }
+        })
+    }
+}
 
 impl GpuReader for NvidiaJetsonGpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
         let mut gpu_info = Vec::new();
 
-        let name = fs::read_to_string("/proc/device-tree/model")
-            .unwrap_or_else(|_| "NVIDIA Jetson".to_string())
-            .trim_end_matches('\0')
-            .to_string();
+        // Get cached static info
+        let static_info = self.get_static_info();
 
+        // Read dynamic metrics only
         let utilization = fs::read_to_string("/sys/devices/platform/tegra-soc/gpu.0/load")
             .map_or(0.0, |s| s.trim().parse::<f64>().unwrap_or(0.0) / 10.0);
 
@@ -63,62 +149,10 @@ impl GpuReader for NvidiaJetsonGpuReader {
 
         let (total_memory, used_memory) = get_memory_info();
 
-        // Get Jetson-specific information
-        let mut detail = HashMap::new();
-
-        // Try to get CUDA version from nvidia-smi if available
-        let mut cuda_version: Option<String> = None;
-        if let Ok(output) = execute_command_default("nvidia-smi", &[]) {
-            if output.status == 0 {
-                // Parse CUDA version from header
-                for line in output.stdout.lines() {
-                    if line.contains("CUDA Version:") {
-                        if let Some(version_part) = line.split("CUDA Version:").nth(1) {
-                            let version = version_part
-                                .split_whitespace()
-                                .next()
-                                .unwrap_or("Unknown")
-                                .to_string();
-                            detail.insert("CUDA Version".to_string(), version.clone());
-                            cuda_version = Some(version);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Add unified AI acceleration library labels
-        if let Some(ref ver) = cuda_version {
-            detail.insert("lib_name".to_string(), "CUDA".to_string());
-            detail.insert("lib_version".to_string(), ver.clone());
-        }
-
-        // Get JetPack version if available
-        if let Ok(jetpack) = fs::read_to_string("/etc/nv_jetpack_release") {
-            let version = jetpack
-                .lines()
-                .find(|line| line.starts_with("JETPACK_VERSION"))
-                .and_then(|line| line.split('=').nth(1))
-                .map(|v| v.trim().to_string())
-                .unwrap_or_else(|| "Unknown".to_string());
-            detail.insert("JetPack Version".to_string(), version);
-        }
-
-        // Get L4T version
-        if let Ok(l4t) = fs::read_to_string("/etc/nv_tegra_release") {
-            if let Some(version) = l4t.split_whitespace().nth(1) {
-                detail.insert("L4T Version".to_string(), version.to_string());
-            }
-        }
-
-        detail.insert("GPU Type".to_string(), "Integrated".to_string());
-        detail.insert("Architecture".to_string(), "Tegra".to_string());
-
         let info = GpuInfo {
             uuid: "JetsonGPU".to_string(),
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-            name,
+            name: static_info.name.clone(),
             device_type: "GPU".to_string(),
             host_id: get_hostname(), // For local mode, host_id is just the hostname
             hostname: get_hostname(), // DNS hostname
@@ -132,7 +166,7 @@ impl GpuReader for NvidiaJetsonGpuReader {
             frequency,
             power_consumption,
             gpu_core_count: None,
-            detail,
+            detail: static_info.detail.clone(),
         };
 
         gpu_info.push(info);
