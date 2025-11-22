@@ -45,6 +45,9 @@ impl AppleSiliconMockGenerator {
         // Basic GPU metrics
         self.add_gpu_metrics(&mut template, gpus);
 
+        // Add GPU info metric with lib_name and lib_version
+        self.add_gpu_info_metric(&mut template, gpus);
+
         // Apple-specific: ANE metrics
         self.add_ane_metrics(&mut template, gpus);
 
@@ -55,6 +58,22 @@ impl AppleSiliconMockGenerator {
         self.add_apple_system_metrics(&mut template, cpu, memory);
 
         template
+    }
+
+    fn add_gpu_info_metric(&self, template: &mut String, gpus: &[GpuMetrics]) {
+        template.push_str("# HELP all_smi_gpu_info GPU device information\n");
+        template.push_str("# TYPE all_smi_gpu_info gauge\n");
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            let labels = format!(
+                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", \
+                 lib_name=\"Metal\", lib_version=\"Metal 3\"",
+                self.gpu_name,
+                self.instance_name,
+                gpu.uuid
+            );
+            template.push_str(&format!("all_smi_gpu_info{{{labels}}} 1\n"));
+        }
     }
 
     fn add_gpu_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {

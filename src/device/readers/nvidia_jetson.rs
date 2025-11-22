@@ -67,23 +67,31 @@ impl GpuReader for NvidiaJetsonGpuReader {
         let mut detail = HashMap::new();
 
         // Try to get CUDA version from nvidia-smi if available
+        let mut cuda_version: Option<String> = None;
         if let Ok(output) = execute_command_default("nvidia-smi", &[]) {
             if output.status == 0 {
                 // Parse CUDA version from header
                 for line in output.stdout.lines() {
                     if line.contains("CUDA Version:") {
                         if let Some(version_part) = line.split("CUDA Version:").nth(1) {
-                            let cuda_version = version_part
+                            let version = version_part
                                 .split_whitespace()
                                 .next()
                                 .unwrap_or("Unknown")
                                 .to_string();
-                            detail.insert("CUDA Version".to_string(), cuda_version);
+                            detail.insert("CUDA Version".to_string(), version.clone());
+                            cuda_version = Some(version);
                         }
                         break;
                     }
                 }
             }
+        }
+
+        // Add unified AI acceleration library labels
+        if let Some(ref ver) = cuda_version {
+            detail.insert("lib_name".to_string(), "CUDA".to_string());
+            detail.insert("lib_version".to_string(), ver.clone());
         }
 
         // Get JetPack version if available

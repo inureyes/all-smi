@@ -31,6 +31,48 @@ Metrics are available at `http://localhost:9090/metrics`
 | `all_smi_gpu_frequency_mhz`           | GPU frequency              | MHz     | `gpu_index`, `gpu_name`                   |
 | `all_smi_gpu_info`                    | GPU device information     | info    | `gpu_index`, `gpu_name`, `driver_version` |
 
+### Unified AI Acceleration Library Labels
+
+The `all_smi_gpu_info` metric includes standardized labels for AI acceleration libraries across all GPU/accelerator platforms. These unified labels allow platform-agnostic queries and dashboards:
+
+| Label         | Description                              | Example Values                    |
+|---------------|------------------------------------------|-----------------------------------|
+| `lib_name`    | Name of the AI acceleration library      | `CUDA`, `ROCm`, `Metal`          |
+| `lib_version` | Version of the AI acceleration library   | `13.0`, `7.0.2`, `Metal 3`       |
+
+#### Platform-Specific Library Mappings
+
+| Platform          | lib_name | lib_version Source | Platform-Specific Label |
+|-------------------|----------|-------------------|-------------------------|
+| NVIDIA GPU        | `CUDA`   | CUDA version      | `cuda_version`         |
+| AMD GPU           | `ROCm`   | ROCm version      | `rocm_version`         |
+| NVIDIA Jetson     | `CUDA`   | CUDA version      | `cuda_version`         |
+| Apple Silicon     | `Metal`  | Metal version     | N/A                    |
+
+**Note**: Platform-specific labels (e.g., `cuda_version`, `rocm_version`) are maintained for backward compatibility with existing queries and dashboards.
+
+#### Example PromQL Queries
+
+```promql
+# Count devices by AI library type
+count by (lib_name) (all_smi_gpu_info)
+
+# Get all CUDA devices with version 12 or higher
+all_smi_gpu_info{lib_name="CUDA", lib_version=~"1[2-9].*|[2-9][0-9].*"}
+
+# Alert on outdated ROCm versions (< 7.0)
+all_smi_gpu_info{lib_name="ROCm", lib_version!~"[7-9].*"} == 1
+
+# Cross-platform library distribution
+sum by (lib_name, lib_version) (all_smi_gpu_info)
+
+# Find all devices using Metal (Apple Silicon)
+all_smi_gpu_info{lib_name="Metal"}
+
+# Monitor library version consistency across cluster
+count by (lib_name, lib_version) (all_smi_gpu_info) > 1
+```
+
 ### NVIDIA GPU Specific Metrics
 
 | Metric                                  | Description                              | Unit  | Labels                  |

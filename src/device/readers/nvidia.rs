@@ -286,6 +286,10 @@ fn create_device_detail(
     detail.insert("Driver Version".to_string(), driver_version.to_string());
     detail.insert("CUDA Version".to_string(), cuda_version.to_string());
 
+    // Add unified AI acceleration library labels
+    detail.insert("lib_name".to_string(), "CUDA".to_string());
+    detail.insert("lib_version".to_string(), cuda_version.to_string());
+
     // Add all device details using helper macros
     add_detail!(detail, device.brand(), "Brand");
     add_detail!(detail, device.architecture(), "Architecture");

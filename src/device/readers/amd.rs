@@ -261,8 +261,13 @@ impl GpuReader for AmdGpuReader {
             );
             detail.insert("PCI Bus".to_string(), app_device_info.pci_bus.to_string());
 
-            if let Some(ver) = libamdgpu_top::get_rocm_version() {
-                detail.insert("ROCm Version".to_string(), ver);
+            // Get ROCm version for both platform-specific and unified labels
+            let rocm_version = libamdgpu_top::get_rocm_version();
+            if let Some(ref ver) = rocm_version {
+                detail.insert("ROCm Version".to_string(), ver.clone());
+                // Add unified AI acceleration library labels
+                detail.insert("lib_name".to_string(), "ROCm".to_string());
+                detail.insert("lib_version".to_string(), ver.clone());
             }
 
             // Add driver version from DRM with validation

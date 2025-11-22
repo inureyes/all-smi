@@ -196,7 +196,8 @@ impl AmdGpuMockGenerator {
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", type=\"GPU\", \
-                 driver_version=\"{DEFAULT_AMD_DRIVER_VERSION}\", rocm_version=\"{DEFAULT_AMD_ROCM_VERSION}\"",
+                 driver_version=\"{DEFAULT_AMD_DRIVER_VERSION}\", rocm_version=\"{DEFAULT_AMD_ROCM_VERSION}\", \
+                 lib_name=\"ROCm\", lib_version=\"{DEFAULT_AMD_ROCM_VERSION}\"",
                 self.gpu_name,
                 self.instance_name,
                 gpu.uuid

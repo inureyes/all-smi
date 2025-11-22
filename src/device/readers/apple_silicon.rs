@@ -162,17 +162,22 @@ impl GpuReader for AppleSiliconGpuReader {
         };
 
         let mut detail = HashMap::new();
-        detail.insert(
-            "driver_version".to_string(),
-            self.driver_version
-                .get()
-                .and_then(|v| v.clone())
-                .unwrap_or_else(|| "Unknown".to_string()),
-        );
+        let driver_ver = self.driver_version
+            .get()
+            .and_then(|v| v.clone())
+            .unwrap_or_else(|| "Unknown".to_string());
+        detail.insert("driver_version".to_string(), driver_ver.clone());
         detail.insert("gpu_type".to_string(), "Integrated".to_string());
         detail.insert("architecture".to_string(), "Apple Silicon".to_string());
         if let Some(ref thermal_level) = metrics.thermal_pressure_level {
             detail.insert("thermal_pressure".to_string(), thermal_level.clone());
+        }
+
+        // Add unified AI acceleration library labels
+        detail.insert("lib_name".to_string(), "Metal".to_string());
+        // For Apple Silicon, use the Metal version if available
+        if driver_ver != "Unknown" {
+            detail.insert("lib_version".to_string(), driver_ver);
         }
 
         vec![GpuInfo {

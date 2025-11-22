@@ -44,6 +44,9 @@ impl JetsonMockGenerator {
             gpus,
         );
 
+        // Add GPU info metric with lib_name and lib_version
+        self.add_gpu_info_metric(&mut template, gpus);
+
         // Jetson-specific: DLA metrics
         self.add_dla_metrics(&mut template, gpus);
 
@@ -51,6 +54,25 @@ impl JetsonMockGenerator {
         self.add_jetson_system_metrics(&mut template);
 
         template
+    }
+
+    fn add_gpu_info_metric(&self, template: &mut String, gpus: &[GpuMetrics]) {
+        use crate::mock::constants::DEFAULT_CUDA_VERSION;
+
+        template.push_str("# HELP all_smi_gpu_info GPU device information\n");
+        template.push_str("# TYPE all_smi_gpu_info gauge\n");
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            let labels = format!(
+                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", \
+                 cuda_version=\"{DEFAULT_CUDA_VERSION}\", \
+                 lib_name=\"CUDA\", lib_version=\"{DEFAULT_CUDA_VERSION}\"",
+                self.gpu_name,
+                self.instance_name,
+                gpu.uuid
+            );
+            template.push_str(&format!("all_smi_gpu_info{{{labels}}} 1\n"));
+        }
     }
 
     fn add_jetson_system_metrics(&self, template: &mut String) {
