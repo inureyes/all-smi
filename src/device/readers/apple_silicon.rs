@@ -289,11 +289,14 @@ fn parse_gpu_metrics(output: &str) -> GpuMetrics {
 }
 
 fn get_gpu_name_and_version() -> (String, Option<String>) {
-    // Try to get chip name from a faster source first
-    if let Ok(output) = execute_command_default("sysctl", &["-n", "machdep.cpu.brand_string"]) {
+    // Try to get GPU name from sysctl first (fast path for name only)
+    let gpu_name = if let Ok(output) =
+        execute_command_default("sysctl", &["-n", "machdep.cpu.brand_string"])
+    {
         let cpu_brand = output.stdout.trim().to_string();
         // Extract chip name from CPU brand string (e.g., "Apple M1 Pro" from full string)
         if cpu_brand.contains("Apple M") {
+            let mut name = None;
             for part in cpu_brand.split_whitespace() {
                 if part.starts_with("M") && part.chars().nth(1).is_some_and(|c| c.is_numeric()) {
                     // Found the chip model (M1, M2, M3, etc.)
@@ -308,19 +311,62 @@ fn get_gpu_name_and_version() -> (String, Option<String>) {
                             }
                         }
                     }
-                    return (gpu_name, Some("Metal 3".to_string()));
+                    name = Some(gpu_name);
+                    break;
                 }
             }
-            // If we found "Apple M" but couldn't parse the model, return a default
-            return ("Apple Silicon GPU".to_string(), Some("Metal 3".to_string()));
+            name.unwrap_or_else(|| "Apple Silicon GPU".to_string())
+        } else {
+            "Apple Silicon GPU".to_string()
+        }
+    } else {
+        "Apple Silicon GPU".to_string()
+    };
+
+    // Get Metal version from system_profiler (always call to get accurate version)
+    let metal_version = match execute_command_default("system_profiler", &["SPDisplaysDataType"]) {
+        Ok(cmd_output) => {
+            let (_profiler_name, profiler_version) =
+                parse_system_profiler_output(&cmd_output.stdout);
+            // Use the Metal version from system_profiler if available
+            if let Some(version) = profiler_version {
+                Some(version)
+            } else {
+                // If system_profiler didn't provide version, try to infer from Metal framework
+                get_metal_version_from_framework()
+            }
+        }
+        Err(_) => {
+            // If system_profiler fails, try to get version from Metal framework
+            get_metal_version_from_framework()
+        }
+    };
+
+    (gpu_name, metal_version)
+}
+
+/// Try to get Metal version from the Metal framework
+fn get_metal_version_from_framework() -> Option<String> {
+    // Metal 3 is available on macOS 13+ (Ventura)
+    // We can check the macOS version to infer Metal version
+    if let Ok(output) = execute_command_default("sw_vers", &["-productVersion"]) {
+        let version_str = output.stdout.trim();
+        if let Some(major_version) = version_str.split('.').next() {
+            if let Ok(major) = major_version.parse::<u32>() {
+                // macOS version to Metal version mapping
+                let metal_version = match major {
+                    15.. => "Metal 3", // macOS 15+ (Sequoia and later) - Metal 3
+                    14 => "Metal 3",   // macOS 14 (Sonoma) - Metal 3
+                    13 => "Metal 3",   // macOS 13 (Ventura) - Metal 3
+                    12 => "Metal 2.4", // macOS 12 (Monterey) - Metal 2.4
+                    11 => "Metal 2.3", // macOS 11 (Big Sur) - Metal 2.3
+                    _ => "Metal 2",    // Older versions
+                };
+                return Some(metal_version.to_string());
+            }
         }
     }
-
-    // Only use system_profiler as absolute last resort (this should rarely happen)
-    match execute_command_default("system_profiler", &["SPDisplaysDataType"]) {
-        Ok(cmd_output) => parse_system_profiler_output(&cmd_output.stdout),
-        Err(_) => ("Apple Silicon GPU".to_string(), Some("Metal 3".to_string())),
-    }
+    Some("Metal 3".to_string()) // Default fallback
 }
 
 fn parse_system_profiler_output(output_str: &str) -> (String, Option<String>) {
