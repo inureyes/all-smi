@@ -136,7 +136,9 @@ impl NvidiaGpuReader {
                         ane_utilization: 0.0,
                         dla_utilization: None,
                         temperature: device
-                            .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
+                            .temperature(
+                                nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu,
+                            )
                             .unwrap_or(0),
                         used_memory: device.memory_info().map(|m| m.used).unwrap_or(0),
                         total_memory: device.memory_info().map(|m| m.total).unwrap_or(0),

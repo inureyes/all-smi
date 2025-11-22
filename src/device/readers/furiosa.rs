@@ -143,8 +143,11 @@ impl FuriosaNpuReader {
             let mut device_info_map = HashMap::new();
 
             // Get device info to extract static fields
-            if let Ok(output) = execute_command_default("furiosa-smi", &["info", "--output", "json"]) {
-                if let Ok(devices) = serde_json::from_str::<Vec<FuriosaSmiInfoJson>>(&output.stdout) {
+            if let Ok(output) =
+                execute_command_default("furiosa-smi", &["info", "--output", "json"])
+            {
+                if let Ok(devices) = serde_json::from_str::<Vec<FuriosaSmiInfoJson>>(&output.stdout)
+                {
                     for device in devices {
                         let mut detail = HashMap::new();
 
@@ -321,7 +324,14 @@ impl FuriosaNpuReader {
                 // Get cached static info for this device
                 let static_info = static_info_map.get(&device.index)?;
                 let status = status_list.iter().find(|s| s.index == device.index);
-                create_gpu_info_from_cli_cached(static_info, &device, status, &device_memory_usage, &time, &hostname)
+                create_gpu_info_from_cli_cached(
+                    static_info,
+                    &device,
+                    status,
+                    &device_memory_usage,
+                    &time,
+                    &hostname,
+                )
             })
             .collect()
     }
@@ -562,8 +572,7 @@ fn create_gpu_info_from_device_2025_cached(
     let (used_memory, total_memory) = (0u64, FURIOSA_HBM3_MEMORY_BYTES);
 
     // Extract core_num from static detail for gpu_core_count
-    let gpu_core_count = detail.get("core_count")
-        .and_then(|s| s.parse::<u32>().ok());
+    let gpu_core_count = detail.get("core_count").and_then(|s| s.parse::<u32>().ok());
 
     Some(GpuInfo {
         uuid: static_info.uuid.clone(),

@@ -93,15 +93,15 @@ static RBLN_COMMAND_CACHE: Lazy<CommandCache> = Lazy::new(|| Arc::new(Mutex::new
 #[derive(Clone, Debug)]
 struct DeviceStaticInfo {
     uuid: String,
-    name: String,              // Device model
-    sid: String,               // Serial ID
-    fw_ver: String,            // Firmware version
-    device_path: String,       // Device path
-    board_info: String,        // Board information
-    pci_bus_id: String,        // PCI bus ID
-    pci_numa_node: String,     // NUMA node
-    pci_link_speed: String,    // PCI link speed
-    pci_link_width: String,    // PCI link width
+    name: String,           // Device model
+    sid: String,            // Serial ID
+    fw_ver: String,         // Firmware version
+    device_path: String,    // Device path
+    board_info: String,     // Board information
+    pci_bus_id: String,     // PCI bus ID
+    pci_numa_node: String,  // NUMA node
+    pci_link_speed: String, // PCI link speed
+    pci_link_width: String, // PCI link width
 }
 
 pub struct RebellionsNpuReader {
@@ -128,7 +128,8 @@ impl RebellionsNpuReader {
     /// Initialize static device cache on first access
     fn ensure_static_cache_initialized(&self, response: &RblnResponse) {
         // Initialize KMD version
-        self.kmd_version.get_or_init(|| response.kmd_version.clone());
+        self.kmd_version
+            .get_or_init(|| response.kmd_version.clone());
 
         // Initialize device static info
         self.device_static_info.get_or_init(|| {
@@ -262,7 +263,9 @@ impl RebellionsNpuReader {
                 let uuid = &device.uuid;
                 // Try to get cached static info, fall back to current device data if not available
                 let static_info = self.get_device_static_info(uuid);
-                let kmd_version = self.get_kmd_version().unwrap_or_else(|| response.kmd_version.clone());
+                let kmd_version = self
+                    .get_kmd_version()
+                    .unwrap_or_else(|| response.kmd_version.clone());
 
                 create_gpu_info_from_device(device, static_info, &kmd_version, &time, &hostname)
             })
@@ -329,34 +332,44 @@ fn create_gpu_info_from_device(
     let mut detail = HashMap::new();
 
     // Use cached static info if available, otherwise use current device data
-    let (uuid, name, sid, fw_ver, device_path, board_info, pci_bus_id, pci_numa_node, pci_link_speed, pci_link_width) =
-        if let Some(ref info) = static_info {
-            (
-                info.uuid.clone(),
-                info.name.clone(),
-                info.sid.clone(),
-                info.fw_ver.clone(),
-                info.device_path.clone(),
-                info.board_info.clone(),
-                info.pci_bus_id.clone(),
-                info.pci_numa_node.clone(),
-                info.pci_link_speed.clone(),
-                info.pci_link_width.clone(),
-            )
-        } else {
-            (
-                device.uuid.clone(),
-                device.name.clone(),
-                device.sid.clone(),
-                device.fw_ver.clone(),
-                device.device.clone(),
-                device.board_info.clone(),
-                device.pci.bus_id.clone(),
-                device.pci.numa_node.clone(),
-                device.pci.link_speed.clone(),
-                device.pci.link_width.clone(),
-            )
-        };
+    let (
+        uuid,
+        name,
+        sid,
+        fw_ver,
+        device_path,
+        board_info,
+        pci_bus_id,
+        pci_numa_node,
+        pci_link_speed,
+        pci_link_width,
+    ) = if let Some(ref info) = static_info {
+        (
+            info.uuid.clone(),
+            info.name.clone(),
+            info.sid.clone(),
+            info.fw_ver.clone(),
+            info.device_path.clone(),
+            info.board_info.clone(),
+            info.pci_bus_id.clone(),
+            info.pci_numa_node.clone(),
+            info.pci_link_speed.clone(),
+            info.pci_link_width.clone(),
+        )
+    } else {
+        (
+            device.uuid.clone(),
+            device.name.clone(),
+            device.sid.clone(),
+            device.fw_ver.clone(),
+            device.device.clone(),
+            device.board_info.clone(),
+            device.pci.bus_id.clone(),
+            device.pci.numa_node.clone(),
+            device.pci.link_speed.clone(),
+            device.pci.link_width.clone(),
+        )
+    };
 
     // Add cached static device details
     detail.insert("Serial ID".to_string(), sid);
