@@ -274,6 +274,10 @@ fn create_gpu_info_from_device(
     // Performance state
     detail.insert("Performance State".to_string(), device.pstate.clone());
 
+    // Add unified AI acceleration library labels
+    detail.insert("lib_name".to_string(), "RBLN-SDK".to_string());
+    detail.insert("lib_version".to_string(), kmd_version.to_string());
+
     // Parse metrics
     let temperature = parse_temp_safe(&device.temperature);
     let power = parse_power_safe(&device.card_power);

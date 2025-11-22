@@ -269,6 +269,10 @@ fn create_gpu_info_from_cli(
     detail.insert("memory_bandwidth".to_string(), "1.63TB/s".to_string());
     detail.insert("on_chip_sram".to_string(), "256MB".to_string());
 
+    // Add unified AI acceleration library labels
+    detail.insert("lib_name".to_string(), "PERT".to_string());
+    detail.insert("lib_version".to_string(), device.pert.clone());
+
     let temperature = parse_temperature(&device.temperature).unwrap_or_else(|| {
         eprintln!("Failed to parse temperature: {}", device.temperature);
         0
@@ -348,6 +352,12 @@ fn create_gpu_info_from_device(
         "frequency".to_string(),
         format!("{}MHz", perf.frequency_mhz),
     );
+
+    // Add unified AI acceleration library labels
+    // Note: furiosa-smi-rs doesn't provide PERT version directly,
+    // so we use firmware_version as a proxy
+    detail.insert("lib_name".to_string(), "PERT".to_string());
+    detail.insert("lib_version".to_string(), info.firmware_version.clone());
 
     Some(GpuInfo {
         uuid: info.device_uuid.clone(),

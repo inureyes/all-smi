@@ -422,6 +422,13 @@ fn build_device_details(
     detail.insert("ARC Clock".to_string(), format!("{}MHz", telem.arc_clk()));
     detail.insert("AXI Clock".to_string(), format!("{}MHz", telem.axi_clk()));
 
+    // Add unified AI acceleration library labels
+    detail.insert("lib_name".to_string(), "Luwen".to_string());
+    detail.insert(
+        "lib_version".to_string(),
+        static_info.arc_fw_version.clone(),
+    );
+
     detail
 }
 
