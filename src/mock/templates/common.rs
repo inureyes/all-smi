@@ -159,18 +159,16 @@ pub fn generate_gpu_metrics(count: usize, memory_total: u64) -> Vec<GpuMetrics> 
     let mut rng = rng();
 
     (0..count)
-        .map(|_| {
-            GpuMetrics {
-                uuid: crate::mock::metrics::gpu::generate_uuid_with_rng(&mut rng),
-                utilization: rng.random_range(0.0..100.0),
-                memory_used_bytes: rng.random_range(1_000_000_000..memory_total),
-                memory_total_bytes: memory_total,
-                temperature_celsius: rng.random_range(35..75),
-                power_consumption_watts: rng.random_range(100.0..450.0),
-                frequency_mhz: rng.random_range(1200..1980),
-                ane_utilization_watts: 0.0,
-                thermal_pressure_level: None,
-            }
+        .map(|_| GpuMetrics {
+            uuid: crate::mock::metrics::gpu::generate_uuid_with_rng(&mut rng),
+            utilization: rng.random_range(0.0..100.0),
+            memory_used_bytes: rng.random_range(1_000_000_000..memory_total),
+            memory_total_bytes: memory_total,
+            temperature_celsius: rng.random_range(35..75),
+            power_consumption_watts: rng.random_range(100.0..450.0),
+            frequency_mhz: rng.random_range(1200..1980),
+            ane_utilization_watts: 0.0,
+            thermal_pressure_level: None,
         })
         .collect()
 }

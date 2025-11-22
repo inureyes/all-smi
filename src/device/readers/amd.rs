@@ -268,24 +268,27 @@ impl GpuReader for AmdGpuReader {
             // Add driver version from DRM with validation
             match device.device_handle.get_drm_version_struct() {
                 Ok(drm) => {
-                // Validate version components are reasonable (prevent malformed data)
+                    // Validate version components are reasonable (prevent malformed data)
 
-                if drm.version_major >= 0 && drm.version_major <= MAX_VERSION_COMPONENT
-                    && drm.version_minor >= 0 && drm.version_minor <= MAX_VERSION_COMPONENT
-                    && drm.version_patchlevel >= 0 && drm.version_patchlevel <= MAX_VERSION_COMPONENT
-                {
-                    let driver_version = format!(
-                        "{}.{}.{}",
-                        drm.version_major, drm.version_minor, drm.version_patchlevel
-                    );
-                    detail.insert("Driver Version".to_string(), driver_version);
-                } else {
-                    eprintln!(
+                    if drm.version_major >= 0
+                        && drm.version_major <= MAX_VERSION_COMPONENT
+                        && drm.version_minor >= 0
+                        && drm.version_minor <= MAX_VERSION_COMPONENT
+                        && drm.version_patchlevel >= 0
+                        && drm.version_patchlevel <= MAX_VERSION_COMPONENT
+                    {
+                        let driver_version = format!(
+                            "{}.{}.{}",
+                            drm.version_major, drm.version_minor, drm.version_patchlevel
+                        );
+                        detail.insert("Driver Version".to_string(), driver_version);
+                    } else {
+                        eprintln!(
                         "Warning: Invalid driver version components detected: {}.{}.{} for device {}",
                         drm.version_major, drm.version_minor, drm.version_patchlevel,
                         device.device_path.pci
                     );
-                }
+                    }
                 }
                 Err(e) => {
                     eprintln!(
@@ -573,21 +576,36 @@ mod tests {
     #[test]
     fn test_max_version_component_validation() {
         // Test that MAX_VERSION_COMPONENT is reasonable for Linux kernel versions
-        assert!(MAX_VERSION_COMPONENT >= 99, "Should support two-digit version components");
-        assert!(MAX_VERSION_COMPONENT <= 9999, "Should not be excessively large");
+        assert!(
+            MAX_VERSION_COMPONENT >= 99,
+            "Should support two-digit version components"
+        );
+        assert!(
+            MAX_VERSION_COMPONENT <= 9999,
+            "Should not be excessively large"
+        );
 
         // Common kernel version components should be valid
         let common_versions = vec![
-            (6, 12, 0),    // Linux 6.12.0
-            (5, 15, 0),    // Linux 5.15.0 LTS
-            (30, 10, 1),   // AMD driver version
+            (6, 12, 0),      // Linux 6.12.0
+            (5, 15, 0),      // Linux 5.15.0 LTS
+            (30, 10, 1),     // AMD driver version
             (999, 999, 999), // Maximum allowed
         ];
 
         for (major, minor, patch) in common_versions {
-            assert!(major <= MAX_VERSION_COMPONENT, "Major version {major} should be valid");
-            assert!(minor <= MAX_VERSION_COMPONENT, "Minor version {minor} should be valid");
-            assert!(patch <= MAX_VERSION_COMPONENT, "Patch version {patch} should be valid");
+            assert!(
+                major <= MAX_VERSION_COMPONENT,
+                "Major version {major} should be valid"
+            );
+            assert!(
+                minor <= MAX_VERSION_COMPONENT,
+                "Minor version {minor} should be valid"
+            );
+            assert!(
+                patch <= MAX_VERSION_COMPONENT,
+                "Patch version {patch} should be valid"
+            );
         }
     }
 
@@ -595,12 +613,12 @@ mod tests {
     fn test_version_validation_rejects_invalid() {
         // Test that we reject unreasonable version numbers
         let invalid_versions = vec![
-            (1000, 0, 0),     // Major too high
-            (0, 1000, 0),     // Minor too high
-            (0, 0, 1000),     // Patch too high
-            (-1, 0, 0),       // Negative major
-            (0, -1, 0),       // Negative minor
-            (0, 0, -1),       // Negative patch
+            (1000, 0, 0), // Major too high
+            (0, 1000, 0), // Minor too high
+            (0, 0, 1000), // Patch too high
+            (-1, 0, 0),   // Negative major
+            (0, -1, 0),   // Negative minor
+            (0, 0, -1),   // Negative patch
         ];
 
         for (major, minor, patch) in invalid_versions {
@@ -618,30 +636,55 @@ mod tests {
     #[test]
     fn test_memory_validation_constants() {
         // Test memory validation constants are reasonable
-        assert_eq!(MAX_GPU_MEMORY_BYTES, 512 * 1024 * 1024 * 1024, "Max GPU memory should be 512GB");
+        assert_eq!(
+            MAX_GPU_MEMORY_BYTES,
+            512 * 1024 * 1024 * 1024,
+            "Max GPU memory should be 512GB"
+        );
 
         // Current largest AMD GPU is MI325X with 288GB, ensure we support it
         let mi325x_memory: u64 = 288 * 1024 * 1024 * 1024;
-        assert!(mi325x_memory < MAX_GPU_MEMORY_BYTES, "Should support MI325X 288GB memory");
+        assert!(
+            mi325x_memory < MAX_GPU_MEMORY_BYTES,
+            "Should support MI325X 288GB memory"
+        );
 
         // Future-proof for potential 400GB models
         let future_memory: u64 = 400 * 1024 * 1024 * 1024;
-        assert!(future_memory < MAX_GPU_MEMORY_BYTES, "Should have headroom for future GPUs");
+        assert!(
+            future_memory < MAX_GPU_MEMORY_BYTES,
+            "Should have headroom for future GPUs"
+        );
     }
 
     #[test]
     fn test_gpu_metric_validation_constants() {
         // Test that validation constants are reasonable
         assert_eq!(MAX_GPU_UTILIZATION, 100.0, "Max utilization should be 100%");
-        assert_eq!(MAX_GPU_POWER_WATTS, 1000.0, "Max power should support high-end GPUs");
-        assert_eq!(MAX_GPU_TEMP_CELSIUS, 125, "Max temp should be above thermal limits");
-        assert_eq!(MAX_GPU_FREQ_MHZ, 5000, "Max frequency should support boost clocks");
+        assert_eq!(
+            MAX_GPU_POWER_WATTS, 1000.0,
+            "Max power should support high-end GPUs"
+        );
+        assert_eq!(
+            MAX_GPU_TEMP_CELSIUS, 125,
+            "Max temp should be above thermal limits"
+        );
+        assert_eq!(
+            MAX_GPU_FREQ_MHZ, 5000,
+            "Max frequency should support boost clocks"
+        );
 
         // Real-world values should be within limits
         let mi300x_power = 750.0; // MI300X max TDP
-        assert!(mi300x_power < MAX_GPU_POWER_WATTS, "Should support MI300X power draw");
+        assert!(
+            mi300x_power < MAX_GPU_POWER_WATTS,
+            "Should support MI300X power draw"
+        );
 
         let typical_boost_freq = 2500; // Typical AMD GPU boost
-        assert!(typical_boost_freq < MAX_GPU_FREQ_MHZ, "Should support typical boost frequencies");
+        assert!(
+            typical_boost_freq < MAX_GPU_FREQ_MHZ,
+            "Should support typical boost frequencies"
+        );
     }
 }
