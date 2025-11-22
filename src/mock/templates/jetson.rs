@@ -67,9 +67,7 @@ impl JetsonMockGenerator {
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", \
                  cuda_version=\"{DEFAULT_CUDA_VERSION}\", \
                  lib_name=\"CUDA\", lib_version=\"{DEFAULT_CUDA_VERSION}\"",
-                self.gpu_name,
-                self.instance_name,
-                gpu.uuid
+                self.gpu_name, self.instance_name, gpu.uuid
             );
             template.push_str(&format!("all_smi_gpu_info{{{labels}}} 1\n"));
         }

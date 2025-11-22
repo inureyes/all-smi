@@ -162,7 +162,8 @@ impl GpuReader for AppleSiliconGpuReader {
         };
 
         let mut detail = HashMap::new();
-        let driver_ver = self.driver_version
+        let driver_ver = self
+            .driver_version
             .get()
             .and_then(|v| v.clone())
             .unwrap_or_else(|| "Unknown".to_string());
@@ -177,7 +178,12 @@ impl GpuReader for AppleSiliconGpuReader {
         detail.insert("lib_name".to_string(), "Metal".to_string());
         // For Apple Silicon, use the Metal version if available
         if driver_ver != "Unknown" {
-            detail.insert("lib_version".to_string(), driver_ver);
+            // Extract numeric version from "Metal X.Y" format
+            let lib_ver = driver_ver
+                .strip_prefix("Metal ")
+                .unwrap_or(&driver_ver)
+                .to_string();
+            detail.insert("lib_version".to_string(), lib_ver);
         }
 
         vec![GpuInfo {

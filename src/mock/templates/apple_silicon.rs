@@ -67,10 +67,8 @@ impl AppleSiliconMockGenerator {
         for (i, gpu) in gpus.iter().enumerate() {
             let labels = format!(
                 "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\", \
-                 lib_name=\"Metal\", lib_version=\"Metal 3\"",
-                self.gpu_name,
-                self.instance_name,
-                gpu.uuid
+                 lib_name=\"Metal\", lib_version=\"3\"",
+                self.gpu_name, self.instance_name, gpu.uuid
             );
             template.push_str(&format!("all_smi_gpu_info{{{labels}}} 1\n"));
         }
