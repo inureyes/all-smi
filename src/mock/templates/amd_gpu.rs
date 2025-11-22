@@ -30,6 +30,17 @@ const FAN_RPM_MID_MAX: u32 = 2000; // Max RPM for medium temperature
 const FAN_RPM_LOW_MIN: u32 = 800; // Min RPM for low temperature
 const FAN_RPM_LOW_MAX: u32 = 1200; // Max RPM for low temperature
 
+/// Calculate fan RPM based on temperature thresholds
+fn calculate_fan_rpm<R: rand::Rng>(temperature: u32, rng: &mut R) -> u32 {
+    if temperature > FAN_SPEED_HIGH_TEMP {
+        rng.random_range(FAN_RPM_HIGH_MIN..FAN_RPM_HIGH_MAX)
+    } else if temperature > FAN_SPEED_MID_TEMP {
+        rng.random_range(FAN_RPM_MID_MIN..FAN_RPM_MID_MAX)
+    } else {
+        rng.random_range(FAN_RPM_LOW_MIN..FAN_RPM_LOW_MAX)
+    }
+}
+
 /// AMD GPU mock generator
 pub struct AmdGpuMockGenerator {
     gpu_name: String,
@@ -313,14 +324,7 @@ impl AmdGpuMockGenerator {
                 .replace(&format!("{{{{FREQ_{i}}}}}"), &gpu.frequency_mhz.to_string());
 
             // AMD GPUs - fan speed based on temperature thresholds
-            // Reuse the RNG instance created outside the loop
-            let fan_rpm = if gpu.temperature_celsius > FAN_SPEED_HIGH_TEMP {
-                rng.random_range(FAN_RPM_HIGH_MIN..FAN_RPM_HIGH_MAX)
-            } else if gpu.temperature_celsius > FAN_SPEED_MID_TEMP {
-                rng.random_range(FAN_RPM_MID_MIN..FAN_RPM_MID_MAX)
-            } else {
-                rng.random_range(FAN_RPM_LOW_MIN..FAN_RPM_LOW_MAX)
-            };
+            let fan_rpm = calculate_fan_rpm(gpu.temperature_celsius, &mut rng);
             response = response.replace(&format!("{{{{FAN_{i}}}}}"), &fan_rpm.to_string());
         }
 
