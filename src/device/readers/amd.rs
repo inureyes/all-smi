@@ -36,7 +36,6 @@ const MAX_VERSION_COMPONENT: i32 = 999;
 /// Cached static device information that doesn't change during runtime
 #[derive(Clone, Debug)]
 struct DeviceStaticInfo {
-    driver_version: Option<String>,
     device_name: String,
     detail: HashMap<String, String>,
 }
@@ -147,7 +146,7 @@ impl AmdGpuReader {
     /// Get cached ROCm version, initializing if needed
     fn get_rocm_version(&self) -> Option<String> {
         self.rocm_version
-            .get_or_init(|| libamdgpu_top::get_rocm_version())
+            .get_or_init(libamdgpu_top::get_rocm_version)
             .clone()
     }
 
@@ -160,7 +159,7 @@ impl AmdGpuReader {
                 let ext_info = device.device_handle.device_info().ok();
                 let memory_info = device.device_handle.memory_info().ok();
 
-                let (device_name, mut detail) = if let (Some(ref ext), Some(ref mem)) =
+                let (device_name, mut detail) = if let (Some(ext), Some(mem)) =
                     (ext_info.as_ref(), memory_info.as_ref())
                 {
                     let sensors = libamdgpu_top::stat::Sensors::new(
@@ -253,7 +252,7 @@ impl AmdGpuReader {
                 };
 
                 // Get driver version
-                let driver_version = match device.device_handle.get_drm_version_struct() {
+                match device.device_handle.get_drm_version_struct() {
                     Ok(drm) => {
                         if drm.version_major >= 0
                             && drm.version_major <= MAX_VERSION_COMPONENT
@@ -266,15 +265,13 @@ impl AmdGpuReader {
                                 "{}.{}.{}",
                                 drm.version_major, drm.version_minor, drm.version_patchlevel
                             );
-                            detail.insert("Driver Version".to_string(), ver.clone());
-                            Some(ver)
+                            detail.insert("Driver Version".to_string(), ver);
                         } else {
                             eprintln!(
                                 "Warning: Invalid driver version components detected: {}.{}.{} for device {}",
                                 drm.version_major, drm.version_minor, drm.version_patchlevel,
                                 device.device_path.pci
                             );
-                            None
                         }
                     }
                     Err(e) => {
@@ -282,12 +279,10 @@ impl AmdGpuReader {
                             "Warning: Failed to get driver version for device {}: {e}",
                             device.device_path.pci
                         );
-                        None
                     }
                 };
 
                 DeviceStaticInfo {
-                    driver_version,
                     device_name,
                     detail,
                 }
