@@ -24,7 +24,7 @@ use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// JSON structures for Rebellions device information
 #[derive(Debug, Deserialize)]
@@ -89,7 +89,27 @@ type CommandCache = Arc<Mutex<Option<(String, PathBuf)>>>;
 /// Cache for rebellions command path
 static RBLN_COMMAND_CACHE: Lazy<CommandCache> = Lazy::new(|| Arc::new(Mutex::new(None)));
 
-pub struct RebellionsNpuReader;
+/// Cached static device information
+#[derive(Clone, Debug)]
+struct DeviceStaticInfo {
+    uuid: String,
+    name: String,              // Device model
+    sid: String,               // Serial ID
+    fw_ver: String,            // Firmware version
+    device_path: String,       // Device path
+    board_info: String,        // Board information
+    pci_bus_id: String,        // PCI bus ID
+    pci_numa_node: String,     // NUMA node
+    pci_link_speed: String,    // PCI link speed
+    pci_link_width: String,    // PCI link width
+}
+
+pub struct RebellionsNpuReader {
+    /// Cached KMD (driver) version
+    kmd_version: OnceLock<String>,
+    /// Cached static device information per UUID
+    device_static_info: OnceLock<HashMap<String, DeviceStaticInfo>>,
+}
 
 impl Default for RebellionsNpuReader {
     fn default() -> Self {
@@ -99,7 +119,49 @@ impl Default for RebellionsNpuReader {
 
 impl RebellionsNpuReader {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            kmd_version: OnceLock::new(),
+            device_static_info: OnceLock::new(),
+        }
+    }
+
+    /// Initialize static device cache on first access
+    fn ensure_static_cache_initialized(&self, response: &RblnResponse) {
+        // Initialize KMD version
+        self.kmd_version.get_or_init(|| response.kmd_version.clone());
+
+        // Initialize device static info
+        self.device_static_info.get_or_init(|| {
+            let mut device_map = HashMap::new();
+            for device in &response.devices {
+                let static_info = DeviceStaticInfo {
+                    uuid: device.uuid.clone(),
+                    name: device.name.clone(),
+                    sid: device.sid.clone(),
+                    fw_ver: device.fw_ver.clone(),
+                    device_path: device.device.clone(),
+                    board_info: device.board_info.clone(),
+                    pci_bus_id: device.pci.bus_id.clone(),
+                    pci_numa_node: device.pci.numa_node.clone(),
+                    pci_link_speed: device.pci.link_speed.clone(),
+                    pci_link_width: device.pci.link_width.clone(),
+                };
+                device_map.insert(device.uuid.clone(), static_info);
+            }
+            device_map
+        });
+    }
+
+    /// Get cached KMD version
+    fn get_kmd_version(&self) -> Option<String> {
+        self.kmd_version.get().cloned()
+    }
+
+    /// Get cached static device info
+    fn get_device_static_info(&self, uuid: &str) -> Option<DeviceStaticInfo> {
+        self.device_static_info
+            .get()
+            .and_then(|map| map.get(uuid).cloned())
     }
 
     /// Determine which command to use (rbln-stat or rbln-smi)
@@ -187,6 +249,9 @@ impl RebellionsNpuReader {
             Err(_) => return Vec::new(),
         };
 
+        // Initialize static cache on first call
+        self.ensure_static_cache_initialized(&response);
+
         let time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let hostname = get_hostname();
 
@@ -194,7 +259,12 @@ impl RebellionsNpuReader {
             .devices
             .into_iter()
             .filter_map(|device| {
-                create_gpu_info_from_device(device, &response.kmd_version, &time, &hostname)
+                let uuid = &device.uuid;
+                // Try to get cached static info, fall back to current device data if not available
+                let static_info = self.get_device_static_info(uuid);
+                let kmd_version = self.get_kmd_version().unwrap_or_else(|| response.kmd_version.clone());
+
+                create_gpu_info_from_device(device, static_info, &kmd_version, &time, &hostname)
             })
             .collect()
     }
@@ -251,43 +321,74 @@ impl GpuReader for RebellionsNpuReader {
 
 fn create_gpu_info_from_device(
     device: RblnDevice,
+    static_info: Option<DeviceStaticInfo>,
     kmd_version: &str,
     time: &str,
     hostname: &str,
 ) -> Option<GpuInfo> {
     let mut detail = HashMap::new();
 
-    // Add device details
-    detail.insert("Serial ID".to_string(), device.sid.clone());
-    detail.insert("Device Path".to_string(), device.device.clone());
-    detail.insert("Status".to_string(), device.status.clone());
-    detail.insert("Firmware Version".to_string(), device.fw_ver.clone());
+    // Use cached static info if available, otherwise use current device data
+    let (uuid, name, sid, fw_ver, device_path, board_info, pci_bus_id, pci_numa_node, pci_link_speed, pci_link_width) =
+        if let Some(ref info) = static_info {
+            (
+                info.uuid.clone(),
+                info.name.clone(),
+                info.sid.clone(),
+                info.fw_ver.clone(),
+                info.device_path.clone(),
+                info.board_info.clone(),
+                info.pci_bus_id.clone(),
+                info.pci_numa_node.clone(),
+                info.pci_link_speed.clone(),
+                info.pci_link_width.clone(),
+            )
+        } else {
+            (
+                device.uuid.clone(),
+                device.name.clone(),
+                device.sid.clone(),
+                device.fw_ver.clone(),
+                device.device.clone(),
+                device.board_info.clone(),
+                device.pci.bus_id.clone(),
+                device.pci.numa_node.clone(),
+                device.pci.link_speed.clone(),
+                device.pci.link_width.clone(),
+            )
+        };
+
+    // Add cached static device details
+    detail.insert("Serial ID".to_string(), sid);
+    detail.insert("Device Path".to_string(), device_path);
+    detail.insert("Firmware Version".to_string(), fw_ver);
     detail.insert("KMD Version".to_string(), kmd_version.to_string());
-    detail.insert("Board Info".to_string(), device.board_info.clone());
+    detail.insert("Board Info".to_string(), board_info);
 
-    // PCI details
-    detail.insert("PCI Bus ID".to_string(), device.pci.bus_id.clone());
-    detail.insert("PCI NUMA Node".to_string(), device.pci.numa_node.clone());
-    detail.insert("PCI Link Speed".to_string(), device.pci.link_speed.clone());
-    detail.insert("PCI Link Width".to_string(), device.pci.link_width.clone());
+    // PCI details (cached)
+    detail.insert("PCI Bus ID".to_string(), pci_bus_id);
+    detail.insert("PCI NUMA Node".to_string(), pci_numa_node);
+    detail.insert("PCI Link Speed".to_string(), pci_link_speed);
+    detail.insert("PCI Link Width".to_string(), pci_link_width);
 
-    // Performance state
+    // Dynamic values
+    detail.insert("Status".to_string(), device.status.clone());
     detail.insert("Performance State".to_string(), device.pstate.clone());
 
     // Add unified AI acceleration library labels
     detail.insert("lib_name".to_string(), "RBLN-SDK".to_string());
     detail.insert("lib_version".to_string(), kmd_version.to_string());
 
-    // Parse metrics
+    // Parse dynamic metrics
     let temperature = parse_temp_safe(&device.temperature);
     let power = parse_power_safe(&device.card_power);
     let utilization = parse_util_safe(&device.util);
     let (used_memory, total_memory) = parse_memory(&device.memory);
 
     Some(GpuInfo {
-        uuid: device.uuid,
+        uuid,
         time: time.to_string(),
-        name: device.name,
+        name,
         device_type: "NPU".to_string(),
         host_id: hostname.to_string(),
         hostname: hostname.to_string(),

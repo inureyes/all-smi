@@ -20,7 +20,7 @@ use libamdgpu_top::stat::{self, FdInfoStat, ProcInfo};
 use libamdgpu_top::AMDGPU::{DeviceHandle, GpuMetrics, MetricsInfo, GPU_INFO};
 use libamdgpu_top::{AppDeviceInfo, DevicePath, VramUsage};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 // GPU metric validation constants
 const MAX_GPU_UTILIZATION: f64 = 100.0; // Maximum utilization percentage
@@ -32,6 +32,14 @@ const MAX_GPU_MEMORY_BYTES: u64 = 512 * 1024 * 1024 * 1024; // 512GB max memory
 // Driver version validation constant
 // Linux kernel versions typically don't exceed 999 for any component
 const MAX_VERSION_COMPONENT: i32 = 999;
+
+/// Cached static device information that doesn't change during runtime
+#[derive(Clone, Debug)]
+struct DeviceStaticInfo {
+    driver_version: Option<String>,
+    device_name: String,
+    detail: HashMap<String, String>,
+}
 
 /// Per-device state that needs to be cached
 ///
@@ -63,10 +71,13 @@ struct AmdGpuDevice {
     device_path: DevicePath,
     device_handle: DeviceHandle,
     vram_usage: Mutex<VramUsage>, // Protected by mutex for thread-safe updates
+    static_info: OnceLock<DeviceStaticInfo>, // Cached static device information
 }
 
 pub struct AmdGpuReader {
     devices: Vec<AmdGpuDevice>,
+    /// Cached ROCm version (fetched only once, shared across all devices)
+    rocm_version: OnceLock<Option<String>>,
 }
 
 impl Default for AmdGpuReader {
@@ -84,6 +95,7 @@ impl AmdGpuReader {
         if !Self::check_amd_gpu_permissions() {
             return Self {
                 devices: Vec::new(),
+                rocm_version: OnceLock::new(),
             };
         }
 
@@ -101,6 +113,7 @@ impl AmdGpuReader {
                                 device_path: device_path.clone(),
                                 device_handle: amdgpu_dev,
                                 vram_usage: Mutex::new(vram_usage),
+                                static_info: OnceLock::new(),
                             });
                         }
                         Err(e) => {
@@ -120,7 +133,161 @@ impl AmdGpuReader {
             }
         }
 
-        Self { devices }
+        Self {
+            devices,
+            rocm_version: OnceLock::new(),
+        }
+    }
+
+    /// Get cached ROCm version, initializing if needed
+    fn get_rocm_version(&self) -> Option<String> {
+        self.rocm_version
+            .get_or_init(|| libamdgpu_top::get_rocm_version())
+            .clone()
+    }
+
+    /// Get cached static device info for a device, initializing if needed
+    fn get_device_static_info(&self, device: &AmdGpuDevice) -> DeviceStaticInfo {
+        device
+            .static_info
+            .get_or_init(|| {
+                // Fetch static device information once
+                let ext_info = device.device_handle.device_info().ok();
+                let memory_info = device.device_handle.memory_info().ok();
+
+                let (device_name, mut detail) = if let (Some(ref ext), Some(ref mem)) =
+                    (ext_info.as_ref(), memory_info.as_ref())
+                {
+                    let sensors = libamdgpu_top::stat::Sensors::new(
+                        &device.device_handle,
+                        &device.device_path.pci,
+                        ext,
+                    );
+
+                    let app_device_info = AppDeviceInfo::new(
+                        &device.device_handle,
+                        ext,
+                        mem,
+                        &sensors,
+                        &device.device_path,
+                    );
+
+                    let mut detail = HashMap::new();
+                    detail.insert(
+                        "Device Name".to_string(),
+                        app_device_info.marketing_name.clone(),
+                    );
+                    detail.insert(
+                        "PCI Bus".to_string(),
+                        app_device_info.pci_bus.to_string(),
+                    );
+
+                    // Add ROCm version
+                    if let Some(ref ver) = self.get_rocm_version() {
+                        detail.insert("ROCm Version".to_string(), ver.clone());
+                        detail.insert("lib_name".to_string(), "ROCm".to_string());
+                        detail.insert("lib_version".to_string(), ver.clone());
+                    }
+
+                    // Add device details
+                    detail.insert(
+                        "Device ID".to_string(),
+                        format!("{:#06x}", ext.device_id()),
+                    );
+                    detail.insert(
+                        "Revision ID".to_string(),
+                        format!("{:#04x}", ext.pci_rev_id()),
+                    );
+                    detail.insert(
+                        "ASIC Name".to_string(),
+                        app_device_info.asic_name.to_string(),
+                    );
+
+                    if let Some(ref vbios) = app_device_info.vbios {
+                        detail.insert("VBIOS Version".to_string(), vbios.ver.clone());
+                        detail.insert("VBIOS Date".to_string(), vbios.date.clone());
+                    }
+
+                    if let Some(ref cap) = app_device_info.power_cap {
+                        detail.insert("Power Cap".to_string(), format!("{} W", cap.current));
+                        detail.insert("Power Cap (Min)".to_string(), format!("{} W", cap.min));
+                        detail.insert("Power Cap (Max)".to_string(), format!("{} W", cap.max));
+                    }
+
+                    if let Some(link) = app_device_info.max_gpu_link {
+                        detail.insert(
+                            "Max GPU Link".to_string(),
+                            format!("Gen{} x{}", link.gen, link.width),
+                        );
+                    }
+
+                    if let Some(link) = app_device_info.max_system_link {
+                        detail.insert(
+                            "Max System Link".to_string(),
+                            format!("Gen{} x{}", link.gen, link.width),
+                        );
+                    }
+
+                    if let Some(min_dpm_link) = app_device_info.min_dpm_link {
+                        detail.insert(
+                            "Min DPM Link".to_string(),
+                            format!("Gen{} x{}", min_dpm_link.gen, min_dpm_link.width),
+                        );
+                    }
+
+                    if let Some(max_dpm_link) = app_device_info.max_dpm_link {
+                        detail.insert(
+                            "Max DPM Link".to_string(),
+                            format!("Gen{} x{}", max_dpm_link.gen, max_dpm_link.width),
+                        );
+                    }
+
+                    (app_device_info.marketing_name, detail)
+                } else {
+                    (String::from("Unknown GPU"), HashMap::new())
+                };
+
+                // Get driver version
+                let driver_version = match device.device_handle.get_drm_version_struct() {
+                    Ok(drm) => {
+                        if drm.version_major >= 0
+                            && drm.version_major <= MAX_VERSION_COMPONENT
+                            && drm.version_minor >= 0
+                            && drm.version_minor <= MAX_VERSION_COMPONENT
+                            && drm.version_patchlevel >= 0
+                            && drm.version_patchlevel <= MAX_VERSION_COMPONENT
+                        {
+                            let ver = format!(
+                                "{}.{}.{}",
+                                drm.version_major, drm.version_minor, drm.version_patchlevel
+                            );
+                            detail.insert("Driver Version".to_string(), ver.clone());
+                            Some(ver)
+                        } else {
+                            eprintln!(
+                                "Warning: Invalid driver version components detected: {}.{}.{} for device {}",
+                                drm.version_major, drm.version_minor, drm.version_patchlevel,
+                                device.device_path.pci
+                            );
+                            None
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: Failed to get driver version for device {}: {e}",
+                            device.device_path.pci
+                        );
+                        None
+                    }
+                };
+
+                DeviceStaticInfo {
+                    driver_version,
+                    device_name,
+                    detail,
+                }
+            })
+            .clone()
     }
 
     /// Check if we have permission to access AMD GPU devices
@@ -172,7 +339,12 @@ impl GpuReader for AmdGpuReader {
         let mut gpu_info = Vec::new();
 
         for device in &self.devices {
-            // Get device info with error handling
+            // Get cached static device information (fetched only once)
+            let static_info = self.get_device_static_info(device);
+            let mut detail = static_info.detail;
+            let device_name = static_info.device_name;
+
+            // Get device info for dynamic metrics only
             let ext_info = match device.device_handle.device_info() {
                 Ok(info) => info,
                 Err(e) => {
@@ -240,122 +412,14 @@ impl GpuReader for AmdGpuReader {
                 }
             };
 
+            // Get dynamic sensor information
             let sensors = libamdgpu_top::stat::Sensors::new(
                 &device.device_handle,
                 &device.device_path.pci,
                 &ext_info,
             );
 
-            let app_device_info = AppDeviceInfo::new(
-                &device.device_handle,
-                &ext_info,
-                &memory_info,
-                &sensors,
-                &device.device_path,
-            );
-
-            let mut detail = HashMap::new();
-            detail.insert(
-                "Device Name".to_string(),
-                app_device_info.marketing_name.clone(),
-            );
-            detail.insert("PCI Bus".to_string(), app_device_info.pci_bus.to_string());
-
-            // Get ROCm version for both platform-specific and unified labels
-            let rocm_version = libamdgpu_top::get_rocm_version();
-            if let Some(ref ver) = rocm_version {
-                detail.insert("ROCm Version".to_string(), ver.clone());
-                // Add unified AI acceleration library labels
-                detail.insert("lib_name".to_string(), "ROCm".to_string());
-                detail.insert("lib_version".to_string(), ver.clone());
-            }
-
-            // Add driver version from DRM with validation
-            match device.device_handle.get_drm_version_struct() {
-                Ok(drm) => {
-                    // Validate version components are reasonable (prevent malformed data)
-
-                    if drm.version_major >= 0
-                        && drm.version_major <= MAX_VERSION_COMPONENT
-                        && drm.version_minor >= 0
-                        && drm.version_minor <= MAX_VERSION_COMPONENT
-                        && drm.version_patchlevel >= 0
-                        && drm.version_patchlevel <= MAX_VERSION_COMPONENT
-                    {
-                        let driver_version = format!(
-                            "{}.{}.{}",
-                            drm.version_major, drm.version_minor, drm.version_patchlevel
-                        );
-                        detail.insert("Driver Version".to_string(), driver_version);
-                    } else {
-                        eprintln!(
-                        "Warning: Invalid driver version components detected: {}.{}.{} for device {}",
-                        drm.version_major, drm.version_minor, drm.version_patchlevel,
-                        device.device_path.pci
-                    );
-                    }
-                }
-                Err(e) => {
-                    eprintln!(
-                        "Warning: Failed to get driver version for device {}: {e}",
-                        device.device_path.pci
-                    );
-                }
-            }
-
-            // Add more details
-            detail.insert(
-                "Device ID".to_string(),
-                format!("{:#06x}", ext_info.device_id()),
-            );
-            detail.insert(
-                "Revision ID".to_string(),
-                format!("{:#04x}", ext_info.pci_rev_id()),
-            );
-            detail.insert(
-                "ASIC Name".to_string(),
-                app_device_info.asic_name.to_string(),
-            );
-
-            if let Some(ref vbios) = app_device_info.vbios {
-                detail.insert("VBIOS Version".to_string(), vbios.ver.clone());
-                detail.insert("VBIOS Date".to_string(), vbios.date.clone());
-            }
-
-            if let Some(ref cap) = app_device_info.power_cap {
-                detail.insert("Power Cap".to_string(), format!("{} W", cap.current));
-                detail.insert("Power Cap (Min)".to_string(), format!("{} W", cap.min));
-                detail.insert("Power Cap (Max)".to_string(), format!("{} W", cap.max));
-            }
-
-            if let Some(link) = app_device_info.max_gpu_link {
-                detail.insert(
-                    "Max GPU Link".to_string(),
-                    format!("Gen{} x{}", link.gen, link.width),
-                );
-            }
-
-            if let Some(link) = app_device_info.max_system_link {
-                detail.insert(
-                    "Max System Link".to_string(),
-                    format!("Gen{} x{}", link.gen, link.width),
-                );
-            }
-
-            if let Some(min_dpm_link) = app_device_info.min_dpm_link {
-                detail.insert(
-                    "Min DPM Link".to_string(),
-                    format!("Gen{} x{}", min_dpm_link.gen, min_dpm_link.width),
-                );
-            }
-
-            if let Some(max_dpm_link) = app_device_info.max_dpm_link {
-                detail.insert(
-                    "Max DPM Link".to_string(),
-                    format!("Gen{} x{}", max_dpm_link.gen, max_dpm_link.width),
-                );
-            }
-
+            // Add dynamic sensor data to details
             if let Some(ref sensors) = sensors {
                 if let Some(link) = sensors.current_link {
                     detail.insert(
@@ -446,7 +510,7 @@ impl GpuReader for AmdGpuReader {
             let info = GpuInfo {
                 uuid: format!("GPU-{}", device.device_path.pci), // AMD doesn't have UUIDs like NVIDIA, use PCI
                 time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                name: app_device_info.marketing_name,
+                name: device_name, // Use cached device name
                 device_type: "GPU".to_string(),
                 host_id: get_hostname(),
                 hostname: get_hostname(),

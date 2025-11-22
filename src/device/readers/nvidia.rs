@@ -23,13 +23,144 @@ use nvml_wrapper::enums::device::UsedGpuMemory;
 use nvml_wrapper::error::NvmlError;
 use nvml_wrapper::{cuda_driver_version_major, cuda_driver_version_minor, Nvml};
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use sysinfo::System;
 
 // Global status for NVML error messages
 static NVML_STATUS: Mutex<Option<String>> = Mutex::new(None);
 
-pub struct NvidiaGpuReader;
+/// Cached static device information that doesn't change during runtime
+#[derive(Clone, Debug)]
+struct DeviceStaticInfo {
+    detail: HashMap<String, String>,
+}
+
+pub struct NvidiaGpuReader {
+    /// Cached driver version (fetched only once)
+    driver_version: OnceLock<String>,
+    /// Cached CUDA version (fetched only once)
+    cuda_version: OnceLock<String>,
+    /// Cached static device information per device index
+    device_static_info: OnceLock<HashMap<u32, DeviceStaticInfo>>,
+}
+
+impl Default for NvidiaGpuReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NvidiaGpuReader {
+    pub fn new() -> Self {
+        Self {
+            driver_version: OnceLock::new(),
+            cuda_version: OnceLock::new(),
+            device_static_info: OnceLock::new(),
+        }
+    }
+
+    /// Get cached driver version, initializing if needed
+    fn get_driver_version(&self, nvml: &Nvml) -> String {
+        self.driver_version
+            .get_or_init(|| {
+                nvml.sys_driver_version()
+                    .unwrap_or_else(|_| "Unknown".to_string())
+            })
+            .clone()
+    }
+
+    /// Get cached CUDA version, initializing if needed
+    fn get_cuda_version(&self, nvml: &Nvml) -> String {
+        self.cuda_version
+            .get_or_init(|| {
+                let version = nvml.sys_cuda_driver_version().unwrap_or(0);
+                format!(
+                    "{}.{}",
+                    cuda_driver_version_major(version),
+                    cuda_driver_version_minor(version)
+                )
+            })
+            .clone()
+    }
+
+    /// Get cached static device info for all devices, initializing if needed
+    fn get_device_static_info(&self, nvml: &Nvml) -> HashMap<u32, DeviceStaticInfo> {
+        self.device_static_info
+            .get_or_init(|| {
+                let mut device_info_map = HashMap::new();
+                let driver_version = self.get_driver_version(nvml);
+                let cuda_version = self.get_cuda_version(nvml);
+
+                if let Ok(device_count) = nvml.device_count() {
+                    for i in 0..device_count {
+                        if let Ok(device) = nvml.device_by_index(i) {
+                            let detail =
+                                create_device_detail(&device, &driver_version, &cuda_version);
+                            device_info_map.insert(i, DeviceStaticInfo { detail });
+                        }
+                    }
+                }
+                device_info_map
+            })
+            .clone()
+    }
+
+    /// Get GPU info using NVML with cached static values
+    fn get_gpu_info_nvml(&self, nvml: &Nvml) -> Vec<GpuInfo> {
+        let mut gpu_info = Vec::new();
+
+        // Get cached static device information (fetched only once)
+        let device_static_info = self.get_device_static_info(nvml);
+
+        if let Ok(device_count) = nvml.device_count() {
+            for i in 0..device_count {
+                if let Ok(device) = nvml.device_by_index(i) {
+                    // Get cached static detail for this device
+                    let detail = device_static_info
+                        .get(&i)
+                        .map(|info| info.detail.clone())
+                        .unwrap_or_default();
+
+                    let info = GpuInfo {
+                        uuid: device.uuid().unwrap_or_else(|_| format!("GPU-{i}")),
+                        time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                        name: device.name().unwrap_or_else(|_| "Unknown GPU".to_string()),
+                        device_type: "GPU".to_string(),
+                        host_id: get_hostname(),
+                        hostname: get_hostname(),
+                        instance: get_hostname(),
+                        utilization: device
+                            .utilization_rates()
+                            .map(|u| u.gpu as f64)
+                            .unwrap_or(0.0),
+                        ane_utilization: 0.0,
+                        dla_utilization: None,
+                        temperature: device
+                            .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
+                            .unwrap_or(0),
+                        used_memory: device.memory_info().map(|m| m.used).unwrap_or(0),
+                        total_memory: device.memory_info().map(|m| m.total).unwrap_or(0),
+                        frequency: device
+                            .clock(
+                                nvml_wrapper::enum_wrappers::device::Clock::Graphics,
+                                nvml_wrapper::enum_wrappers::device::ClockId::Current,
+                            )
+                            .unwrap_or(0),
+                        power_consumption: device
+                            .power_usage()
+                            .map(|p| p as f64 / 1000.0)
+                            .unwrap_or(0.0),
+                        gpu_core_count: None,
+                        detail,
+                    };
+                    gpu_info.push(info);
+                }
+            }
+        }
+
+        gpu_info
+    }
+}
 
 impl GpuReader for NvidiaGpuReader {
     fn get_gpu_info(&self) -> Vec<GpuInfo> {
@@ -40,7 +171,7 @@ impl GpuReader for NvidiaGpuReader {
                 if let Ok(mut status) = NVML_STATUS.lock() {
                     *status = None;
                 }
-                get_gpu_info_nvml(&nvml)
+                self.get_gpu_info_nvml(&nvml)
             }
             Err(e) => {
                 // Store the error status for notification
@@ -196,67 +327,6 @@ fn create_base_process_info(
         nice_value: 0,        // Will be filled by sysinfo
         gpu_utilization: 0.0, // NVIDIA doesn't provide per-process GPU utilization
     }
-}
-
-// Get GPU info using NVML
-fn get_gpu_info_nvml(nvml: &Nvml) -> Vec<GpuInfo> {
-    let mut gpu_info = Vec::new();
-
-    // Get CUDA version
-    let cuda_version = format!(
-        "{}.{}",
-        cuda_driver_version_major(nvml.sys_cuda_driver_version().unwrap_or(0)),
-        cuda_driver_version_minor(nvml.sys_cuda_driver_version().unwrap_or(0))
-    );
-
-    // Get driver version
-    let driver_version = nvml
-        .sys_driver_version()
-        .unwrap_or_else(|_| "Unknown".to_string());
-
-    if let Ok(device_count) = nvml.device_count() {
-        for i in 0..device_count {
-            if let Ok(device) = nvml.device_by_index(i) {
-                let detail = create_device_detail(&device, &driver_version, &cuda_version);
-
-                let info = GpuInfo {
-                    uuid: device.uuid().unwrap_or_else(|_| format!("GPU-{i}")),
-                    time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                    name: device.name().unwrap_or_else(|_| "Unknown GPU".to_string()),
-                    device_type: "GPU".to_string(),
-                    host_id: get_hostname(),
-                    hostname: get_hostname(),
-                    instance: get_hostname(),
-                    utilization: device
-                        .utilization_rates()
-                        .map(|u| u.gpu as f64)
-                        .unwrap_or(0.0),
-                    ane_utilization: 0.0,
-                    dla_utilization: None,
-                    temperature: device
-                        .temperature(nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu)
-                        .unwrap_or(0),
-                    used_memory: device.memory_info().map(|m| m.used).unwrap_or(0),
-                    total_memory: device.memory_info().map(|m| m.total).unwrap_or(0),
-                    frequency: device
-                        .clock(
-                            nvml_wrapper::enum_wrappers::device::Clock::Graphics,
-                            nvml_wrapper::enum_wrappers::device::ClockId::Current,
-                        )
-                        .unwrap_or(0),
-                    power_consumption: device
-                        .power_usage()
-                        .map(|p| p as f64 / 1000.0)
-                        .unwrap_or(0.0),
-                    gpu_core_count: None,
-                    detail,
-                };
-                gpu_info.push(info);
-            }
-        }
-    }
-
-    gpu_info
 }
 
 // Macros to reduce boilerplate
