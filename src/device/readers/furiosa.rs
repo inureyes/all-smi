@@ -26,7 +26,7 @@ use std::collections::HashMap;
 
 // Import furiosa-smi-rs if available on Linux
 #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
-use furiosa_smi_rs::{Device, SmiResult};
+use furiosa_smi_rs::{list_devices, Device};
 
 /// Collection method for Furiosa NPU metrics
 #[derive(Debug, Clone, Copy)]
@@ -127,7 +127,8 @@ impl FuriosaNpuReader {
     /// Get NPU info using furiosa-smi-rs crate
     #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
     fn get_npu_info_rs(&self) -> Vec<GpuInfo> {
-        let devices = match Device::all() {
+        // Initialize library and list devices
+        let devices = match list_devices() {
             Ok(devices) => devices,
             Err(_) => return Vec::new(),
         };
@@ -138,13 +139,23 @@ impl FuriosaNpuReader {
         devices
             .iter()
             .filter_map(|device| {
-                let info = device.get_device_info().ok()?;
-                let perf = device.get_performance().ok()?;
+                // Get device information using 2025.3.0 API
+                let info = device.device_info().ok()?;
 
-                create_gpu_info_from_device(
+                // Get performance metrics individually
+                let utilization = device.core_utilization().ok()?;
+                let temperature = device.device_temperature().ok()?;
+                let power = device.power_consumption().ok()?;
+                let governor = device.governor_profile().ok()?;
+                let core_freq = device.core_frequency().ok()?;
+
+                create_gpu_info_from_device_2025(
                     &info,
-                    &perf,
-                    device.device_index() as usize,
+                    &utilization,
+                    &temperature,
+                    &power,
+                    &governor,
+                    &core_freq,
                     &time,
                     &hostname,
                 )
@@ -328,54 +339,68 @@ fn create_gpu_info_from_cli(
 }
 
 #[cfg(all(target_os = "linux", feature = "furiosa-smi-rs"))]
-fn create_gpu_info_from_device(
+fn create_gpu_info_from_device_2025(
     info: &furiosa_smi_rs::DeviceInfo,
-    perf: &furiosa_smi_rs::DevicePerformance,
-    index: usize,
+    utilization: &furiosa_smi_rs::CoreUtilization,
+    temperature: &furiosa_smi_rs::DeviceTemperature,
+    power: &f64,
+    governor: &furiosa_smi_rs::GovernorProfile,
+    core_freq: &furiosa_smi_rs::CoreFrequency,
     time: &str,
     hostname: &str,
 ) -> Option<GpuInfo> {
     let mut detail = HashMap::new();
 
-    // Add device details from DeviceInfo
-    detail.insert("serial_number".to_string(), info.serial_number.clone());
+    // Add device details from DeviceInfo using 2025.3.0 API methods
+    detail.insert("serial_number".to_string(), info.serial());
     detail.insert(
         "firmware_version".to_string(),
-        info.firmware_version.clone(),
+        info.firmware_version().to_string(),
     );
-    detail.insert("architecture".to_string(), info.architecture.clone());
-    detail.insert("core_count".to_string(), info.core_count.to_string());
+    detail.insert("architecture".to_string(), format!("{:?}", info.arch()));
+    detail.insert("core_count".to_string(), info.core_num().to_string());
+    detail.insert("bdf".to_string(), info.bdf());
+    detail.insert("numa_node".to_string(), info.numa_node().to_string());
 
     // Add performance details
-    detail.insert("governor".to_string(), perf.governor.clone());
+    detail.insert("governor".to_string(), format!("{:?}", governor));
     detail.insert(
         "frequency".to_string(),
-        format!("{}MHz", perf.frequency_mhz),
+        format!("{}MHz", core_freq.0), // CoreFrequency is a tuple struct
     );
 
-    // Add unified AI acceleration library labels
-    // Note: furiosa-smi-rs doesn't provide PERT version directly,
-    // so we use firmware_version as a proxy
+    // Add unified AI acceleration library labels using PERT version
     detail.insert("lib_name".to_string(), "PERT".to_string());
-    detail.insert("lib_version".to_string(), info.firmware_version.clone());
+    detail.insert("lib_version".to_string(), info.pert_version().to_string());
+
+    // Calculate average PE utilization from core utilization
+    let avg_util = if !utilization.pe_utilizations.is_empty() {
+        let sum: f64 = utilization.pe_utilizations.iter().map(|pe| pe.utilization as f64).sum();
+        sum / utilization.pe_utilizations.len() as f64
+    } else {
+        0.0
+    };
+
+    // TODO: Get memory info - not directly available in 2025.3.0 API
+    let (used_memory, total_memory) = (0u64, FURIOSA_HBM3_MEMORY_BYTES);
 
     Some(GpuInfo {
-        uuid: info.device_uuid.clone(),
+        uuid: info.uuid(),
         time: time.to_string(),
-        name: format!("Furiosa {}", info.architecture),
+        name: format!("Furiosa {:?}", info.arch()),
         device_type: "NPU".to_string(),
         host_id: hostname.to_string(),
         hostname: hostname.to_string(),
         instance: hostname.to_string(),
-        utilization: perf.utilization,
+        utilization: avg_util,
         ane_utilization: 0.0,
         dla_utilization: None,
-        temperature: perf.temperature,
-        used_memory: perf.memory_used,
-        total_memory: perf.memory_total,
-        frequency: perf.frequency_mhz,
-        power_consumption: perf.power_watts,
-        gpu_core_count: None,
+        temperature: temperature.0 as u32, // DeviceTemperature is a tuple struct
+        used_memory,
+        total_memory,
+        frequency: core_freq.0,
+        power_consumption: *power,
+        gpu_core_count: Some(info.core_num()),
         detail,
     })
 }
