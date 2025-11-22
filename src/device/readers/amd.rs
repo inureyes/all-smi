@@ -104,7 +104,8 @@ impl AmdGpuReader {
 
         // Add device count validation to prevent unbounded growth
         const MAX_DEVICES: usize = 256;
-        let device_paths_to_process: Vec<_> = device_path_list.into_iter().take(MAX_DEVICES).collect();
+        let device_paths_to_process: Vec<_> =
+            device_path_list.into_iter().take(MAX_DEVICES).collect();
 
         for device_path in device_paths_to_process {
             match device_path.init() {
@@ -151,7 +152,7 @@ impl AmdGpuReader {
     }
 
     /// Get cached static device info for a device, initializing if needed
-    fn get_device_static_info(&self, device: &AmdGpuDevice) -> &DeviceStaticInfo {
+    fn get_device_static_info<'a>(&self, device: &'a AmdGpuDevice) -> &'a DeviceStaticInfo {
         device
             .static_info
             .get_or_init(|| {

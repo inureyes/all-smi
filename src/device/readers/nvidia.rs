@@ -85,27 +85,25 @@ impl NvidiaGpuReader {
 
     /// Get cached static device info for all devices, initializing if needed
     fn get_device_static_info(&self, nvml: &Nvml) -> &HashMap<u32, DeviceStaticInfo> {
-        self.device_static_info
-            .get_or_init(|| {
-                let mut device_info_map = HashMap::new();
-                let driver_version = self.get_driver_version(nvml);
-                let cuda_version = self.get_cuda_version(nvml);
+        self.device_static_info.get_or_init(|| {
+            let mut device_info_map = HashMap::new();
+            let driver_version = self.get_driver_version(nvml);
+            let cuda_version = self.get_cuda_version(nvml);
 
-                if let Ok(device_count) = nvml.device_count() {
-                    // Add device count validation to prevent unbounded growth
-                    const MAX_DEVICES: usize = 256;
-                    let device_count = device_count.min(MAX_DEVICES as u32);
+            if let Ok(device_count) = nvml.device_count() {
+                // Add device count validation to prevent unbounded growth
+                const MAX_DEVICES: usize = 256;
+                let device_count = device_count.min(MAX_DEVICES as u32);
 
-                    for i in 0..device_count {
-                        if let Ok(device) = nvml.device_by_index(i) {
-                            let detail =
-                                create_device_detail(&device, &driver_version, &cuda_version);
-                            device_info_map.insert(i, DeviceStaticInfo { detail });
-                        }
+                for i in 0..device_count {
+                    if let Ok(device) = nvml.device_by_index(i) {
+                        let detail = create_device_detail(&device, &driver_version, &cuda_version);
+                        device_info_map.insert(i, DeviceStaticInfo { detail });
                     }
                 }
-                device_info_map
-            })
+            }
+            device_info_map
+        })
     }
 
     /// Get GPU info using NVML with cached static values

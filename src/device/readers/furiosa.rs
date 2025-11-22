@@ -150,7 +150,8 @@ impl FuriosaNpuReader {
                 {
                     // Add device count validation to prevent unbounded growth
                     const MAX_DEVICES: usize = 256;
-                    let devices_to_process: Vec<_> = devices.into_iter().take(MAX_DEVICES).collect();
+                    let devices_to_process: Vec<_> =
+                        devices.into_iter().take(MAX_DEVICES).collect();
                     for device in devices_to_process {
                         let mut detail = HashMap::new();
 

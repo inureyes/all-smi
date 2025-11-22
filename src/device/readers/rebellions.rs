@@ -163,9 +163,7 @@ impl RebellionsNpuReader {
 
     /// Get cached static device info
     fn get_device_static_info(&self, uuid: &str) -> Option<&DeviceStaticInfo> {
-        self.device_static_info
-            .get()
-            .and_then(|map| map.get(uuid))
+        self.device_static_info.get().and_then(|map| map.get(uuid))
     }
 
     /// Determine which command to use (rbln-stat or rbln-smi)
