@@ -354,13 +354,15 @@ fn get_metal_version_from_framework() -> Option<String> {
         if let Some(major_version) = version_str.split('.').next() {
             if let Ok(major) = major_version.parse::<u32>() {
                 // macOS version to Metal version mapping
+                // Note: Version numbering jumped from 15 to 26 (year-based)
                 let metal_version = match major {
-                    15.. => "Metal 3", // macOS 15+ (Sequoia and later) - Metal 3
-                    14 => "Metal 3",   // macOS 14 (Sonoma) - Metal 3
-                    13 => "Metal 3",   // macOS 13 (Ventura) - Metal 3
-                    12 => "Metal 2.4", // macOS 12 (Monterey) - Metal 2.4
-                    11 => "Metal 2.3", // macOS 11 (Big Sur) - Metal 2.3
-                    _ => "Metal 2",    // Older versions
+                    26.. => "Metal 4",   // macOS 26+ (Tahoe and later) - Metal 4
+                    15..=25 => "Metal 3", // macOS 15-25 (Sequoia era) - Metal 3
+                    14 => "Metal 3",     // macOS 14 (Sonoma) - Metal 3
+                    13 => "Metal 3",     // macOS 13 (Ventura) - Metal 3
+                    12 => "Metal 2.4",   // macOS 12 (Monterey) - Metal 2.4
+                    11 => "Metal 2.3",   // macOS 11 (Big Sur) - Metal 2.3
+                    _ => "Metal 2",      // Older versions
                 };
                 return Some(metal_version.to_string());
             }
