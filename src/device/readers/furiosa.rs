@@ -375,7 +375,11 @@ fn create_gpu_info_from_device_2025(
 
     // Calculate average PE utilization from core utilization
     let avg_util = if !utilization.pe_utilizations.is_empty() {
-        let sum: f64 = utilization.pe_utilizations.iter().map(|pe| pe.utilization as f64).sum();
+        let sum: f64 = utilization
+            .pe_utilizations
+            .iter()
+            .map(|pe| pe.utilization as f64)
+            .sum();
         sum / utilization.pe_utilizations.len() as f64
     } else {
         0.0
