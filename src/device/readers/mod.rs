@@ -14,6 +14,9 @@
 
 // Module for device readers with reduced code duplication
 
+// Common caching utilities shared across all readers
+pub mod common_cache;
+
 #[cfg(target_os = "macos")]
 pub mod apple_silicon;
 

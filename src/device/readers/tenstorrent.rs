@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
+use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
@@ -50,23 +51,9 @@ impl Default for TenstorrentConfig {
 // Global status for error messages
 static TENSTORRENT_STATUS: Mutex<Option<String>> = Mutex::new(None);
 
-// Static device information that doesn't change after initialization
+// Tenstorrent-specific static device information
 #[derive(Clone)]
-struct StaticDeviceInfo {
-    uuid: String,
-    device_name: String,
-    board_type: String,
-    board_id: String,
-    pcie_address: Option<String>,
-    pcie_vendor_id: Option<String>,
-    pcie_device_id: Option<String>,
-    pcie_link_width: Option<String>,
-    pcie_link_gen: Option<String>,
-    arc_fw_version: String,
-    eth_fw_version: String,
-    fw_date: String,
-    ddr_fw_version: Option<String>,
-    spibootrom_fw_version: Option<String>,
+struct TenstorrentStaticInfo {
     total_memory: u64,
     tdp_limit: f64,
 }
@@ -74,7 +61,8 @@ struct StaticDeviceInfo {
 // Cache entry containing both chip and its static info
 struct CachedChipInfo {
     chip: Chip,
-    static_info: StaticDeviceInfo,
+    static_info: DeviceStaticInfo,
+    tenstorrent_info: TenstorrentStaticInfo,
 }
 
 // Cache for initialized chips and their static info to avoid re-initialization on every measurement
@@ -135,8 +123,12 @@ impl TenstorrentReader {
                 // Initialize the chip
                 match uninit_chip.init(&mut |_| Ok::<(), std::convert::Infallible>(())) {
                     Ok(chip) => {
-                        let static_info = extract_static_info(&chip)?;
-                        Some(CachedChipInfo { chip, static_info })
+                        let (static_info, tenstorrent_info) = extract_static_info(&chip)?;
+                        Some(CachedChipInfo {
+                            chip,
+                            static_info,
+                            tenstorrent_info,
+                        })
                     }
                     Err(_) => None, // This should never happen with Infallible
                 }
@@ -191,7 +183,14 @@ impl GpuReader for TenstorrentReader {
             .iter()
             .enumerate()
             .filter_map(|(index, cached)| {
-                create_gpu_info(&cached.chip, &cached.static_info, index, &time, &hostname)
+                create_gpu_info(
+                    &cached.chip,
+                    &cached.static_info,
+                    &cached.tenstorrent_info,
+                    index,
+                    &time,
+                    &hostname,
+                )
             })
             .collect()
     }
@@ -240,7 +239,7 @@ pub fn get_tenstorrent_status_message() -> Option<String> {
     TENSTORRENT_STATUS.lock().ok()?.clone()
 }
 
-fn extract_static_info(chip: &Chip) -> Option<StaticDeviceInfo> {
+fn extract_static_info(chip: &Chip) -> Option<(DeviceStaticInfo, TenstorrentStaticInfo)> {
     // Get telemetry
     let telem = chip.get_telemetry().ok()?;
 
@@ -255,22 +254,35 @@ fn extract_static_info(chip: &Chip) -> Option<StaticDeviceInfo> {
         }
     );
 
+    let uuid = Some(telem.board_serial_number_hex());
+
+    // Build detail map using DetailBuilder
+    let mut builder = DetailBuilder::new()
+        .insert("Board Type", board_type)
+        .insert("Board ID", telem.board_serial_number_hex())
+        .insert("ARC FW Version", telem.arc_fw_version())
+        .insert("ETH FW Version", telem.eth_fw_version())
+        .insert("FW Date", telem.firmware_date());
+
     // Extract PCIe information if available
-    let (pcie_address, pcie_vendor_id, pcie_device_id, pcie_link_width, pcie_link_gen) =
-        if let Ok(Some(device_info)) = chip.get_device_info() {
-            (
-                Some(format!(
-                    "{:04x}:{:02x}:{:02x}.{:x}",
-                    device_info.domain, device_info.bus, device_info.slot, device_info.function
-                )),
-                Some(format!("0x{:04x}", device_info.vendor)),
-                Some(format!("0x{:04x}", device_info.device_id)),
-                Some(format!("x{}", device_info.pcie_current_link_width())),
-                Some(format!("Gen{}", device_info.pcie_current_link_gen())),
-            )
-        } else {
-            (None, None, None, None, None)
-        };
+    if let Ok(Some(device_info)) = chip.get_device_info() {
+        let pcie_address = format!(
+            "{:04x}:{:02x}:{:02x}.{:x}",
+            device_info.domain, device_info.bus, device_info.slot, device_info.function
+        );
+        let pcie_link_width = format!("x{}", device_info.pcie_current_link_width());
+        let pcie_link_gen = format!("{}", device_info.pcie_current_link_gen());
+
+        builder = builder
+            .insert("PCIe Address", &pcie_address)
+            .insert("PCIe Vendor ID", format!("0x{:04x}", device_info.vendor))
+            .insert("PCIe Device ID", format!("0x{:04x}", device_info.device_id))
+            .insert_pci_info(
+                Some(&pcie_address),
+                Some(&pcie_link_gen),
+                Some(&pcie_link_width),
+            );
+    }
 
     // Extract firmware versions
     let ddr_fw_version = if telem.ddr_fw_version != 0 {
@@ -283,6 +295,7 @@ fn extract_static_info(chip: &Chip) -> Option<StaticDeviceInfo> {
     } else {
         None
     };
+    builder = builder.insert_optional("DDR FW Version", ddr_fw_version);
 
     let spibootrom_fw_version = if telem.spibootrom_fw_version != 0 {
         Some(format!(
@@ -294,28 +307,20 @@ fn extract_static_info(chip: &Chip) -> Option<StaticDeviceInfo> {
     } else {
         None
     };
+    builder = builder.insert_optional("SPIBOOTROM FW Version", spibootrom_fw_version);
 
     // Determine memory size and TDP based on board type
     let (total_memory, tdp_limit) = determine_memory_and_tdp(board_type);
 
-    Some(StaticDeviceInfo {
-        uuid: telem.board_serial_number_hex(),
-        device_name,
-        board_type: board_type.to_string(),
-        board_id: telem.board_serial_number_hex(),
-        pcie_address,
-        pcie_vendor_id,
-        pcie_device_id,
-        pcie_link_width,
-        pcie_link_gen,
-        arc_fw_version: telem.arc_fw_version(),
-        eth_fw_version: telem.eth_fw_version(),
-        fw_date: telem.firmware_date(),
-        ddr_fw_version,
-        spibootrom_fw_version,
+    let detail = builder.build();
+
+    let static_info = DeviceStaticInfo::with_details(device_name, uuid, detail);
+    let tenstorrent_info = TenstorrentStaticInfo {
         total_memory,
         tdp_limit,
-    })
+    };
+
+    Some((static_info, tenstorrent_info))
 }
 
 fn determine_memory_and_tdp(board_type: &str) -> (u64, f64) {
@@ -332,7 +337,8 @@ fn determine_memory_and_tdp(board_type: &str) -> (u64, f64) {
 
 fn create_gpu_info(
     chip: &Chip,
-    static_info: &StaticDeviceInfo,
+    static_info: &DeviceStaticInfo,
+    tenstorrent_info: &TenstorrentStaticInfo,
     _index: usize,
     time: &str,
     hostname: &str,
@@ -341,18 +347,21 @@ fn create_gpu_info(
     let telem = chip.get_telemetry().ok()?;
 
     // Build device details
-    let detail = build_device_details(static_info, &telem);
+    let detail = build_device_details(static_info, tenstorrent_info, &telem);
 
     // Get dynamic metrics with safe defaults
     let temperature = telem.asic_temperature().round() as u32;
     let power = calculate_power(&telem);
     let frequency = telem.ai_clk();
-    let utilization = estimate_utilization(&telem, static_info.tdp_limit);
+    let utilization = estimate_utilization(&telem, tenstorrent_info.tdp_limit);
 
     Some(GpuInfo {
-        uuid: static_info.uuid.clone(),
+        uuid: static_info
+            .uuid
+            .clone()
+            .unwrap_or_else(|| "Unknown".to_string()),
         time: time.to_string(),
-        name: format!("Tenstorrent {}", static_info.device_name),
+        name: static_info.name.clone(),
         device_type: "NPU".to_string(),
         host_id: hostname.to_string(),
         hostname: hostname.to_string(),
@@ -362,7 +371,7 @@ fn create_gpu_info(
         dla_utilization: None,
         temperature,
         used_memory: 0, // TODO: Implement memory tracking
-        total_memory: static_info.total_memory,
+        total_memory: tenstorrent_info.total_memory,
         frequency,
         power_consumption: power,
         gpu_core_count: None,
@@ -371,30 +380,12 @@ fn create_gpu_info(
 }
 
 fn build_device_details(
-    static_info: &StaticDeviceInfo,
+    static_info: &DeviceStaticInfo,
+    _tenstorrent_info: &TenstorrentStaticInfo,
     telem: &Telemetry,
 ) -> HashMap<String, String> {
-    let mut detail = HashMap::new();
-
-    // Static information
-    crate::extract_struct_fields!(detail, static_info, {
-        "Board Type" => board_type,
-        "Board ID" => board_id,
-        "ARC Firmware" => arc_fw_version,
-        "ETH Firmware" => eth_fw_version,
-        "Firmware Date" => fw_date
-    });
-
-    // Optional static info
-    crate::insert_optional_fields!(detail, static_info, {
-        "PCIe Address" => pcie_address,
-        "PCIe Vendor ID" => pcie_vendor_id,
-        "PCIe Device ID" => pcie_device_id,
-        "PCIe Link Width" => pcie_link_width,
-        "PCIe Link Gen" => pcie_link_gen,
-        "DDR Firmware" => ddr_fw_version,
-        "SPI Bootrom Firmware" => spibootrom_fw_version
-    });
+    // Clone the static details from DeviceStaticInfo
+    let mut detail = static_info.detail.clone();
 
     // Dynamic telemetry
     detail.insert(
@@ -422,12 +413,13 @@ fn build_device_details(
     detail.insert("ARC Clock".to_string(), format!("{}MHz", telem.arc_clk()));
     detail.insert("AXI Clock".to_string(), format!("{}MHz", telem.axi_clk()));
 
-    // Add unified AI acceleration library labels
-    detail.insert("lib_name".to_string(), "Luwen".to_string());
-    detail.insert(
-        "lib_version".to_string(),
-        static_info.arc_fw_version.clone(),
-    );
+    // Add unified AI acceleration library labels if not already present
+    detail
+        .entry("lib_name".to_string())
+        .or_insert("Luwen".to_string());
+    if let Some(arc_fw) = detail.get("ARC FW Version") {
+        detail.insert("lib_version".to_string(), arc_fw.clone());
+    }
 
     detail
 }

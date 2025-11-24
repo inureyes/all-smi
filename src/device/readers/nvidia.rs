@@ -15,6 +15,7 @@
 use crate::device::common::constants::BYTES_PER_MB;
 use crate::device::common::{execute_command_default, parse_csv_line};
 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
+use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo, MAX_DEVICES};
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
@@ -28,12 +29,6 @@ use sysinfo::System;
 
 // Global status for NVML error messages
 static NVML_STATUS: Mutex<Option<String>> = Mutex::new(None);
-
-/// Cached static device information that doesn't change during runtime
-#[derive(Clone, Debug)]
-struct DeviceStaticInfo {
-    detail: HashMap<String, String>,
-}
 
 pub struct NvidiaGpuReader {
     /// Cached driver version (fetched only once)
@@ -92,13 +87,15 @@ impl NvidiaGpuReader {
 
             if let Ok(device_count) = nvml.device_count() {
                 // Add device count validation to prevent unbounded growth
-                const MAX_DEVICES: usize = 256;
                 let device_count = device_count.min(MAX_DEVICES as u32);
 
                 for i in 0..device_count {
                     if let Ok(device) = nvml.device_by_index(i) {
                         let detail = create_device_detail(&device, &driver_version, &cuda_version);
-                        device_info_map.insert(i, DeviceStaticInfo { detail });
+                        let name = device.name().unwrap_or_else(|_| "Unknown GPU".to_string());
+                        let uuid = device.uuid().ok();
+                        device_info_map
+                            .insert(i, DeviceStaticInfo::with_details(name, uuid, detail));
                     }
                 }
             }
@@ -355,15 +352,15 @@ fn create_device_detail(
     driver_version: &str,
     cuda_version: &str,
 ) -> HashMap<String, String> {
-    let mut detail = HashMap::new();
-    detail.insert("Driver Version".to_string(), driver_version.to_string());
-    detail.insert("CUDA Version".to_string(), cuda_version.to_string());
-
-    // Add unified AI acceleration library labels
-    detail.insert("lib_name".to_string(), "CUDA".to_string());
-    detail.insert("lib_version".to_string(), cuda_version.to_string());
+    let builder = DetailBuilder::new()
+        .insert("Driver Version", driver_version)
+        .insert("CUDA Version", cuda_version)
+        // Add unified AI acceleration library labels
+        .insert("lib_name", "CUDA")
+        .insert("lib_version", cuda_version);
 
     // Add all device details using helper macros
+    let mut detail = builder.build();
     add_detail!(detail, device.brand(), "Brand");
     add_detail!(detail, device.architecture(), "Architecture");
     add_detail!(detail, device.current_pcie_link_gen(), "PCIe Generation");

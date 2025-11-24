@@ -14,23 +14,15 @@
 
 use crate::device::common::{execute_command_default, parse_csv_line};
 use crate::device::process_list::{get_all_processes, merge_gpu_processes};
+use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::{get_hostname, hz_to_mhz, millicelsius_to_celsius};
 use chrono::Local;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::sync::OnceLock;
 use sysinfo::System;
-
-/// Cached static device information that doesn't change during runtime
-#[derive(Clone, Debug)]
-struct DeviceStaticInfo {
-    /// Device name (e.g., "NVIDIA Jetson AGX Orin")
-    name: String,
-    /// Static device details (CUDA version, JetPack, L4T, etc.)
-    detail: HashMap<String, String>,
-}
 
 pub struct NvidiaJetsonGpuReader {
     /// Cached static device information (fetched only once)
@@ -53,13 +45,13 @@ impl NvidiaJetsonGpuReader {
     /// Get cached static device info, initializing if needed
     fn get_static_info(&self) -> &DeviceStaticInfo {
         self.static_info.get_or_init(|| {
-            let mut detail = HashMap::new();
-
             // Get device name
             let name = fs::read_to_string("/proc/device-tree/model")
                 .unwrap_or_else(|_| "NVIDIA Jetson".to_string())
                 .trim_end_matches('\0')
                 .to_string();
+
+            let mut builder = DetailBuilder::new();
 
             // Try to get CUDA version from nvidia-smi if available
             if let Ok(output) = execute_command_default("nvidia-smi", &[]) {
@@ -73,10 +65,11 @@ impl NvidiaJetsonGpuReader {
                                     .next()
                                     .unwrap_or("Unknown")
                                     .to_string();
-                                detail.insert("CUDA Version".to_string(), version.clone());
-                                // Add unified AI acceleration library labels
-                                detail.insert("lib_name".to_string(), "CUDA".to_string());
-                                detail.insert("lib_version".to_string(), version);
+                                builder = builder
+                                    .insert("CUDA Version", &version)
+                                    // Add unified AI acceleration library labels
+                                    .insert("lib_name", "CUDA")
+                                    .insert("lib_version", version);
                             }
                             break;
                         }
@@ -85,17 +78,20 @@ impl NvidiaJetsonGpuReader {
             }
 
             // Get JetPack version if available
-            if let Ok(jetpack) = fs::read_to_string("/etc/nv_jetpack_release") {
-                let version = jetpack
-                    .lines()
-                    .find(|line| line.starts_with("JETPACK_VERSION"))
-                    .and_then(|line| line.split('=').nth(1))
-                    .map(|v| v.trim().to_string())
-                    .unwrap_or_else(|| "Unknown".to_string());
-                detail.insert("JetPack Version".to_string(), version);
-            }
+            let jetpack_version =
+                fs::read_to_string("/etc/nv_jetpack_release")
+                    .ok()
+                    .and_then(|jetpack| {
+                        jetpack
+                            .lines()
+                            .find(|line| line.starts_with("JETPACK_VERSION"))
+                            .and_then(|line| line.split('=').nth(1))
+                            .map(|v| v.trim().to_string())
+                    });
+            builder = builder.insert_optional("JetPack Version", jetpack_version);
 
             // Get L4T version
+            let mut detail = builder.build();
             if let Ok(l4t) = fs::read_to_string("/etc/nv_tegra_release") {
                 if let Some(version) = l4t.split_whitespace().nth(1) {
                     detail.insert("L4T Version".to_string(), version.to_string());
@@ -106,7 +102,7 @@ impl NvidiaJetsonGpuReader {
             detail.insert("GPU Type".to_string(), "Integrated".to_string());
             detail.insert("Architecture".to_string(), "Tegra".to_string());
 
-            DeviceStaticInfo { name, detail }
+            DeviceStaticInfo::with_details(name, None, detail)
         })
     }
 }

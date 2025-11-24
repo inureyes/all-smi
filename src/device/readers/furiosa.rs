@@ -17,6 +17,7 @@ use crate::device::common::execute_command_default;
 use crate::device::common::parsers::{
     parse_device_id, parse_frequency_mhz, parse_memory_mb_to_bytes, parse_power, parse_temperature,
 };
+use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
@@ -94,17 +95,6 @@ struct FuriosaPsOutputJson {
     memory: String,
 }
 
-/// Cached static device information that doesn't change during runtime
-#[derive(Clone, Debug)]
-struct DeviceStaticInfo {
-    /// Device details including arch, uuid, serial number, firmware, pert, PCI info
-    detail: HashMap<String, String>,
-    /// Device name (e.g., "Furiosa RNGD")
-    name: String,
-    /// Device UUID
-    uuid: String,
-}
-
 pub struct FuriosaNpuReader {
     collection_method: CollectionMethod,
     /// Cached static device information per device index (CLI method)
@@ -148,36 +138,33 @@ impl FuriosaNpuReader {
             {
                 if let Ok(devices) = serde_json::from_str::<Vec<FuriosaSmiInfoJson>>(&output.stdout)
                 {
-                    // Add device count validation to prevent unbounded growth
-                    const MAX_DEVICES: usize = 256;
+                    // Use common MAX_DEVICES constant
+                    const MAX_DEVICES: usize = crate::device::readers::common_cache::MAX_DEVICES;
                     let devices_to_process: Vec<_> =
                         devices.into_iter().take(MAX_DEVICES).collect();
+
                     for device in devices_to_process {
-                        let mut detail = HashMap::new();
+                        // Build detail HashMap using DetailBuilder
+                        let detail = DetailBuilder::new()
+                            .insert("serial_number", &device.device_sn)
+                            .insert("firmware_version", &device.firmware)
+                            .insert("pert_version", &device.pert)
+                            .insert("pci_bdf", &device.pci_bdf)
+                            .insert("pci_dev", &device.pci_dev)
+                            .insert("architecture", device.arch.to_uppercase())
+                            .insert("core_count", "8")
+                            .insert("pe_count", "64K")
+                            .insert("memory_bandwidth", "1.63TB/s")
+                            .insert("on_chip_sram", "256MB")
+                            // Add unified AI acceleration library labels
+                            .insert_lib_info("PERT", Some(&device.pert))
+                            .build();
 
-                        // Extract static fields
-                        crate::extract_struct_fields!(detail, device, {
-                            "serial_number" => device_sn,
-                            "firmware_version" => firmware,
-                            "pert_version" => pert,
-                            "pci_bdf" => pci_bdf,
-                            "pci_dev" => pci_dev
-                        });
-                        detail.insert("architecture".to_string(), device.arch.to_uppercase());
-                        detail.insert("core_count".to_string(), "8".to_string());
-                        detail.insert("pe_count".to_string(), "64K".to_string());
-                        detail.insert("memory_bandwidth".to_string(), "1.63TB/s".to_string());
-                        detail.insert("on_chip_sram".to_string(), "256MB".to_string());
-
-                        // Add unified AI acceleration library labels
-                        detail.insert("lib_name".to_string(), "PERT".to_string());
-                        detail.insert("lib_version".to_string(), device.pert.clone());
-
-                        let static_info = DeviceStaticInfo {
+                        let static_info = DeviceStaticInfo::with_details(
+                            format!("Furiosa {}", device.arch.to_uppercase()),
+                            Some(device.device_uuid.clone()),
                             detail,
-                            name: format!("Furiosa {}", device.arch.to_uppercase()),
-                            uuid: device.device_uuid.clone(),
-                        };
+                        );
 
                         device_info_map.insert(device.index.clone(), static_info);
                     }
@@ -195,33 +182,29 @@ impl FuriosaNpuReader {
             let mut device_info_map = HashMap::new();
 
             if let Ok(devices) = list_devices() {
-                // Add device count validation to prevent unbounded growth
-                const MAX_DEVICES: usize = 256;
+                // Use common MAX_DEVICES constant
+                const MAX_DEVICES: usize = crate::device::readers::common_cache::MAX_DEVICES;
                 let devices_to_process: Vec<_> = devices.iter().take(MAX_DEVICES).collect();
+
                 for device in devices_to_process {
                     if let Ok(info) = device.device_info() {
-                        let mut detail = HashMap::new();
+                        // Build detail HashMap using DetailBuilder
+                        let detail = DetailBuilder::new()
+                            .insert("serial_number", info.serial())
+                            .insert("firmware_version", &info.firmware_version().to_string())
+                            .insert("architecture", format!("{:?}", info.arch()))
+                            .insert("core_count", &info.core_num().to_string())
+                            .insert("bdf", info.bdf())
+                            .insert("numa_node", &info.numa_node().to_string())
+                            // Add unified AI acceleration library labels
+                            .insert_lib_info("PERT", Some(&info.pert_version().to_string()))
+                            .build();
 
-                        // Add static device details from DeviceInfo
-                        detail.insert("serial_number".to_string(), info.serial());
-                        detail.insert(
-                            "firmware_version".to_string(),
-                            info.firmware_version().to_string(),
-                        );
-                        detail.insert("architecture".to_string(), format!("{:?}", info.arch()));
-                        detail.insert("core_count".to_string(), info.core_num().to_string());
-                        detail.insert("bdf".to_string(), info.bdf());
-                        detail.insert("numa_node".to_string(), info.numa_node().to_string());
-
-                        // Add unified AI acceleration library labels
-                        detail.insert("lib_name".to_string(), "PERT".to_string());
-                        detail.insert("lib_version".to_string(), info.pert_version().to_string());
-
-                        let static_info = DeviceStaticInfo {
+                        let static_info = DeviceStaticInfo::with_details(
+                            format!("Furiosa {:?}", info.arch()),
+                            Some(info.uuid()),
                             detail,
-                            name: format!("Furiosa {:?}", info.arch()),
-                            uuid: info.uuid(),
-                        };
+                        );
 
                         device_info_map.insert(info.uuid(), static_info);
                     }
@@ -440,7 +423,10 @@ fn create_gpu_info_from_cli_cached(
     let used_memory = device_memory_usage.get(&device_name).copied().unwrap_or(0);
 
     Some(GpuInfo {
-        uuid: static_info.uuid.clone(),
+        uuid: static_info
+            .uuid
+            .clone()
+            .unwrap_or_else(|| device.device_uuid.clone()),
         time: time.to_string(),
         name: static_info.name.clone(),
         device_type: "NPU".to_string(),
@@ -582,7 +568,7 @@ fn create_gpu_info_from_device_2025_cached(
     let gpu_core_count = detail.get("core_count").and_then(|s| s.parse::<u32>().ok());
 
     Some(GpuInfo {
-        uuid: static_info.uuid.clone(),
+        uuid: static_info.uuid.clone().unwrap_or_default(),
         time: time.to_string(),
         name: static_info.name.clone(),
         device_type: "NPU".to_string(),

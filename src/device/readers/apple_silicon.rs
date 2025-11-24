@@ -14,11 +14,12 @@
 
 use crate::device::common::command_executor::execute_command_default;
 use crate::device::powermetrics::get_powermetrics_manager;
+use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 use crate::device::{GpuInfo, GpuReader, ProcessInfo};
 use crate::utils::get_hostname;
 use chrono::Local;
 use once_cell::sync::{Lazy, OnceCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
@@ -26,15 +27,19 @@ use std::sync::{
 use sysinfo::System;
 
 // Type alias to simplify the complex type
-type GpuInfoCache = (String, Option<String>, Option<u32>);
+type GpuInfoCache = DeviceStaticInfo;
 
 // Cache GPU info to avoid expensive system_profiler calls on every initialization
 static CACHED_GPU_INFO: Lazy<Mutex<Option<GpuInfoCache>>> = Lazy::new(|| Mutex::new(None));
 
+// Apple Silicon specific info that needs to be cached separately
+struct AppleSiliconInfo {
+    gpu_core_count: Option<u32>,
+}
+
 pub struct AppleSiliconGpuReader {
-    name: OnceCell<String>,
-    driver_version: OnceCell<Option<String>>,
-    gpu_core_count: OnceCell<Option<u32>>,
+    static_info: OnceCell<DeviceStaticInfo>,
+    apple_info: OnceCell<AppleSiliconInfo>,
     initialized: AtomicBool,
 }
 
@@ -47,9 +52,8 @@ impl Default for AppleSiliconGpuReader {
 impl AppleSiliconGpuReader {
     pub fn new() -> Self {
         AppleSiliconGpuReader {
-            name: OnceCell::new(),
-            driver_version: OnceCell::new(),
-            gpu_core_count: OnceCell::new(),
+            static_info: OnceCell::new(),
+            apple_info: OnceCell::new(),
             initialized: AtomicBool::new(false),
         }
     }
@@ -68,11 +72,15 @@ impl AppleSiliconGpuReader {
             }
         };
 
-        if let Some((name, driver_version, gpu_core_count)) = cache.as_ref() {
+        if let Some(static_info) = cache.as_ref() {
             // Use cached values - safe initialization via OnceCell
-            let _ = self.name.set(name.clone());
-            let _ = self.driver_version.set(driver_version.clone());
-            let _ = self.gpu_core_count.set(*gpu_core_count);
+            let _ = self.static_info.set(static_info.clone());
+            // Extract gpu_core_count from detail if present
+            let gpu_core_count = static_info
+                .detail
+                .get("GPU Core Count")
+                .and_then(|s| s.parse::<u32>().ok());
+            let _ = self.apple_info.set(AppleSiliconInfo { gpu_core_count });
             self.initialized.store(true, Ordering::Release);
             return;
         }
@@ -81,13 +89,24 @@ impl AppleSiliconGpuReader {
         let (name, driver_version) = get_gpu_name_and_version();
         let gpu_core_count = get_gpu_core_count();
 
+        // Build DeviceStaticInfo using DetailBuilder
+        let mut builder = DetailBuilder::new()
+            .insert("gpu_type", "Integrated")
+            .insert_optional("driver_version", driver_version.as_ref());
+
+        if let Some(count) = gpu_core_count {
+            builder = builder.insert("GPU Core Count", count.to_string());
+        }
+
+        let detail = builder.build();
+        let static_info = DeviceStaticInfo::with_details(name, None, detail);
+
         // Store in cache for future use
-        *cache = Some((name.clone(), driver_version.clone(), gpu_core_count));
+        *cache = Some(static_info.clone());
 
         // Update self - safe initialization via OnceCell
-        let _ = self.name.set(name);
-        let _ = self.driver_version.set(driver_version);
-        let _ = self.gpu_core_count.set(gpu_core_count);
+        let _ = self.static_info.set(static_info);
+        let _ = self.apple_info.set(AppleSiliconInfo { gpu_core_count });
         self.initialized.store(true, Ordering::Release);
     }
 
@@ -161,14 +180,17 @@ impl GpuReader for AppleSiliconGpuReader {
             get_gpu_metrics_fallback()
         };
 
-        let mut detail = HashMap::new();
-        let driver_ver = self
-            .driver_version
+        // Get cached static info
+        let static_info = self
+            .static_info
             .get()
-            .and_then(|v| v.clone())
-            .unwrap_or_else(|| "Unknown".to_string());
-        detail.insert("driver_version".to_string(), driver_ver.clone());
-        detail.insert("gpu_type".to_string(), "Integrated".to_string());
+            .expect("ensure_initialized should have set static_info");
+        let apple_info = self
+            .apple_info
+            .get()
+            .expect("ensure_initialized should have set apple_info");
+
+        let mut detail = static_info.detail.clone();
         detail.insert("architecture".to_string(), "Apple Silicon".to_string());
         if let Some(ref thermal_level) = metrics.thermal_pressure_level {
             detail.insert("thermal_pressure".to_string(), thermal_level.clone());
@@ -177,23 +199,24 @@ impl GpuReader for AppleSiliconGpuReader {
         // Add unified AI acceleration library labels
         detail.insert("lib_name".to_string(), "Metal".to_string());
         // For Apple Silicon, use the Metal version if available
-        if driver_ver != "Unknown" {
-            // Extract numeric version from "Metal X.Y" format
-            let lib_ver = driver_ver
-                .strip_prefix("Metal ")
-                .unwrap_or(&driver_ver)
-                .to_string();
-            detail.insert("lib_version".to_string(), lib_ver);
+        if let Some(driver_ver) = static_info.detail.get("driver_version") {
+            if driver_ver != "Unknown" {
+                // Extract numeric version from "Metal X.Y" format
+                let lib_ver = driver_ver
+                    .strip_prefix("Metal ")
+                    .unwrap_or(driver_ver)
+                    .to_string();
+                detail.insert("lib_version".to_string(), lib_ver);
+            }
         }
 
         vec![GpuInfo {
-            uuid: "AppleSiliconGPU".to_string(),
+            uuid: static_info
+                .uuid
+                .clone()
+                .unwrap_or_else(|| "AppleSiliconGPU".to_string()),
             time: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-            name: self
-                .name
-                .get()
-                .cloned()
-                .unwrap_or_else(|| "Apple Silicon GPU".to_string()),
+            name: static_info.name.clone(),
             device_type: "GPU".to_string(),
             host_id: get_hostname(),
             hostname: get_hostname(),
@@ -206,7 +229,7 @@ impl GpuReader for AppleSiliconGpuReader {
             total_memory: get_total_memory(), // Get total system memory (unified memory)
             frequency: metrics.frequency.unwrap_or(0),
             power_consumption: metrics.power_consumption.unwrap_or(0.0),
-            gpu_core_count: self.gpu_core_count.get().copied().flatten(),
+            gpu_core_count: apple_info.gpu_core_count,
             detail,
         }]
     }

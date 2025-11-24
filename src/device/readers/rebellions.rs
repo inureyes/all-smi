@@ -16,6 +16,7 @@ use crate::device::common::execute_command_default;
 use crate::device::common::parsers::{
     parse_device_id, parse_memory_mb_to_bytes, parse_power, parse_temperature, parse_utilization,
 };
+use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
@@ -89,21 +90,6 @@ type CommandCache = Arc<Mutex<Option<(String, PathBuf)>>>;
 /// Cache for rebellions command path
 static RBLN_COMMAND_CACHE: Lazy<CommandCache> = Lazy::new(|| Arc::new(Mutex::new(None)));
 
-/// Cached static device information
-#[derive(Clone, Debug)]
-struct DeviceStaticInfo {
-    uuid: String,
-    name: String,           // Device model
-    sid: String,            // Serial ID
-    fw_ver: String,         // Firmware version
-    device_path: String,    // Device path
-    board_info: String,     // Board information
-    pci_bus_id: String,     // PCI bus ID
-    pci_numa_node: String,  // NUMA node
-    pci_link_speed: String, // PCI link speed
-    pci_link_width: String, // PCI link width
-}
-
 pub struct RebellionsNpuReader {
     /// Cached KMD (driver) version
     kmd_version: OnceLock<String>,
@@ -134,22 +120,32 @@ impl RebellionsNpuReader {
         // Initialize device static info
         self.device_static_info.get_or_init(|| {
             let mut device_map = HashMap::new();
-            // Add device count validation to prevent unbounded growth
-            const MAX_DEVICES: usize = 256;
+            // Use common MAX_DEVICES constant from common_cache module
+            const MAX_DEVICES: usize = crate::device::readers::common_cache::MAX_DEVICES;
             let devices_to_process: Vec<_> = response.devices.iter().take(MAX_DEVICES).collect();
+
             for device in devices_to_process {
-                let static_info = DeviceStaticInfo {
-                    uuid: device.uuid.clone(),
-                    name: device.name.clone(),
-                    sid: device.sid.clone(),
-                    fw_ver: device.fw_ver.clone(),
-                    device_path: device.device.clone(),
-                    board_info: device.board_info.clone(),
-                    pci_bus_id: device.pci.bus_id.clone(),
-                    pci_numa_node: device.pci.numa_node.clone(),
-                    pci_link_speed: device.pci.link_speed.clone(),
-                    pci_link_width: device.pci.link_width.clone(),
-                };
+                // Build detail HashMap using DetailBuilder
+                let detail = DetailBuilder::new()
+                    .insert("Serial ID", &device.sid)
+                    .insert("Firmware Version", &device.fw_ver)
+                    .insert("Device Path", &device.device)
+                    .insert("Board Info", &device.board_info)
+                    .insert_pci_info(
+                        Some(&device.pci.bus_id),
+                        None, // Rebellions doesn't provide PCIe generation separately
+                        Some(&device.pci.link_width),
+                    )
+                    .insert("PCI Link Speed", &device.pci.link_speed)
+                    .insert("PCI NUMA Node", &device.pci.numa_node)
+                    .build();
+
+                let static_info = DeviceStaticInfo::with_details(
+                    device.name.clone(),
+                    Some(device.uuid.clone()),
+                    detail,
+                );
+
                 device_map.insert(device.uuid.clone(), static_info);
             }
             device_map
@@ -330,60 +326,30 @@ fn create_gpu_info_from_device(
     time: &str,
     hostname: &str,
 ) -> Option<GpuInfo> {
-    let mut detail = HashMap::new();
-
-    // Use cached static info if available, otherwise use current device data
-    let (
-        uuid,
-        name,
-        sid,
-        fw_ver,
-        device_path,
-        board_info,
-        pci_bus_id,
-        pci_numa_node,
-        pci_link_speed,
-        pci_link_width,
-    ) = if let Some(info) = static_info {
+    // Use cached static info if available, otherwise build from current device data
+    let (uuid, name, mut detail) = if let Some(info) = static_info {
         (
-            info.uuid.clone(),
+            info.uuid.clone().unwrap_or_else(|| device.uuid.clone()),
             info.name.clone(),
-            info.sid.clone(),
-            info.fw_ver.clone(),
-            info.device_path.clone(),
-            info.board_info.clone(),
-            info.pci_bus_id.clone(),
-            info.pci_numa_node.clone(),
-            info.pci_link_speed.clone(),
-            info.pci_link_width.clone(),
+            info.detail.clone(),
         )
     } else {
-        (
-            device.uuid.clone(),
-            device.name.clone(),
-            device.sid.clone(),
-            device.fw_ver.clone(),
-            device.device.clone(),
-            device.board_info.clone(),
-            device.pci.bus_id.clone(),
-            device.pci.numa_node.clone(),
-            device.pci.link_speed.clone(),
-            device.pci.link_width.clone(),
-        )
+        // Build detail HashMap if no cache available (first call)
+        let detail = DetailBuilder::new()
+            .insert("Serial ID", &device.sid)
+            .insert("Firmware Version", &device.fw_ver)
+            .insert("Device Path", &device.device)
+            .insert("Board Info", &device.board_info)
+            .insert_pci_info(Some(&device.pci.bus_id), None, Some(&device.pci.link_width))
+            .insert("PCI Link Speed", &device.pci.link_speed)
+            .insert("PCI NUMA Node", &device.pci.numa_node)
+            .build();
+
+        (device.uuid.clone(), device.name.clone(), detail)
     };
 
-    // Add cached static device details
-    detail.insert("Serial ID".to_string(), sid);
-    detail.insert("Device Path".to_string(), device_path);
-    detail.insert("Firmware Version".to_string(), fw_ver);
+    // Add KMD version (might be updated between calls)
     detail.insert("KMD Version".to_string(), kmd_version.to_string());
-    detail.insert("Board Info".to_string(), board_info);
-
-    // PCI details (cached)
-    detail.insert("PCI Bus ID".to_string(), pci_bus_id);
-    detail.insert("PCI NUMA Node".to_string(), pci_numa_node);
-    detail.insert("PCI Link Speed".to_string(), pci_link_speed);
-    detail.insert("PCI Link Width".to_string(), pci_link_width);
 
     // Dynamic values
     detail.insert("Status".to_string(), device.status.clone());

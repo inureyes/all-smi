@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 use crate::utils::get_hostname;
@@ -32,13 +33,6 @@ const MAX_GPU_MEMORY_BYTES: u64 = 512 * 1024 * 1024 * 1024; // 512GB max memory
 // Driver version validation constant
 // Linux kernel versions typically don't exceed 999 for any component
 const MAX_VERSION_COMPONENT: i32 = 999;
-
-/// Cached static device information that doesn't change during runtime
-#[derive(Clone, Debug)]
-struct DeviceStaticInfo {
-    device_name: String,
-    detail: HashMap<String, String>,
-}
 
 /// Per-device state that needs to be cached
 ///
@@ -176,22 +170,19 @@ impl AmdGpuReader {
                         &device.device_path,
                     );
 
-                    let mut detail = HashMap::new();
-                    detail.insert(
-                        "Device Name".to_string(),
-                        app_device_info.marketing_name.clone(),
-                    );
-                    detail.insert(
-                        "PCI Bus".to_string(),
-                        app_device_info.pci_bus.to_string(),
-                    );
+                    let mut builder = DetailBuilder::new()
+                        .insert("Device Name", &app_device_info.marketing_name)
+                        .insert("PCI Bus", app_device_info.pci_bus.to_string());
 
                     // Add ROCm version
                     if let Some(ref ver) = self.get_rocm_version() {
-                        detail.insert("ROCm Version".to_string(), ver.clone());
-                        detail.insert("lib_name".to_string(), "ROCm".to_string());
-                        detail.insert("lib_version".to_string(), ver.clone());
+                        builder = builder
+                            .insert("ROCm Version", ver)
+                            .insert("lib_name", "ROCm")
+                            .insert("lib_version", ver);
                     }
+
+                    let mut detail = builder.build();
 
                     // Add device details
                     detail.insert(
@@ -282,10 +273,7 @@ impl AmdGpuReader {
                     }
                 };
 
-                DeviceStaticInfo {
-                    device_name,
-                    detail,
-                }
+                DeviceStaticInfo::with_details(device_name, None, detail)
             })
     }
 
@@ -341,7 +329,7 @@ impl GpuReader for AmdGpuReader {
             // Get cached static device information (fetched only once)
             let static_info = self.get_device_static_info(device);
             let mut detail = static_info.detail.clone();
-            let device_name = static_info.device_name.clone();
+            let device_name = static_info.name.clone();
 
             // Get device info for dynamic metrics only
             let ext_info = match device.device_handle.device_info() {
