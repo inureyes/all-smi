@@ -48,32 +48,71 @@ pub struct GaudiDeviceMetrics {
 
 /// Map Habana Labs internal device names to human-friendly names
 /// Based on Intel Gaudi product naming conventions
+///
+/// Model number format: HL-XYZ[suffix]
+/// - X: Generation (1=Gaudi, 2=Gaudi 2, 3=Gaudi 3)
+/// - YZ: Form factor and cooling
+///   - 00: Mezzanine card
+///   - 05: PCIe air-cooled
+///   - 25: OAM (Open Accelerator Module)
+///   - 28: OAM variant
+///   - 38: UBB (Universal Baseboard)
+///   - 88: High-density variant
+/// - Suffix: L = Low-power, etc.
 pub fn map_device_name(internal_name: &str) -> String {
-    // Extract the base model (e.g., "HL-325" from "HL-325L")
-    let base = internal_name.trim();
+    let name = internal_name.trim();
 
-    match base {
-        // Gaudi 1 (original)
-        n if n.starts_with("HL-100") => "Intel Gaudi".to_string(),
-
-        // Gaudi 2 variants
-        n if n.starts_with("HL-200") => "Intel Gaudi 2".to_string(),
-        n if n.starts_with("HL-205") => "Intel Gaudi 2".to_string(),
-        n if n.starts_with("HL-225") => "Intel Gaudi 2".to_string(),
-
-        // Gaudi 3 variants
-        n if n.starts_with("HL-325") => "Intel Gaudi 3".to_string(),
-        n if n.starts_with("HL-328") => "Intel Gaudi 3".to_string(),
-        n if n.starts_with("HL-338") => "Intel Gaudi 3".to_string(),
-        n if n.starts_with("HL-388") => "Intel Gaudi 3".to_string(),
-
-        // Future-proofing for Gaudi 4+
-        n if n.starts_with("HL-4") => "Intel Gaudi 4".to_string(),
-        n if n.starts_with("HL-5") => "Intel Gaudi 5".to_string(),
-
-        // Unknown model - return original name with "Intel" prefix
-        _ => format!("Intel {internal_name}"),
+    // Gaudi 1 (original)
+    if name.starts_with("HL-100") {
+        return "Intel Gaudi".to_string();
     }
+
+    // Gaudi 2 variants
+    if name.starts_with("HL-2") {
+        let variant = match name {
+            n if n.starts_with("HL-200") => "Mezzanine",
+            n if n.starts_with("HL-205") => "PCIe",
+            n if n.starts_with("HL-225") => "OAM",
+            _ => "",
+        };
+        return if variant.is_empty() {
+            "Intel Gaudi 2".to_string()
+        } else {
+            format!("Intel Gaudi 2 {variant}")
+        };
+    }
+
+    // Gaudi 3 variants
+    if name.starts_with("HL-3") {
+        let (variant, suffix) = match name {
+            // PCIe variants
+            n if n.starts_with("HL-325L") => ("PCIe", " LP"), // Low-power
+            n if n.starts_with("HL-325") => ("PCIe", ""),
+            // OAM variants
+            n if n.starts_with("HL-328") => ("OAM", ""),
+            // UBB (Universal Baseboard)
+            n if n.starts_with("HL-338") => ("UBB", ""),
+            // High-density
+            n if n.starts_with("HL-388") => ("HLS", ""), // High-density Liquid-cooled Server
+            _ => ("", ""),
+        };
+        return if variant.is_empty() {
+            "Intel Gaudi 3".to_string()
+        } else {
+            format!("Intel Gaudi 3 {variant}{suffix}")
+        };
+    }
+
+    // Future-proofing for Gaudi 4+
+    if name.starts_with("HL-4") {
+        return "Intel Gaudi 4".to_string();
+    }
+    if name.starts_with("HL-5") {
+        return "Intel Gaudi 5".to_string();
+    }
+
+    // Unknown model - return original name with "Intel" prefix
+    format!("Intel {name}")
 }
 
 impl Default for GaudiDeviceMetrics {
@@ -205,14 +244,16 @@ mod tests {
         assert_eq!(map_device_name("HL-100"), "Intel Gaudi");
 
         // Gaudi 2 variants
-        assert_eq!(map_device_name("HL-200"), "Intel Gaudi 2");
-        assert_eq!(map_device_name("HL-205"), "Intel Gaudi 2");
-        assert_eq!(map_device_name("HL-225"), "Intel Gaudi 2");
+        assert_eq!(map_device_name("HL-200"), "Intel Gaudi 2 Mezzanine");
+        assert_eq!(map_device_name("HL-205"), "Intel Gaudi 2 PCIe");
+        assert_eq!(map_device_name("HL-225"), "Intel Gaudi 2 OAM");
 
         // Gaudi 3 variants
-        assert_eq!(map_device_name("HL-325"), "Intel Gaudi 3");
-        assert_eq!(map_device_name("HL-325L"), "Intel Gaudi 3");
-        assert_eq!(map_device_name("HL-328"), "Intel Gaudi 3");
+        assert_eq!(map_device_name("HL-325"), "Intel Gaudi 3 PCIe");
+        assert_eq!(map_device_name("HL-325L"), "Intel Gaudi 3 PCIe LP");
+        assert_eq!(map_device_name("HL-328"), "Intel Gaudi 3 OAM");
+        assert_eq!(map_device_name("HL-338"), "Intel Gaudi 3 UBB");
+        assert_eq!(map_device_name("HL-388"), "Intel Gaudi 3 HLS");
 
         // Unknown model
         assert_eq!(map_device_name("HL-999"), "Intel HL-999");
