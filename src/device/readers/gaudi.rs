@@ -74,10 +74,10 @@ impl GaudiNpuReader {
 
                 // Build detail HashMap using DetailBuilder
                 let detail = DetailBuilder::new()
-                    .insert("Device Index", &device.index.to_string())
+                    .insert("Device Index", device.index.to_string())
                     .insert("Internal Name", &device.name) // Keep original name
-                    .insert("Max Power", &format!("{} W", device.power_max))
-                    .insert("Total Memory", &format!("{} MiB", device.memory_total))
+                    .insert("Max Power", format!("{} W", device.power_max))
+                    .insert("Total Memory", format!("{} MiB", device.memory_total))
                     .build();
 
                 let static_info = DeviceStaticInfo::with_details(
@@ -220,10 +220,10 @@ fn create_gpu_info_from_device(
     } else {
         // Build detail HashMap if no cache available (first call)
         let detail = DetailBuilder::new()
-            .insert("Device Index", &device.index.to_string())
+            .insert("Device Index", device.index.to_string())
             .insert("Internal Name", &device.name) // Keep original name in details
-            .insert("Max Power", &format!("{} W", device.power_max))
-            .insert("Total Memory", &format!("{} MiB", device.memory_total))
+            .insert("Max Power", format!("{} W", device.power_max))
+            .insert("Total Memory", format!("{} MiB", device.memory_total))
             .build();
 
         (device.uuid.clone(), friendly_name.clone(), detail)
