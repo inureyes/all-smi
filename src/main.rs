@@ -46,7 +46,9 @@ use device::hlsmi::{initialize_hlsmi_manager, shutdown_hlsmi_manager};
 use device::platform_detection::has_gaudi;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
+#[cfg(target_os = "macos")]
+use std::sync::atomic::Ordering;
 
 #[cfg(target_os = "macos")]
 static POWERMETRICS_INITIALIZED: AtomicBool = AtomicBool::new(false);

@@ -102,6 +102,7 @@ pub fn shutdown_hlsmi_manager() {
 }
 
 /// Check if hl-smi has received its first data
+#[allow(dead_code)]
 pub fn has_hlsmi_data() -> bool {
     FIRST_DATA_RECEIVED.load(Ordering::Relaxed)
 }
