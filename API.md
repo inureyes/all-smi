@@ -254,6 +254,36 @@ Note: Rebellions NPUs support ATOM, ATOM+, and ATOM Max variants with varying co
 
 Note: Furiosa NPUs use the RNGD architecture with 8 cores per NPU. Each core contains multiple Processing Elements (PEs) that handle neural network computations. The power governor supports OnDemand mode for dynamic power management.
 
+### Intel Gaudi NPU Metrics
+
+#### Basic NPU Metrics
+| Metric                                | Description                | Unit    | Labels                                    |
+|---------------------------------------|----------------------------|---------|-------------------------------------------|
+| `all_smi_gpu_utilization`             | NPU utilization percentage | percent | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_memory_used_bytes`       | NPU memory used            | bytes   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_memory_total_bytes`      | NPU memory total           | bytes   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_temperature_celsius`     | NPU temperature            | celsius | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_power_consumption_watts` | NPU power consumption      | watts   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_frequency_mhz`           | NPU clock frequency        | MHz     | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_info`                    | NPU device information     | info    | `gpu_index`, `gpu_name`, `driver_version` |
+
+#### Intel Gaudi-Specific Metrics
+| Metric                                        | Description                              | Unit    | Labels                                                        |
+|-----------------------------------------------|------------------------------------------|---------|---------------------------------------------------------------|
+| `all_smi_gaudi_device_info`                   | Device model and information             | info    | `npu`, `instance`, `uuid`, `index`                           |
+| `all_smi_gaudi_internal_name_info`            | Internal device name (e.g., HL-325L)     | info    | `npu`, `instance`, `uuid`, `index`, `internal_name`          |
+| `all_smi_gaudi_driver_info`                   | Habana driver version                    | info    | `npu`, `instance`, `uuid`, `index`, `version`                |
+| `all_smi_gaudi_aip_utilization_percent`       | AIP (AI Processor) utilization           | percent | `npu`, `instance`, `uuid`, `index`                           |
+| `all_smi_gaudi_memory_used_bytes`             | HBM memory used                          | bytes   | `npu`, `instance`, `uuid`, `index`                           |
+| `all_smi_gaudi_memory_total_bytes`            | HBM total memory                         | bytes   | `npu`, `instance`, `uuid`, `index`                           |
+| `all_smi_gaudi_memory_utilization_percent`    | HBM memory utilization percentage        | percent | `npu`, `instance`, `uuid`, `index`                           |
+| `all_smi_gaudi_power_draw_watts`              | Current power consumption                | watts   | `npu`, `instance`, `uuid`, `index`                           |
+| `all_smi_gaudi_power_max_watts`               | Maximum power limit                      | watts   | `npu`, `instance`, `uuid`, `index`                           |
+| `all_smi_gaudi_power_utilization_percent`     | Power utilization percentage             | percent | `npu`, `instance`, `uuid`, `index`                           |
+| `all_smi_gaudi_temperature_celsius`           | AIP temperature                          | celsius | `npu`, `instance`, `uuid`, `index`                           |
+
+Note: Intel Gaudi NPUs (Gaudi 1/2/3) are monitored via the `hl-smi` command-line tool running as a background process. Device names are automatically mapped from internal identifiers (e.g., HL-325L) to human-friendly names (e.g., Intel Gaudi 3 PCIe LP). The tool supports various form factors including PCIe, OAM, UBB, and HLS variants.
+
 ### CPU Metrics (All Platforms)
 
 | Metric                                | Description                | Unit    | Labels   |
@@ -334,20 +364,22 @@ Runtime environment metrics are detected at startup and provide information abou
 ## Platform Support Matrix
 
 | Platform                     | GPU Metrics    | CPU Metrics    | Memory Metrics | Process Metrics |
-|------------------------------|----------------|----------------|----------------|-----------------|  
+|------------------------------|----------------|----------------|----------------|-----------------|
 | Linux + NVIDIA               | ✓ Full         | ✓ Full         | ✓ Full         | ✓ Full          |
+| Linux + Intel Gaudi          | ✓ Full         | ✓ Full         | ✓ Full         | ✗ N/A*******    |
 | Linux + Tenstorrent          | ✓ Full***      | ✓ Full         | ✓ Full         | ✗ N/A****       |
 | Linux + Rebellions           | ✓ Full         | ✓ Full         | ✓ Full         | ✗ N/A*****      |
 | Linux + Furiosa              | ✓ Full         | ✓ Full         | ✓ Full         | ✗ N/A******     |
 | macOS + Apple Silicon        | ✓ Partial*     | ✓ Enhanced**   | ✓ Full         | ✓ Basic         |
 | NVIDIA Jetson                | ✓ Full + DLA   | ✓ Full         | ✓ Full         | ✓ Full          |
 
-*Apple Silicon (M1/M2/M3/M4) GPU metrics do not include temperature (thermal pressure provided instead)  
-**Apple Silicon (M1/M2/M3/M4) provides enhanced P-core/E-core metrics and cluster frequencies  
-***Tenstorrent provides extensive hardware monitoring including multiple temperature sensors, health counters, and status registers  
-****Tenstorrent NPUs do not expose per-process GPU usage information  
-*****Rebellions NPUs do not expose per-process GPU usage information  
+*Apple Silicon (M1/M2/M3/M4) GPU metrics do not include temperature (thermal pressure provided instead)
+**Apple Silicon (M1/M2/M3/M4) provides enhanced P-core/E-core metrics and cluster frequencies
+***Tenstorrent provides extensive hardware monitoring including multiple temperature sensors, health counters, and status registers
+****Tenstorrent NPUs do not expose per-process GPU usage information
+*****Rebellions NPUs do not expose per-process GPU usage information
 ******Furiosa NPUs do not expose per-process GPU usage information
+*******Intel Gaudi NPUs do not expose per-process GPU usage information via hl-smi
 
 ## Example Prometheus Queries
 
@@ -451,6 +483,33 @@ all_smi_furiosa_power_governor_info{governor!="OnDemand"}
 all_smi_furiosa_memory_bandwidth_utilization > 80
 ```
 
+### Intel Gaudi NPU Specific
+```promql
+# NPUs with high AIP utilization
+all_smi_gaudi_aip_utilization_percent > 80
+
+# HBM memory utilization across cluster
+avg by (instance) (all_smi_gaudi_memory_utilization_percent)
+
+# NPUs approaching power limit
+all_smi_gaudi_power_draw_watts / all_smi_gaudi_power_max_watts > 0.9
+
+# Power efficiency (AIP utilization per watt)
+all_smi_gaudi_aip_utilization_percent / all_smi_gaudi_power_draw_watts
+
+# NPUs running hot (temperature > 70°C)
+all_smi_gaudi_temperature_celsius > 70
+
+# Total HBM memory usage across all Gaudi NPUs
+sum(all_smi_gaudi_memory_used_bytes)
+
+# Gaudi NPUs by device variant
+count by (internal_name) (all_smi_gaudi_internal_name_info)
+
+# Driver version consistency check
+count by (version) (all_smi_gaudi_driver_info) > 1
+```
+
 ### Process Monitoring
 ```promql
 # Top 5 GPU memory consumers
@@ -543,6 +602,30 @@ groups:
           severity: warning
         annotations:
           summary: "Furiosa NPU {{ $labels.instance }} experiencing high error rate"
+
+      - alert: GaudiNPUHighTemperature
+        expr: all_smi_gaudi_temperature_celsius > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Intel Gaudi NPU {{ $labels.instance }} is running hot at {{ $value }}°C"
+
+      - alert: GaudiNPUPowerLimitApproaching
+        expr: all_smi_gaudi_power_draw_watts / all_smi_gaudi_power_max_watts > 0.95
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Intel Gaudi NPU {{ $labels.instance }} approaching power limit"
+
+      - alert: GaudiNPUHBMMemoryExhausted
+        expr: all_smi_gaudi_memory_utilization_percent > 95
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Intel Gaudi NPU {{ $labels.instance }} HBM memory nearly exhausted"
 ```
 
 ## Update Intervals
@@ -578,3 +661,11 @@ Higher update rates provide more real-time data but increase system load. For pr
    - Power governor mode information
    - Error counting and liveness monitoring
    - RNGD architecture with 8 cores per NPU
+10. Intel Gaudi NPU metrics include:
+    - AIP (AI Processor) utilization monitoring
+    - HBM memory usage and utilization tracking (up to 128GB per device)
+    - Power consumption with configurable power limits (up to 850W)
+    - Temperature monitoring
+    - Automatic device name mapping (HL-325L → Intel Gaudi 3 PCIe LP)
+    - Support for Gaudi 1/2/3 across PCIe, OAM, UBB, and HLS form factors
+    - Background process monitoring via hl-smi with circular buffer

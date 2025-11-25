@@ -370,6 +370,15 @@ The CI builds for these platforms:
 
 ### NPU Support
 
+**Intel Gaudi NPUs (Linux only):**
+- Uses `hl-smi` command running as a background process
+- Supports Gaudi 1, Gaudi 2, and Gaudi 3 generations
+- Supports PCIe, OAM, UBB, and HLS form factors
+- Located in `src/device/hlsmi/` (manager, parser, config, store, process)
+- Reader implementation in `src/device/readers/gaudi.rs`
+- Automatic device name mapping (e.g., HL-325L → Intel Gaudi 3 PCIe LP)
+- Follows same background process pattern as Apple Silicon's PowerMetrics
+
 **Tenstorrent NPUs (Linux only):**
 - Uses `luwen` library for telemetry
 - Supports Grayskull, Wormhole, Blackhole architectures

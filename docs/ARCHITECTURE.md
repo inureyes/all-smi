@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-All-SMI is a unified GPU monitoring tool that provides both terminal UI (TUI) and Prometheus metrics interface for monitoring local and remote GPU resources. Built with a modular, event-driven architecture on async Rust patterns, it supports multiple GPU platforms (NVIDIA, Apple Silicon, Jetson) and enables distributed monitoring across multiple nodes.
+All-SMI is a unified GPU/NPU monitoring tool that provides both terminal UI (TUI) and Prometheus metrics interface for monitoring local and remote accelerator resources. Built with a modular, event-driven architecture on async Rust patterns, it supports multiple platforms (NVIDIA GPU, AMD GPU, Apple Silicon, Jetson, Intel Gaudi, Tenstorrent, Rebellions, Furiosa) and enables distributed monitoring across multiple nodes.
 
 ## Table of Contents
 
@@ -180,6 +180,16 @@ pub trait MetricsExporter: Send + Sync {
 - Specialized for Tegra platforms
 - DLA (Deep Learning Accelerator) support
 - Integrated memory architecture handling
+
+#### Intel Gaudi (`src/device/readers/gaudi.rs`, `src/device/hlsmi/`)
+- Uses `hl-smi` command running as a background process
+- Supports Gaudi 1, Gaudi 2, and Gaudi 3 generations
+- Form factor support: PCIe, OAM, UBB, HLS
+- Automatic device name mapping (e.g., HL-325L → Intel Gaudi 3 PCIe LP)
+- Background process manager (`src/device/hlsmi/manager.rs`)
+- CSV output parser (`src/device/hlsmi/parser.rs`)
+- Circular buffer for metrics storage (`src/device/hlsmi/store.rs`)
+- Follows the same design pattern as Apple Silicon's PowerMetrics integration
 
 ### CPU Reader Implementations
 
@@ -921,9 +931,9 @@ macro_rules! parse_metric {
 ### Planned Enhancements
 
 1. **Additional Platforms**
-   - AMD GPU support via ROCm
-   - Intel GPU via oneAPI
+   - Intel Arc GPU via oneAPI
    - Qualcomm NPU support
+   - Google TPU support
 
 2. **Extended Metrics**
    - Network bandwidth monitoring

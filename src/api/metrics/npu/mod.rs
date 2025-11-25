@@ -15,6 +15,7 @@
 pub mod common;
 pub mod exporter_trait;
 pub mod furiosa;
+pub mod gaudi;
 pub mod rebellions;
 #[cfg(target_os = "linux")]
 pub mod tenstorrent;
@@ -39,6 +40,7 @@ impl<'a> NpuMetricExporter<'a> {
         EXPORTER_POOL.get_or_init(|| {
             #[allow(unused_mut)]
             let mut exporters: Vec<Box<dyn NpuExporter + Send + Sync>> = vec![
+                Box::new(gaudi::GaudiExporter::new()),
                 Box::new(rebellions::RebellionsExporter::new()),
                 Box::new(furiosa::FuriosaExporter::new()),
             ];
@@ -66,12 +68,17 @@ impl<'a> NpuMetricExporter<'a> {
                 return Some(exporters[0].as_ref());
             }
 
+            // Index mapping based on platform
+            // Linux: [Tenstorrent, Gaudi, Rebellions, Furiosa]
+            // Other: [Gaudi, Rebellions, Furiosa]
             #[cfg(target_os = "linux")]
-            let (rebellions_idx, furiosa_idx) = (1, 2);
+            let (gaudi_idx, rebellions_idx, furiosa_idx) = (1, 2, 3);
             #[cfg(not(target_os = "linux"))]
-            let (rebellions_idx, furiosa_idx) = (0, 1);
+            let (gaudi_idx, rebellions_idx, furiosa_idx) = (0, 1, 2);
 
-            if name.contains("Rebellions") {
+            if name.contains("Gaudi") || name.contains("HL-") {
+                return Some(exporters[gaudi_idx].as_ref());
+            } else if name.contains("Rebellions") {
                 return Some(exporters[rebellions_idx].as_ref());
             } else if name.contains("Furiosa") || name.contains("RNGD") || name.contains("Warboy") {
                 return Some(exporters[furiosa_idx].as_ref());
