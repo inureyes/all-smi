@@ -133,7 +133,7 @@ impl ProcessManager {
 
         let reader = BufReader::new(stdout);
         let mut current_snapshot = String::with_capacity(4096);
-        let mut device_count = 0;
+        let mut device_count = 0; // 0 means we don't know yet
         let mut lines_in_snapshot = 0;
 
         for line in reader.lines() {
@@ -152,17 +152,6 @@ impl ProcessManager {
                 continue;
             }
 
-            // Count devices on first snapshot to know when we have a complete set
-            if device_count == 0 {
-                // First line in first snapshot - just add it
-                let _ = writeln!(current_snapshot, "{line}");
-                lines_in_snapshot += 1;
-
-                // For subsequent lines, accumulate until we see the pattern repeat
-                // We detect a complete snapshot when we see index 0 again after having seen other indices
-                continue;
-            }
-
             // Parse the device index (first field in CSV)
             let device_index = line
                 .split(',')
@@ -170,9 +159,9 @@ impl ProcessManager {
                 .and_then(|s| s.trim().parse::<usize>().ok())
                 .unwrap_or(usize::MAX);
 
-            // If we see index 0 and we already have data, this is a new snapshot
+            // If we see index 0 and we already have data, this marks the start of a new snapshot
             if device_index == 0 && lines_in_snapshot > 0 {
-                // Store the complete snapshot
+                // Store the complete snapshot we just finished
                 if !current_snapshot.is_empty() {
                     let mut buffer = data_buffer.lock().unwrap();
                     if buffer.len() >= buffer_capacity {
@@ -182,8 +171,12 @@ impl ProcessManager {
                     current_snapshot.reserve(4096);
                 }
 
-                // Start new snapshot
-                device_count = lines_in_snapshot; // Now we know how many devices
+                // If we didn't know device count, now we do
+                if device_count == 0 {
+                    device_count = lines_in_snapshot;
+                }
+
+                // Reset for new snapshot
                 lines_in_snapshot = 0;
             }
 
@@ -191,7 +184,8 @@ impl ProcessManager {
             let _ = writeln!(current_snapshot, "{line}");
             lines_in_snapshot += 1;
 
-            // If we know device count and have collected all devices, store it
+            // If we know device count and have collected all devices, store it immediately
+            // This handles cases where output comes in batches
             if device_count > 0 && lines_in_snapshot >= device_count {
                 let mut buffer = data_buffer.lock().unwrap();
                 if buffer.len() >= buffer_capacity {
