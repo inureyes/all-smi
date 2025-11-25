@@ -211,7 +211,7 @@ fn create_gpu_info_from_device(
     let friendly_name = map_device_name(&device.name);
 
     // Use cached static info if available, otherwise build from current device data
-    let (uuid, name, mut detail) = if let Some(info) = static_info {
+    let (uuid, _name, mut detail) = if let Some(info) = static_info {
         (
             info.uuid.clone().unwrap_or_else(|| device.uuid.clone()),
             info.name.clone(),
