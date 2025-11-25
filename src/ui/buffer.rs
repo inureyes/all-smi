@@ -109,10 +109,11 @@ impl DifferentialRenderer {
             if line_num >= self.previous_lines.len()
                 || &self.previous_lines[line_num] != current_line
             {
-                // Update this line
+                // Update this line - clear it first to prevent artifacts from shorter lines
                 queue!(
                     stdout,
                     cursor::MoveTo(0, line_num as u16),
+                    crossterm::terminal::Clear(ClearType::UntilNewLine),
                     Print(current_line)
                 )?;
             }

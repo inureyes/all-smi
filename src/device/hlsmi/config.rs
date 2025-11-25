@@ -35,6 +35,7 @@ impl Default for HlsmiConfig {
                 "index".to_string(),
                 "uuid".to_string(),
                 "name".to_string(),
+                "driver_version".to_string(),
                 "memory.total".to_string(),
                 "memory.used".to_string(),
                 "memory.free".to_string(),
@@ -96,7 +97,7 @@ impl HlsmiConfig {
             // Return safe defaults
             return vec![
                 "-Q".to_string(),
-                "index,uuid,name,memory.total,memory.used,memory.free,power.draw,power.max,temperature.aip,utilization.aip".to_string(),
+                "index,uuid,name,driver_version,memory.total,memory.used,memory.free,power.draw,power.max,temperature.aip,utilization.aip".to_string(),
                 "--format".to_string(),
                 "csv,noheader".to_string(),
                 "-l".to_string(),
@@ -131,7 +132,7 @@ mod tests {
         assert_eq!(config.interval_secs, 3);
         assert_eq!(config.buffer_capacity, 120);
         assert_eq!(config.monitor_interval_secs, 5);
-        assert_eq!(config.query_fields.len(), 10);
+        assert_eq!(config.query_fields.len(), 11);
     }
 
     #[test]

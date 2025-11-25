@@ -28,6 +28,8 @@ pub struct GaudiDeviceMetrics {
     pub uuid: String,
     /// Device name (e.g., "HL-325L")
     pub name: String,
+    /// Driver version
+    pub driver_version: String,
     /// Total memory in MiB
     pub memory_total: u64,
     /// Used memory in MiB
@@ -44,12 +46,43 @@ pub struct GaudiDeviceMetrics {
     pub utilization: f64,
 }
 
+/// Map Habana Labs internal device names to human-friendly names
+/// Based on Intel Gaudi product naming conventions
+pub fn map_device_name(internal_name: &str) -> String {
+    // Extract the base model (e.g., "HL-325" from "HL-325L")
+    let base = internal_name.trim();
+
+    match base {
+        // Gaudi 1 (original)
+        n if n.starts_with("HL-100") => "Intel Gaudi".to_string(),
+
+        // Gaudi 2 variants
+        n if n.starts_with("HL-200") => "Intel Gaudi 2".to_string(),
+        n if n.starts_with("HL-205") => "Intel Gaudi 2".to_string(),
+        n if n.starts_with("HL-225") => "Intel Gaudi 2".to_string(),
+
+        // Gaudi 3 variants
+        n if n.starts_with("HL-325") => "Intel Gaudi 3".to_string(),
+        n if n.starts_with("HL-328") => "Intel Gaudi 3".to_string(),
+        n if n.starts_with("HL-338") => "Intel Gaudi 3".to_string(),
+        n if n.starts_with("HL-388") => "Intel Gaudi 3".to_string(),
+
+        // Future-proofing for Gaudi 4+
+        n if n.starts_with("HL-4") => "Intel Gaudi 4".to_string(),
+        n if n.starts_with("HL-5") => "Intel Gaudi 5".to_string(),
+
+        // Unknown model - return original name with "Intel" prefix
+        _ => format!("Intel {internal_name}"),
+    }
+}
+
 impl Default for GaudiDeviceMetrics {
     fn default() -> Self {
         Self {
             index: 0,
             uuid: String::new(),
             name: String::new(),
+            driver_version: String::new(),
             memory_total: 0,
             memory_used: 0,
             memory_free: 0,
@@ -62,8 +95,8 @@ impl Default for GaudiDeviceMetrics {
 }
 
 /// Parse hl-smi CSV output
-/// Expected format: index,uuid,name,memory.total,memory.used,memory.free,power.draw,power.max,temperature.aip,utilization.aip
-/// Example: 0, 01P4-HL3090A0-18-U4V193-22-07-00, HL-325L, 131072 MiB, 672 MiB, 130400 MiB, 226 W, 850 W, 36 C, 0 %
+/// Expected format: index,uuid,name,driver_version,memory.total,memory.used,memory.free,power.draw,power.max,temperature.aip,utilization.aip
+/// Example: 0, 01P4-HL3090A0-18-U4V193-22-07-00, HL-325L, 1.22.1-97ec1a4, 131072 MiB, 672 MiB, 130400 MiB, 226 W, 850 W, 36 C, 0 %
 pub fn parse_hlsmi_output(output: &str) -> Result<GaudiMetricsData, Box<dyn std::error::Error>> {
     let mut data = GaudiMetricsData::default();
 
@@ -74,7 +107,7 @@ pub fn parse_hlsmi_output(output: &str) -> Result<GaudiMetricsData, Box<dyn std:
         }
 
         let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-        if parts.len() < 10 {
+        if parts.len() < 11 {
             continue; // Skip malformed lines
         }
 
@@ -82,13 +115,14 @@ pub fn parse_hlsmi_output(output: &str) -> Result<GaudiMetricsData, Box<dyn std:
             index: parse_index(parts[0])?,
             uuid: parts[1].to_string(),
             name: parts[2].to_string(),
-            memory_total: parse_memory_mib(parts[3])?,
-            memory_used: parse_memory_mib(parts[4])?,
-            memory_free: parse_memory_mib(parts[5])?,
-            power_draw: parse_power(parts[6])?,
-            power_max: parse_power(parts[7])?,
-            temperature: parse_temperature(parts[8])?,
-            utilization: parse_utilization(parts[9])?,
+            driver_version: parts[3].to_string(),
+            memory_total: parse_memory_mib(parts[4])?,
+            memory_used: parse_memory_mib(parts[5])?,
+            memory_free: parse_memory_mib(parts[6])?,
+            power_draw: parse_power(parts[7])?,
+            power_max: parse_power(parts[8])?,
+            temperature: parse_temperature(parts[9])?,
+            utilization: parse_utilization(parts[10])?,
         };
 
         data.devices.push(device);
@@ -138,8 +172,8 @@ mod tests {
 
     #[test]
     fn test_parse_hlsmi_output() {
-        let output = "0, 01P4-HL3090A0-18-U4V193-22-07-00, HL-325L, 131072 MiB, 672 MiB, 130400 MiB, 226 W, 850 W, 36 C, 0 %\n\
-                      1, 01P4-HL3090A0-18-U4V298-03-04-04, HL-325L, 131072 MiB, 672 MiB, 130400 MiB, 230 W, 850 W, 39 C, 0 %";
+        let output = "0, 01P4-HL3090A0-18-U4V193-22-07-00, HL-325L, 1.22.1-97ec1a4, 131072 MiB, 672 MiB, 130400 MiB, 226 W, 850 W, 36 C, 0 %\n\
+                      1, 01P4-HL3090A0-18-U4V298-03-04-04, HL-325L, 1.22.1-97ec1a4, 131072 MiB, 672 MiB, 130400 MiB, 230 W, 850 W, 39 C, 0 %";
 
         let result = parse_hlsmi_output(output);
         assert!(result.is_ok());
@@ -151,6 +185,7 @@ mod tests {
         assert_eq!(data.devices[0].index, 0);
         assert_eq!(data.devices[0].uuid, "01P4-HL3090A0-18-U4V193-22-07-00");
         assert_eq!(data.devices[0].name, "HL-325L");
+        assert_eq!(data.devices[0].driver_version, "1.22.1-97ec1a4");
         assert_eq!(data.devices[0].memory_total, 131072);
         assert_eq!(data.devices[0].memory_used, 672);
         assert_eq!(data.devices[0].memory_free, 130400);
@@ -162,6 +197,25 @@ mod tests {
         // Check second device
         assert_eq!(data.devices[1].index, 1);
         assert_eq!(data.devices[1].temperature, 39);
+    }
+
+    #[test]
+    fn test_map_device_name() {
+        // Gaudi 1
+        assert_eq!(map_device_name("HL-100"), "Intel Gaudi");
+
+        // Gaudi 2 variants
+        assert_eq!(map_device_name("HL-200"), "Intel Gaudi 2");
+        assert_eq!(map_device_name("HL-205"), "Intel Gaudi 2");
+        assert_eq!(map_device_name("HL-225"), "Intel Gaudi 2");
+
+        // Gaudi 3 variants
+        assert_eq!(map_device_name("HL-325"), "Intel Gaudi 3");
+        assert_eq!(map_device_name("HL-325L"), "Intel Gaudi 3");
+        assert_eq!(map_device_name("HL-328"), "Intel Gaudi 3");
+
+        // Unknown model
+        assert_eq!(map_device_name("HL-999"), "Intel HL-999");
     }
 
     #[test]

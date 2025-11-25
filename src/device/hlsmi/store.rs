@@ -144,8 +144,8 @@ mod tests {
     #[test]
     fn test_get_latest_data() {
         let store = MetricsStore::new(10);
-        let section = "0, 01P4-HL3090A0-18-U4V193-22-07-00, HL-325L, 131072 MiB, 672 MiB, 130400 MiB, 226 W, 850 W, 36 C, 0 %\n\
-                       1, 01P4-HL3090A0-18-U4V298-03-04-04, HL-325L, 131072 MiB, 672 MiB, 130400 MiB, 230 W, 850 W, 39 C, 0 %";
+        let section = "0, 01P4-HL3090A0-18-U4V193-22-07-00, HL-325L, 1.22.1-97ec1a4, 131072 MiB, 672 MiB, 130400 MiB, 226 W, 850 W, 36 C, 0 %\n\
+                       1, 01P4-HL3090A0-18-U4V298-03-04-04, HL-325L, 1.22.1-97ec1a4, 131072 MiB, 672 MiB, 130400 MiB, 230 W, 850 W, 39 C, 0 %";
         store.add_section(section.to_string(), 10);
 
         let result = store.get_latest_data();
@@ -154,6 +154,7 @@ mod tests {
         let data = result.unwrap();
         assert_eq!(data.devices.len(), 2);
         assert_eq!(data.devices[0].index, 0);
+        assert_eq!(data.devices[0].driver_version, "1.22.1-97ec1a4");
         assert_eq!(data.devices[1].index, 1);
     }
 }

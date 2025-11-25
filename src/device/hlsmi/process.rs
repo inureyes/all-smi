@@ -360,8 +360,8 @@ mod tests {
     fn test_reader_thread_shutdown() {
         use std::io::Cursor;
 
-        let test_input = "0, UUID-1, HL-325L, 131072 MiB, 672 MiB, 130400 MiB, 226 W, 850 W, 36 C, 0 %\n\
-                          1, UUID-2, HL-325L, 131072 MiB, 672 MiB, 130400 MiB, 230 W, 850 W, 39 C, 0 %\n";
+        let test_input = "0, UUID-1, HL-325L, 1.22.1, 131072 MiB, 672 MiB, 130400 MiB, 226 W, 850 W, 36 C, 0 %\n\
+                          1, UUID-2, HL-325L, 1.22.1, 131072 MiB, 672 MiB, 130400 MiB, 230 W, 850 W, 39 C, 0 %\n";
         let cursor = Cursor::new(test_input);
 
         let data_buffer = Arc::new(Mutex::new(std::collections::VecDeque::new()));

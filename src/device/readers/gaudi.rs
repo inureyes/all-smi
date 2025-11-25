@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #[cfg(target_os = "linux")]
-use crate::device::hlsmi::parser::GaudiDeviceMetrics;
+use crate::device::hlsmi::parser::{map_device_name, GaudiDeviceMetrics};
 #[cfg(target_os = "linux")]
 use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 use crate::device::types::{GpuInfo, ProcessInfo};
@@ -69,15 +69,19 @@ impl GaudiNpuReader {
             let devices_to_process: Vec<_> = devices.iter().take(MAX_DEVICES).collect();
 
             for device in devices_to_process {
+                // Map device name to human-friendly name
+                let friendly_name = map_device_name(&device.name);
+
                 // Build detail HashMap using DetailBuilder
                 let detail = DetailBuilder::new()
                     .insert("Device Index", &device.index.to_string())
+                    .insert("Internal Name", &device.name) // Keep original name
                     .insert("Max Power", &format!("{} W", device.power_max))
                     .insert("Total Memory", &format!("{} MiB", device.memory_total))
                     .build();
 
                 let static_info = DeviceStaticInfo::with_details(
-                    device.name.clone(),
+                    friendly_name,
                     Some(device.uuid.clone()),
                     detail,
                 );
@@ -203,6 +207,9 @@ fn create_gpu_info_from_device(
     time: &str,
     hostname: &str,
 ) -> Option<GpuInfo> {
+    // Map device name to human-friendly name (e.g., HL-325L -> Intel Gaudi 3)
+    let friendly_name = map_device_name(&device.name);
+
     // Use cached static info if available, otherwise build from current device data
     let (uuid, name, mut detail) = if let Some(info) = static_info {
         (
@@ -214,16 +221,17 @@ fn create_gpu_info_from_device(
         // Build detail HashMap if no cache available (first call)
         let detail = DetailBuilder::new()
             .insert("Device Index", &device.index.to_string())
+            .insert("Internal Name", &device.name) // Keep original name in details
             .insert("Max Power", &format!("{} W", device.power_max))
             .insert("Total Memory", &format!("{} MiB", device.memory_total))
             .build();
 
-        (device.uuid.clone(), device.name.clone(), detail)
+        (device.uuid.clone(), friendly_name.clone(), detail)
     };
 
     // Add unified AI acceleration library labels
-    detail.insert("lib_name".to_string(), "Intel Habana".to_string());
-    detail.insert("lib_version".to_string(), "N/A".to_string()); // hl-smi doesn't provide driver version in CSV output
+    detail.insert("lib_name".to_string(), "Habana".to_string());
+    detail.insert("lib_version".to_string(), device.driver_version.clone());
 
     // Dynamic values
     detail.insert(
@@ -239,6 +247,9 @@ fn create_gpu_info_from_device(
         format!("{} MiB", device.memory_free),
     );
 
+    // Add power limit max for display
+    detail.insert("power_limit_max".to_string(), device.power_max.to_string());
+
     // Convert memory from MiB to bytes
     let total_memory = device.memory_total * 1024 * 1024;
     let used_memory = device.memory_used * 1024 * 1024;
@@ -246,7 +257,7 @@ fn create_gpu_info_from_device(
     Some(GpuInfo {
         uuid,
         time: time.to_string(),
-        name,
+        name: friendly_name,
         device_type: "NPU".to_string(),
         host_id: hostname.to_string(),
         hostname: hostname.to_string(),
