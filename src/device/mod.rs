@@ -39,6 +39,10 @@ pub mod powermetrics;
 #[cfg(target_os = "macos")]
 pub mod powermetrics_parser;
 
+// hl-smi manager for Intel Gaudi
+#[cfg(target_os = "linux")]
+pub mod hlsmi;
+
 /* Refactored modules */
 pub mod common;
 pub mod container_utils;

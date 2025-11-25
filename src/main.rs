@@ -42,8 +42,16 @@ use device::powermetrics::{initialize_powermetrics_manager, shutdown_powermetric
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(target_os = "linux")]
+use device::hlsmi::{initialize_hlsmi_manager, shutdown_hlsmi_manager};
+#[cfg(target_os = "linux")]
+use device::platform_detection::has_gaudi;
+
 #[cfg(target_os = "macos")]
 static POWERMETRICS_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "linux")]
+static HLSMI_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 #[tokio::main]
 async fn main() {
@@ -61,6 +69,11 @@ async fn main() {
             // Always cleanup powermetrics on signal
             shutdown_powermetrics_manager();
         }
+        #[cfg(target_os = "linux")]
+        {
+            // Always cleanup hlsmi on signal
+            shutdown_hlsmi_manager();
+        }
         std::process::exit(0);
     });
 
@@ -74,6 +87,11 @@ async fn main() {
         {
             // Always cleanup powermetrics on signal
             shutdown_powermetrics_manager();
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // Always cleanup hlsmi on signal
+            shutdown_hlsmi_manager();
         }
         std::process::exit(0);
     });
@@ -95,6 +113,17 @@ async fn main() {
                 }
             }
 
+            // Initialize hlsmi manager for Intel Gaudi on Linux
+            #[cfg(target_os = "linux")]
+            if has_gaudi() {
+                if let Err(e) = initialize_hlsmi_manager(args.interval) {
+                    eprintln!("Warning: Failed to initialize hlsmi manager: {e}");
+                } else {
+                    use std::sync::atomic::Ordering;
+                    HLSMI_INITIALIZED.store(true, Ordering::Relaxed);
+                }
+            }
+
             run_api_mode(&args).await;
         }
         Some(Commands::Local(args)) => {
@@ -111,6 +140,20 @@ async fn main() {
                         eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
                     } else {
                         POWERMETRICS_INITIALIZED.store(true, Ordering::Relaxed);
+                    }
+                });
+            }
+
+            // Initialize hlsmi manager for Intel Gaudi on Linux
+            #[cfg(target_os = "linux")]
+            if has_gaudi() {
+                let interval = args.interval.unwrap_or(2);
+                std::thread::spawn(move || {
+                    if let Err(e) = initialize_hlsmi_manager(interval) {
+                        eprintln!("Warning: Failed to initialize hlsmi manager: {e}");
+                    } else {
+                        use std::sync::atomic::Ordering;
+                        HLSMI_INITIALIZED.store(true, Ordering::Relaxed);
                     }
                 });
             }
@@ -153,6 +196,11 @@ async fn main() {
                 // Always try to shutdown powermetrics, even if not fully initialized
                 shutdown_powermetrics_manager();
             }
+            #[cfg(target_os = "linux")]
+            {
+                // Always try to shutdown hlsmi, even if not fully initialized
+                shutdown_hlsmi_manager();
+            }
         }
         None => {
             // Default to local mode when no command is specified
@@ -171,6 +219,19 @@ async fn main() {
                     });
                 }
 
+                // Initialize hlsmi manager for Intel Gaudi on Linux
+                #[cfg(target_os = "linux")]
+                if has_gaudi() {
+                    std::thread::spawn(|| {
+                        if let Err(e) = initialize_hlsmi_manager(2) {
+                            eprintln!("Warning: Failed to initialize hlsmi manager: {e}");
+                        } else {
+                            use std::sync::atomic::Ordering;
+                            HLSMI_INITIALIZED.store(true, Ordering::Relaxed);
+                        }
+                    });
+                }
+
                 view::run_local_mode(&LocalArgs { interval: None }).await;
 
                 // Cleanup after local mode exits
@@ -179,16 +240,25 @@ async fn main() {
                     // Always try to shutdown powermetrics, even if not fully initialized
                     shutdown_powermetrics_manager();
                 }
+                #[cfg(target_os = "linux")]
+                {
+                    // Always try to shutdown hlsmi, even if not fully initialized
+                    shutdown_hlsmi_manager();
+                }
             }
             // If user declined sudo and chose remote monitoring,
             // they were given instructions and the function exits
         }
     }
 
-    // Final cleanup - ensure all powermetrics processes are terminated
+    // Final cleanup - ensure all managers are terminated
     #[cfg(target_os = "macos")]
     {
         shutdown_powermetrics_manager();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        shutdown_hlsmi_manager();
     }
 }
 

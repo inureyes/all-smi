@@ -21,6 +21,7 @@ pub mod common_cache;
 pub mod apple_silicon;
 
 pub mod furiosa;
+pub mod gaudi;
 pub mod nvidia;
 pub mod nvidia_jetson;
 pub mod rebellions;

@@ -13,8 +13,10 @@
 // limitations under the License.
 
 use crate::device::{
-    platform_detection::{get_os_type, has_furiosa, has_nvidia, has_rebellions, is_jetson},
-    readers::{furiosa, nvidia, nvidia_jetson, rebellions},
+    platform_detection::{
+        get_os_type, has_furiosa, has_gaudi, has_nvidia, has_rebellions, is_jetson,
+    },
+    readers::{furiosa, gaudi, nvidia, nvidia_jetson, rebellions},
     traits::{CpuReader, GpuReader, MemoryReader},
 };
 
@@ -74,7 +76,12 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
                 readers.push(Box::new(rebellions::RebellionsNpuReader::new()));
             }
 
-            // Check for AMD GPU support (glibc only, not musl)
+            // Check for Intel Gaudi NPU support
+            if has_gaudi() {
+                readers.push(Box::new(gaudi::GaudiNpuReader::new()));
+            }
+
+            // Check for AMD GPU support (glibc only, not musl))
             #[cfg(all(target_os = "linux", not(target_env = "musl")))]
             if has_amd() {
                 readers.push(Box::new(amd::AmdGpuReader::new()));

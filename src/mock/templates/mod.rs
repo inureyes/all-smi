@@ -19,6 +19,7 @@ pub mod apple_silicon;
 pub mod common;
 pub mod disk;
 pub mod furiosa;
+pub mod gaudi;
 pub mod jetson;
 pub mod nvidia;
 pub mod rebellions;

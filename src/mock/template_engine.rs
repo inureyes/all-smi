@@ -18,8 +18,9 @@ use crate::mock::constants::{PLACEHOLDER_DISK_AVAIL, PLACEHOLDER_DISK_TOTAL};
 use crate::mock::metrics::{CpuMetrics, GpuMetrics, MemoryMetrics, PlatformType};
 use crate::mock::templates::{
     amd_gpu::AmdGpuMockGenerator, apple_silicon::AppleSiliconMockGenerator,
-    furiosa::FuriosaMockGenerator, jetson::JetsonMockGenerator, nvidia::NvidiaMockGenerator,
-    rebellions::RebellionsMockGenerator, tenstorrent::TenstorrentMockGenerator,
+    furiosa::FuriosaMockGenerator, gaudi::GaudiMockGenerator, jetson::JetsonMockGenerator,
+    nvidia::NvidiaMockGenerator, rebellions::RebellionsMockGenerator,
+    tenstorrent::TenstorrentMockGenerator,
 };
 use all_smi::traits::mock_generator::{MockConfig, MockGenerator, MockPlatform};
 
@@ -104,6 +105,15 @@ pub fn build_response_template(
             crate::mock::templates::disk::add_disk_metrics(&mut template, instance_name);
             template
         }
+        PlatformType::Gaudi => {
+            let gen =
+                GaudiMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
+            let mut template = gen.build_gaudi_template(gpus);
+
+            // Add disk metrics
+            crate::mock::templates::disk::add_disk_metrics(&mut template, instance_name);
+            template
+        }
         PlatformType::AmdGpu => {
             let gen =
                 AmdGpuMockGenerator::new(Some(gpu_name.to_string()), instance_name.to_string());
@@ -160,6 +170,10 @@ pub fn render_response(
         PlatformType::Furiosa => {
             let gen = FuriosaMockGenerator::new(None, "".to_string());
             gen.render_furiosa_response(template, gpus)
+        }
+        PlatformType::Gaudi => {
+            let gen = GaudiMockGenerator::new(None, "".to_string());
+            gen.render_gaudi_response(template, gpus)
         }
         PlatformType::AmdGpu => {
             let gen = AmdGpuMockGenerator::new(None, "".to_string());
@@ -229,6 +243,7 @@ fn create_generator(
             Box::new(RebellionsMockGenerator::new(Some(gpu_name), instance_name))
         }
         PlatformType::Furiosa => Box::new(FuriosaMockGenerator::new(Some(gpu_name), instance_name)),
+        PlatformType::Gaudi => Box::new(GaudiMockGenerator::new(Some(gpu_name), instance_name)),
         PlatformType::AmdGpu => Box::new(AmdGpuMockGenerator::new(Some(gpu_name), instance_name)),
         _ => Box::new(NvidiaMockGenerator::new(Some(gpu_name), instance_name)),
     }
@@ -243,6 +258,7 @@ fn platform_type_to_mock_platform(platform: &PlatformType) -> MockPlatform {
         PlatformType::Tenstorrent => MockPlatform::Custom("Tenstorrent".to_string()),
         PlatformType::Rebellions => MockPlatform::Custom("Rebellions".to_string()),
         PlatformType::Furiosa => MockPlatform::Custom("Furiosa".to_string()),
+        PlatformType::Gaudi => MockPlatform::Custom("Intel Gaudi".to_string()),
         PlatformType::AmdGpu => MockPlatform::AmdGpu,
         _ => MockPlatform::Nvidia,
     }

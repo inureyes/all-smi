@@ -45,6 +45,7 @@ pub fn extract_gpu_memory_gb(gpu_name: &str) -> u64 {
 pub fn generate_gpus(gpu_name: &str, platform: &PlatformType) -> Vec<GpuMetrics> {
     let gpu_memory_gb = match platform {
         PlatformType::Furiosa => 48, // Furiosa RNGD has 48GB HBM3 (51539607552 bytes)
+        PlatformType::Gaudi => 128,  // Intel Gaudi 3 has 128GB HBM2e
         PlatformType::AmdGpu => extract_gpu_memory_gb(gpu_name), // AMD GPUs have varying memory sizes
         _ => extract_gpu_memory_gb(gpu_name),
     };
@@ -235,7 +236,7 @@ pub fn generate_cpu_metrics(platform: &PlatformType) -> CpuMetrics {
                 per_core_utilization,
             }
         }
-        PlatformType::Intel => {
+        PlatformType::Intel | PlatformType::Gaudi => {
             let models = [
                 "Intel Xeon Gold 6248R",
                 "Intel Xeon Platinum 8280",
