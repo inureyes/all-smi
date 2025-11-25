@@ -104,16 +104,14 @@ impl HlsmiConfig {
             ];
         }
 
-        let mut args = vec![
+        vec![
             "-Q".to_string(),
             self.query_fields.join(","),
             "--format".to_string(),
             "csv,noheader".to_string(),
             "-l".to_string(),
             self.interval_secs.to_string(),
-        ];
-
-        args
+        ]
     }
 }
 

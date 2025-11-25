@@ -39,13 +39,14 @@ use utils::{
 use device::is_apple_silicon;
 #[cfg(target_os = "macos")]
 use device::powermetrics::{initialize_powermetrics_manager, shutdown_powermetrics_manager};
-#[cfg(target_os = "macos")]
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "linux")]
 use device::hlsmi::{initialize_hlsmi_manager, shutdown_hlsmi_manager};
 #[cfg(target_os = "linux")]
 use device::platform_detection::has_gaudi;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "macos")]
 static POWERMETRICS_INITIALIZED: AtomicBool = AtomicBool::new(false);
