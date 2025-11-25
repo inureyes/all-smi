@@ -56,6 +56,12 @@ pub struct UiLoop {
     powermetrics_pending_notified: bool,
     #[cfg(target_os = "macos")]
     last_powermetrics_check: std::time::Instant,
+    #[cfg(target_os = "linux")]
+    hlsmi_notified: bool,
+    #[cfg(target_os = "linux")]
+    hlsmi_pending_notified: bool,
+    #[cfg(target_os = "linux")]
+    last_hlsmi_check: std::time::Instant,
 }
 
 impl UiLoop {
@@ -78,6 +84,12 @@ impl UiLoop {
             powermetrics_pending_notified: false,
             #[cfg(target_os = "macos")]
             last_powermetrics_check: std::time::Instant::now(),
+            #[cfg(target_os = "linux")]
+            hlsmi_notified: false,
+            #[cfg(target_os = "linux")]
+            hlsmi_pending_notified: false,
+            #[cfg(target_os = "linux")]
+            last_hlsmi_check: std::time::Instant::now(),
         })
     }
 
@@ -116,6 +128,41 @@ impl UiLoop {
                             let mut state = self.app_state.lock().await;
                             let _ = state.notifications.status("PowerMetrics ready".to_string());
                             self.powermetrics_notified = true;
+                        }
+                    }
+                }
+            }
+            // Check hl-smi initialization on Linux (periodic check for performance)
+            #[cfg(target_os = "linux")]
+            {
+                use std::time::Duration;
+
+                // Early exit: skip all checks if both notifications have been shown
+                if !(self.hlsmi_notified && self.hlsmi_pending_notified) {
+                    // Only check if enough time has passed since last check (500ms)
+                    if self.last_hlsmi_check.elapsed() >= Duration::from_millis(500) {
+                        use crate::device::hlsmi::{get_hlsmi_manager, has_hlsmi_data};
+
+                        // Update last check time
+                        self.last_hlsmi_check = std::time::Instant::now();
+
+                        // Show pending notification if manager exists but data not ready
+                        if !self.hlsmi_pending_notified
+                            && get_hlsmi_manager().is_some()
+                            && !has_hlsmi_data()
+                        {
+                            let mut state = self.app_state.lock().await;
+                            let _ = state
+                                .notifications
+                                .info("Initializing hl-smi...".to_string());
+                            self.hlsmi_pending_notified = true;
+                        }
+
+                        // Show success notification when data is ready
+                        if !self.hlsmi_notified && has_hlsmi_data() {
+                            let mut state = self.app_state.lock().await;
+                            let _ = state.notifications.status("Intel Gaudi ready".to_string());
+                            self.hlsmi_notified = true;
                         }
                     }
                 }
