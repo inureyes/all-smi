@@ -154,7 +154,7 @@ mod tests {
         let data = result.unwrap();
         assert_eq!(data.devices.len(), 2);
         assert_eq!(data.devices[0].index, 0);
-        assert_eq!(data.devices[0].driver_version, "1.22.1-97ec1a4");
+        assert_eq!(data.devices[0].driver_version, "1.22.1");
         assert_eq!(data.devices[1].index, 1);
     }
 }

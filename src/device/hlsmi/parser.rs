@@ -154,7 +154,7 @@ pub fn parse_hlsmi_output(output: &str) -> Result<GaudiMetricsData, Box<dyn std:
             index: parse_index(parts[0])?,
             uuid: parts[1].to_string(),
             name: parts[2].to_string(),
-            driver_version: parts[3].to_string(),
+            driver_version: strip_driver_revision(parts[3]),
             memory_total: parse_memory_mib(parts[4])?,
             memory_used: parse_memory_mib(parts[5])?,
             memory_free: parse_memory_mib(parts[6])?,
@@ -205,6 +205,20 @@ fn parse_utilization(s: &str) -> Result<f64, Box<dyn std::error::Error>> {
         .map_err(|e| format!("Failed to parse utilization '{s}': {e}").into())
 }
 
+/// Strip revision suffix from driver version (e.g., "1.22.1-97ec1a4" -> "1.22.1")
+fn strip_driver_revision(s: &str) -> String {
+    let s = s.trim();
+    // Find the last hyphen followed by what looks like a revision hash
+    if let Some(idx) = s.rfind('-') {
+        let suffix = &s[idx + 1..];
+        // Check if suffix looks like a hex revision (alphanumeric, typically 7+ chars)
+        if suffix.len() >= 6 && suffix.chars().all(|c| c.is_ascii_hexdigit()) {
+            return s[..idx].to_string();
+        }
+    }
+    s.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,7 +238,7 @@ mod tests {
         assert_eq!(data.devices[0].index, 0);
         assert_eq!(data.devices[0].uuid, "01P4-HL3090A0-18-U4V193-22-07-00");
         assert_eq!(data.devices[0].name, "HL-325L");
-        assert_eq!(data.devices[0].driver_version, "1.22.1-97ec1a4");
+        assert_eq!(data.devices[0].driver_version, "1.22.1");
         assert_eq!(data.devices[0].memory_total, 131072);
         assert_eq!(data.devices[0].memory_used, 672);
         assert_eq!(data.devices[0].memory_free, 130400);
@@ -285,5 +299,24 @@ mod tests {
         assert_eq!(parse_utilization("0 %").unwrap(), 0.0);
         assert_eq!(parse_utilization("50 %").unwrap(), 50.0);
         assert_eq!(parse_utilization("100 %").unwrap(), 100.0);
+    }
+
+    #[test]
+    fn test_strip_driver_revision() {
+        // Standard revision format
+        assert_eq!(strip_driver_revision("1.22.1-97ec1a4"), "1.22.1");
+        assert_eq!(strip_driver_revision("1.20.0-abcdef1"), "1.20.0");
+
+        // No revision suffix
+        assert_eq!(strip_driver_revision("1.22.1"), "1.22.1");
+
+        // Short suffix (not stripped)
+        assert_eq!(strip_driver_revision("1.22.1-abc"), "1.22.1-abc");
+
+        // Non-hex suffix (not stripped)
+        assert_eq!(strip_driver_revision("1.22.1-release"), "1.22.1-release");
+
+        // Whitespace handling
+        assert_eq!(strip_driver_revision("  1.22.1-97ec1a4  "), "1.22.1");
     }
 }
