@@ -98,6 +98,7 @@ pub struct WindowsCpuReader {
     // Cached WMI data (static info)
     cached_max_frequency: RwLock<Option<u32>>,
     cached_cache_size: RwLock<Option<u32>>,
+    cached_socket_count: RwLock<Option<u32>>,
 }
 
 impl Default for WindowsCpuReader {
@@ -122,6 +123,7 @@ impl WindowsCpuReader {
             first_refresh_done: RwLock::new(true), // Already initialized
             cached_max_frequency: RwLock::new(None),
             cached_cache_size: RwLock::new(None),
+            cached_socket_count: RwLock::new(None),
         }
     }
 
@@ -163,8 +165,9 @@ impl WindowsCpuReader {
         .flatten()
     }
 
-    /// Get static CPU info from WMI (max frequency, cache size) - using thread-local connection
-    fn get_wmi_processor_info(&self) -> (Option<u32>, Option<u32>) {
+    /// Get static CPU info from WMI (max frequency, cache size, socket count)
+    /// Uses thread-local connection for efficiency
+    fn get_wmi_processor_info(&self) -> (Option<u32>, Option<u32>, u32) {
         // Check cache first
         let cached_freq = *self
             .cached_max_frequency
@@ -174,17 +177,25 @@ impl WindowsCpuReader {
             .cached_cache_size
             .read()
             .expect("cached_cache_size lock poisoned");
+        let cached_sockets = *self
+            .cached_socket_count
+            .read()
+            .expect("cached_socket_count lock poisoned");
 
-        if cached_freq.is_some() && cached_cache.is_some() {
-            return (cached_freq, cached_cache);
+        if cached_freq.is_some() && cached_cache.is_some() && cached_sockets.is_some() {
+            return (cached_freq, cached_cache, cached_sockets.unwrap_or(1));
         }
 
         // Query WMI for processor info using thread-local connection
+        // Win32_Processor returns one instance per physical processor (socket)
         let result = with_cimv2_connection(|wmi_con| {
             let results: Result<Vec<Win32Processor>, _> = wmi_con
                 .raw_query("SELECT MaxClockSpeed, L2CacheSize, L3CacheSize FROM Win32_Processor");
 
             if let Ok(procs) = results {
+                // Number of Win32_Processor instances = number of physical processors (sockets)
+                let socket_count = procs.len().max(1) as u32;
+
                 if let Some(proc) = procs.first() {
                     let max_freq = proc.max_clock_speed.unwrap_or(0);
                     // Cache size in KB, convert to MB
@@ -192,14 +203,14 @@ impl WindowsCpuReader {
                     let l3 = proc.l3_cache_size.unwrap_or(0);
                     let cache_mb = (l2 + l3) / 1024;
 
-                    return Some((max_freq, cache_mb));
+                    return Some((max_freq, cache_mb, socket_count));
                 }
             }
             None
         })
         .flatten();
 
-        if let Some((freq, cache)) = result {
+        if let Some((freq, cache, sockets)) = result {
             *self
                 .cached_max_frequency
                 .write()
@@ -208,9 +219,14 @@ impl WindowsCpuReader {
                 .cached_cache_size
                 .write()
                 .expect("cached_cache_size lock poisoned") = Some(cache);
-            (Some(freq), Some(cache))
+            *self
+                .cached_socket_count
+                .write()
+                .expect("cached_socket_count lock poisoned") = Some(sockets);
+            (Some(freq), Some(cache), sockets)
         } else {
-            (None, None)
+            // Default to 1 socket if WMI query fails
+            (None, None, 1)
         }
     }
 
@@ -300,26 +316,29 @@ impl WindowsCpuReader {
             });
         }
 
-        // Windows typically has 1 socket for consumer machines
-        let socket_count = 1u32;
-
         // Get CPU temperature from WMI
         let temperature = self.get_cpu_temperature();
 
-        // Get static info from WMI (max frequency, cache size)
-        let (wmi_max_freq, wmi_cache_size) = self.get_wmi_processor_info();
+        // Get static info from WMI (max frequency, cache size, socket count)
+        let (wmi_max_freq, wmi_cache_size, socket_count) = self.get_wmi_processor_info();
         let max_frequency = wmi_max_freq.unwrap_or(base_frequency);
         let cache_size_mb = wmi_cache_size.unwrap_or(0);
 
+        // Calculate per-socket values
+        let cores_per_socket = total_cores / socket_count;
+        let threads_per_socket = total_threads / socket_count;
+
         // Create per-socket info
-        let per_socket_info = vec![CpuSocketInfo {
-            socket_id: 0,
-            utilization: overall_utilization,
-            cores: total_cores,
-            threads: total_threads,
-            temperature,
-            frequency_mhz: base_frequency,
-        }];
+        let per_socket_info: Vec<CpuSocketInfo> = (0..socket_count)
+            .map(|socket_id| CpuSocketInfo {
+                socket_id,
+                utilization: overall_utilization, // Approximate: use overall for each socket
+                cores: cores_per_socket,
+                threads: threads_per_socket,
+                temperature, // Temperature is typically system-wide on Windows
+                frequency_mhz: base_frequency,
+            })
+            .collect();
 
         Ok(CpuInfo {
             host_id: hostname.clone(),
