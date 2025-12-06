@@ -31,3 +31,6 @@ pub mod tenstorrent;
 
 #[cfg(all(target_os = "linux", not(target_env = "musl")))]
 pub mod amd;
+
+#[cfg(target_os = "windows")]
+pub mod amd_windows;

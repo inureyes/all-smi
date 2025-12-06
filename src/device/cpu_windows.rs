@@ -15,12 +15,73 @@
 use crate::device::{CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
 use crate::utils::system::get_hostname;
 use chrono::Local;
+use serde::Deserialize;
 use std::sync::RwLock;
 use sysinfo::{CpuRefreshKind, System};
+use wmi::{COMLibrary, WMIConnection};
+
+// WMI structures for thermal zone temperature
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+struct ThermalZoneTemperature {
+    current_temperature: Option<u32>, // Temperature in tenths of Kelvin
+}
+
+// WMI structures for processor information
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+struct Win32Processor {
+    max_clock_speed: Option<u32>,
+    l2_cache_size: Option<u32>,
+    l3_cache_size: Option<u32>,
+    #[allow(dead_code)]
+    number_of_cores: Option<u32>,
+    #[allow(dead_code)]
+    number_of_logical_processors: Option<u32>,
+}
+
+// Thread-local WMI connections for reuse within the same thread
+thread_local! {
+    static WMI_CIMV2_CONNECTION: std::cell::RefCell<Option<WMIConnection>> = std::cell::RefCell::new(None);
+    static WMI_ROOT_WMI_CONNECTION: std::cell::RefCell<Option<WMIConnection>> = std::cell::RefCell::new(None);
+}
+
+/// Helper to get or create CIMV2 connection
+fn with_cimv2_connection<T, F: FnOnce(&WMIConnection) -> T>(f: F) -> Option<T> {
+    WMI_CIMV2_CONNECTION.with(|cell| {
+        let mut conn_ref = cell.borrow_mut();
+        if conn_ref.is_none() {
+            if let Ok(com) = COMLibrary::new() {
+                if let Ok(wmi_con) = WMIConnection::new(com) {
+                    *conn_ref = Some(wmi_con);
+                }
+            }
+        }
+        conn_ref.as_ref().map(f)
+    })
+}
+
+/// Helper to get or create root\WMI connection
+fn with_root_wmi_connection<T, F: FnOnce(&WMIConnection) -> T>(f: F) -> Option<T> {
+    WMI_ROOT_WMI_CONNECTION.with(|cell| {
+        let mut conn_ref = cell.borrow_mut();
+        if conn_ref.is_none() {
+            if let Ok(com) = COMLibrary::new() {
+                if let Ok(wmi_con) = WMIConnection::with_namespace_path("root\\WMI", com) {
+                    *conn_ref = Some(wmi_con);
+                }
+            }
+        }
+        conn_ref.as_ref().map(f)
+    })
+}
 
 pub struct WindowsCpuReader {
     system: RwLock<System>,
     first_refresh_done: RwLock<bool>,
+    // Cached WMI data (static info)
+    cached_max_frequency: RwLock<Option<u32>>,
+    cached_cache_size: RwLock<Option<u32>>,
 }
 
 impl Default for WindowsCpuReader {
@@ -36,6 +97,70 @@ impl WindowsCpuReader {
         Self {
             system: RwLock::new(system),
             first_refresh_done: RwLock::new(false),
+            cached_max_frequency: RwLock::new(None),
+            cached_cache_size: RwLock::new(None),
+        }
+    }
+
+    /// Get CPU temperature from WMI thermal zones (using thread-local connection)
+    fn get_cpu_temperature(&self) -> Option<u32> {
+        with_root_wmi_connection(|wmi_con| {
+            let results: Result<Vec<ThermalZoneTemperature>, _> = wmi_con
+                .raw_query("SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature");
+
+            if let Ok(zones) = results {
+                for zone in zones {
+                    if let Some(temp_tenths_kelvin) = zone.current_temperature {
+                        // Convert from tenths of Kelvin to Celsius
+                        // Formula: (K / 10) - 273.15 = C
+                        let celsius = (temp_tenths_kelvin as f64 / 10.0) - 273.15;
+                        if celsius > 0.0 && celsius < 150.0 {
+                            return Some(celsius as u32);
+                        }
+                    }
+                }
+            }
+            None
+        })
+        .flatten()
+    }
+
+    /// Get static CPU info from WMI (max frequency, cache size) - using thread-local connection
+    fn get_wmi_processor_info(&self) -> (Option<u32>, Option<u32>) {
+        // Check cache first
+        let cached_freq = *self.cached_max_frequency.read().unwrap();
+        let cached_cache = *self.cached_cache_size.read().unwrap();
+
+        if cached_freq.is_some() && cached_cache.is_some() {
+            return (cached_freq, cached_cache);
+        }
+
+        // Query WMI for processor info using thread-local connection
+        let result = with_cimv2_connection(|wmi_con| {
+            let results: Result<Vec<Win32Processor>, _> = wmi_con
+                .raw_query("SELECT MaxClockSpeed, L2CacheSize, L3CacheSize FROM Win32_Processor");
+
+            if let Ok(procs) = results {
+                if let Some(proc) = procs.first() {
+                    let max_freq = proc.max_clock_speed.unwrap_or(0);
+                    // Cache size in KB, convert to MB
+                    let l2 = proc.l2_cache_size.unwrap_or(0);
+                    let l3 = proc.l3_cache_size.unwrap_or(0);
+                    let cache_mb = (l2 + l3) / 1024;
+
+                    return Some((max_freq, cache_mb));
+                }
+            }
+            None
+        })
+        .flatten();
+
+        if let Some((freq, cache)) = result {
+            *self.cached_max_frequency.write().unwrap() = Some(freq);
+            *self.cached_cache_size.write().unwrap() = Some(cache);
+            (Some(freq), Some(cache))
+        } else {
+            (None, None)
         }
     }
 
@@ -119,8 +244,15 @@ impl WindowsCpuReader {
         }
 
         // Windows typically has 1 socket for consumer machines
-        // For more accurate socket count, we would need WMI
         let socket_count = 1u32;
+
+        // Get CPU temperature from WMI
+        let temperature = self.get_cpu_temperature();
+
+        // Get static info from WMI (max frequency, cache size)
+        let (wmi_max_freq, wmi_cache_size) = self.get_wmi_processor_info();
+        let max_frequency = wmi_max_freq.unwrap_or(base_frequency);
+        let cache_size_mb = wmi_cache_size.unwrap_or(0);
 
         // Create per-socket info
         let per_socket_info = vec![CpuSocketInfo {
@@ -128,7 +260,7 @@ impl WindowsCpuReader {
             utilization: overall_utilization,
             cores: total_cores,
             threads: total_threads,
-            temperature: None, // Temperature requires WMI or specialized tools on Windows
+            temperature,
             frequency_mhz: base_frequency,
         }];
 
@@ -143,10 +275,10 @@ impl WindowsCpuReader {
             total_cores,
             total_threads,
             base_frequency_mhz: base_frequency,
-            max_frequency_mhz: base_frequency, // Max frequency requires WMI
-            cache_size_mb: 0,                  // Cache size requires WMI
+            max_frequency_mhz: max_frequency,
+            cache_size_mb,
             utilization: overall_utilization,
-            temperature: None,
+            temperature,
             power_consumption: None,
             per_socket_info,
             apple_silicon_info: None,

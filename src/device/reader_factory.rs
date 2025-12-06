@@ -37,6 +37,9 @@ use crate::device::{cpu_linux, memory_linux};
 #[cfg(target_os = "windows")]
 use crate::device::{cpu_windows, memory_windows};
 
+#[cfg(target_os = "windows")]
+use crate::device::readers::amd_windows;
+
 #[cfg(all(target_os = "linux", not(target_env = "musl")))]
 use crate::device::platform_detection::has_amd;
 
@@ -98,9 +101,17 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
             }
         }
         "windows" => {
-            // Check for NVIDIA GPU on Windows
-            if has_nvidia() {
-                readers.push(Box::new(nvidia::NvidiaGpuReader::new()));
+            #[cfg(target_os = "windows")]
+            {
+                // Check for NVIDIA GPU on Windows
+                if has_nvidia() {
+                    readers.push(Box::new(nvidia::NvidiaGpuReader::new()));
+                }
+
+                // Check for AMD GPU on Windows (including APU)
+                if amd_windows::has_amd_gpu_windows() {
+                    readers.push(Box::new(amd_windows::AmdWindowsGpuReader::new()));
+                }
             }
         }
         _ => println!("Unsupported OS type: {os_type}"),
