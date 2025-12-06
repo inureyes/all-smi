@@ -65,8 +65,6 @@ struct Win32VideoController {
     pnp_device_i_d: Option<String>, // PNPDeviceID
     status: Option<String>,
     adapter_d_a_c_type: Option<String>,
-    #[allow(dead_code)]
-    current_refresh_rate: Option<u32>,
 }
 
 // Simple structure for GPU detection (only Name field)
@@ -95,7 +93,7 @@ impl AmdWindowsGpuReader {
             let mut gpu_list = Vec::new();
 
             let result: Result<Vec<Win32VideoController>, _> = wmi_con
-                .raw_query("SELECT Name, AdapterRAM, DriverVersion, VideoProcessor, PNPDeviceID, Status, AdapterDACType, CurrentRefreshRate FROM Win32_VideoController");
+                .raw_query("SELECT Name, AdapterRAM, DriverVersion, VideoProcessor, PNPDeviceID, Status, AdapterDACType FROM Win32_VideoController");
 
             if let Ok(controllers) = result {
             let hostname = get_hostname();

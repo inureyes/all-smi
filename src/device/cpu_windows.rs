@@ -34,10 +34,6 @@ struct Win32Processor {
     max_clock_speed: Option<u32>,
     l2_cache_size: Option<u32>,
     l3_cache_size: Option<u32>,
-    #[allow(dead_code)]
-    number_of_cores: Option<u32>,
-    #[allow(dead_code)]
-    number_of_logical_processors: Option<u32>,
 }
 
 // Thread-local WMI connections for reuse within the same thread
