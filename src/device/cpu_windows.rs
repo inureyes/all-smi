@@ -51,9 +51,17 @@ fn with_cimv2_connection<T, F: FnOnce(&WMIConnection) -> T>(f: F) -> Option<T> {
     WMI_CIMV2_CONNECTION.with(|cell| {
         let mut conn_ref = cell.borrow_mut();
         if conn_ref.is_none() {
-            if let Ok(com) = COMLibrary::new() {
-                if let Ok(wmi_con) = WMIConnection::new(com) {
-                    *conn_ref = Some(wmi_con);
+            match COMLibrary::new() {
+                Ok(com) => match WMIConnection::new(com) {
+                    Ok(wmi_con) => {
+                        *conn_ref = Some(wmi_con);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to create WMI CIMV2 connection: {e}");
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to initialize COM library for CIMV2: {e}");
                 }
             }
         }
@@ -66,9 +74,17 @@ fn with_root_wmi_connection<T, F: FnOnce(&WMIConnection) -> T>(f: F) -> Option<T
     WMI_ROOT_WMI_CONNECTION.with(|cell| {
         let mut conn_ref = cell.borrow_mut();
         if conn_ref.is_none() {
-            if let Ok(com) = COMLibrary::new() {
-                if let Ok(wmi_con) = WMIConnection::with_namespace_path("root\\WMI", com) {
-                    *conn_ref = Some(wmi_con);
+            match COMLibrary::new() {
+                Ok(com) => match WMIConnection::with_namespace_path("root\\WMI", com) {
+                    Ok(wmi_con) => {
+                        *conn_ref = Some(wmi_con);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to create WMI root\\WMI connection: {e}");
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to initialize COM library for root\\WMI: {e}");
                 }
             }
         }

@@ -67,12 +67,18 @@ impl AmdWindowsGpuReader {
         // Create a fresh WMI connection (may be called from different threads)
         let com = match COMLibrary::new() {
             Ok(c) => c,
-            Err(_) => return gpu_list,
+            Err(e) => {
+                eprintln!("AMD GPU: Failed to initialize COM library: {e}");
+                return gpu_list;
+            }
         };
 
         let wmi_con = match WMIConnection::new(com) {
             Ok(w) => w,
-            Err(_) => return gpu_list,
+            Err(e) => {
+                eprintln!("AMD GPU: Failed to create WMI connection: {e}");
+                return gpu_list;
+            }
         };
 
         let result: Result<Vec<Win32VideoController>, _> = wmi_con
@@ -174,9 +180,17 @@ pub fn has_amd_gpu_windows() -> bool {
     // Strategy 1: Try normal COM initialization
     let com = match COMLibrary::new() {
         Ok(c) => Some(c),
-        Err(_) => {
+        Err(e) => {
             // Strategy 2: Try without_security for already-initialized COM
-            COMLibrary::without_security().ok()
+            match COMLibrary::without_security() {
+                Ok(c) => Some(c),
+                Err(e2) => {
+                    eprintln!(
+                        "AMD GPU detection: Failed to initialize COM library: {e}, fallback: {e2}"
+                    );
+                    None
+                }
+            }
         }
     };
 
@@ -186,7 +200,10 @@ pub fn has_amd_gpu_windows() -> bool {
 
     let wmi_con = match WMIConnection::new(com) {
         Ok(w) => w,
-        Err(_) => return false,
+        Err(e) => {
+            eprintln!("AMD GPU detection: Failed to create WMI connection: {e}");
+            return false;
+        }
     };
 
     let query_result: Result<Vec<VideoControllerName>, _> =
@@ -206,7 +223,10 @@ pub fn has_amd_gpu_windows() -> bool {
                 }
             }
         }
-        Err(_) => return false,
+        Err(e) => {
+            eprintln!("AMD GPU detection: WMI query failed: {e}");
+            return false;
+        }
     }
 
     false
