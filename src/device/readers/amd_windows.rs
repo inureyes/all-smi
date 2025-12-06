@@ -26,6 +26,34 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use wmi::{COMLibrary, WMIConnection};
 
+// Thread-local WMI connection for reuse within the same thread
+thread_local! {
+    static WMI_CONNECTION: std::cell::RefCell<Option<WMIConnection>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Helper to get or create WMI connection (thread-local cached)
+fn with_wmi_connection<T, F: FnOnce(&WMIConnection) -> T>(f: F) -> Option<T> {
+    WMI_CONNECTION.with(|cell| {
+        let mut conn_ref = cell.borrow_mut();
+        if conn_ref.is_none() {
+            match COMLibrary::new() {
+                Ok(com) => match WMIConnection::new(com) {
+                    Ok(wmi_con) => {
+                        *conn_ref = Some(wmi_con);
+                    }
+                    Err(e) => {
+                        eprintln!("AMD GPU: Failed to create WMI connection: {e}");
+                    }
+                },
+                Err(e) => {
+                    eprintln!("AMD GPU: Failed to initialize COM library: {e}");
+                }
+            }
+        }
+        conn_ref.as_ref().map(f)
+    })
+}
+
 // WMI structure for video controller information (full version for GPU info)
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "PascalCase")]
@@ -62,29 +90,14 @@ impl AmdWindowsGpuReader {
     }
 
     fn query_amd_gpus(&self) -> Vec<GpuInfo> {
-        let mut gpu_list = Vec::new();
+        // Use thread-local cached WMI connection to avoid repeated COM initialization
+        with_wmi_connection(|wmi_con| {
+            let mut gpu_list = Vec::new();
 
-        // Create a fresh WMI connection (may be called from different threads)
-        let com = match COMLibrary::new() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("AMD GPU: Failed to initialize COM library: {e}");
-                return gpu_list;
-            }
-        };
+            let result: Result<Vec<Win32VideoController>, _> = wmi_con
+                .raw_query("SELECT Name, AdapterRAM, DriverVersion, VideoProcessor, PNPDeviceID, Status, AdapterDACType, CurrentRefreshRate FROM Win32_VideoController");
 
-        let wmi_con = match WMIConnection::new(com) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("AMD GPU: Failed to create WMI connection: {e}");
-                return gpu_list;
-            }
-        };
-
-        let result: Result<Vec<Win32VideoController>, _> = wmi_con
-            .raw_query("SELECT Name, AdapterRAM, DriverVersion, VideoProcessor, PNPDeviceID, Status, AdapterDACType, CurrentRefreshRate FROM Win32_VideoController");
-
-        if let Ok(controllers) = result {
+            if let Ok(controllers) = result {
             let hostname = get_hostname();
             let time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
@@ -171,9 +184,11 @@ impl AmdWindowsGpuReader {
                     detail,
                 });
             }
-        }
+            }
 
-        gpu_list
+            gpu_list
+        })
+        .unwrap_or_default()
     }
 }
 
