@@ -22,6 +22,8 @@ pub use readers::tenstorrent::get_tenstorrent_status_message;
 pub mod cpu_linux;
 #[cfg(target_os = "macos")]
 pub mod cpu_macos;
+#[cfg(target_os = "windows")]
+pub mod cpu_windows;
 
 // Container resource support
 #[cfg(target_os = "linux")]
@@ -32,6 +34,8 @@ pub mod container_info;
 pub mod memory_linux;
 #[cfg(target_os = "macos")]
 pub mod memory_macos;
+#[cfg(target_os = "windows")]
+pub mod memory_windows;
 
 // Powermetrics parser for Apple Silicon
 #[cfg(target_os = "macos")]

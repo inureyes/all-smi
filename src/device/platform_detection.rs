@@ -40,6 +40,27 @@ pub fn has_nvidia() -> bool {
         return false;
     }
 
+    // On Windows, check if nvidia-smi is available and can list GPUs
+    if std::env::consts::OS == "windows" {
+        // Try nvidia-smi first (most reliable on Windows)
+        if let Ok(output) = execute_command_default("nvidia-smi", &["-L"]) {
+            if output.status == 0 {
+                // nvidia-smi -L outputs lines like "GPU 0: NVIDIA GeForce..."
+                let has_gpu = output.stdout.lines().any(|line| {
+                    let trimmed = line.trim();
+                    trimmed.starts_with("GPU") && trimmed.contains(":")
+                });
+                if has_gpu {
+                    return true;
+                }
+            }
+        }
+
+        // Try NVML directly via the nvml-wrapper crate (will be attempted in reader)
+        // If nvidia-smi fails, we can still try NVML initialization
+        return false;
+    }
+
     // On Linux, first try lspci to check for NVIDIA VGA/3D controllers
     if let Ok(output) = execute_command_default("lspci", &[]) {
         if output.status == 0 {

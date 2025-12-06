@@ -34,6 +34,9 @@ use crate::device::{
 #[cfg(target_os = "linux")]
 use crate::device::{cpu_linux, memory_linux};
 
+#[cfg(target_os = "windows")]
+use crate::device::{cpu_windows, memory_windows};
+
 #[cfg(all(target_os = "linux", not(target_env = "musl")))]
 use crate::device::platform_detection::has_amd;
 
@@ -94,6 +97,12 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
                 readers.push(Box::new(apple_silicon::AppleSiliconGpuReader::new()));
             }
         }
+        "windows" => {
+            // Check for NVIDIA GPU on Windows
+            if has_nvidia() {
+                readers.push(Box::new(nvidia::NvidiaGpuReader::new()));
+            }
+        }
         _ => println!("Unsupported OS type: {os_type}"),
     }
 
@@ -114,6 +123,10 @@ pub fn get_cpu_readers() -> Vec<Box<dyn CpuReader>> {
             #[cfg(target_os = "macos")]
             readers.push(Box::new(cpu_macos::MacOsCpuReader::new()));
         }
+        "windows" => {
+            #[cfg(target_os = "windows")]
+            readers.push(Box::new(cpu_windows::WindowsCpuReader::new()));
+        }
         _ => println!("CPU monitoring not supported for OS type: {os_type}"),
     }
 
@@ -133,6 +146,10 @@ pub fn get_memory_readers() -> Vec<Box<dyn MemoryReader>> {
         "macos" => {
             #[cfg(target_os = "macos")]
             readers.push(Box::new(memory_macos::MacOsMemoryReader::new()));
+        }
+        "windows" => {
+            #[cfg(target_os = "windows")]
+            readers.push(Box::new(memory_windows::WindowsMemoryReader::new()));
         }
         _ => println!("Memory monitoring not supported for OS type: {os_type}"),
     }
