@@ -92,11 +92,18 @@ impl Default for WindowsCpuReader {
 
 impl WindowsCpuReader {
     pub fn new() -> Self {
-        let system = System::new();
+        let mut system = System::new();
+
+        // Perform initial CPU refresh during construction to establish baseline.
+        // This moves the 100ms blocking delay from the first get_cpu_info() call
+        // to initialization time, preventing UI freezing during runtime queries.
+        system.refresh_cpu_specifics(CpuRefreshKind::everything());
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        system.refresh_cpu_specifics(CpuRefreshKind::everything());
 
         Self {
             system: RwLock::new(system),
-            first_refresh_done: RwLock::new(false),
+            first_refresh_done: RwLock::new(true), // Already initialized
             cached_max_frequency: RwLock::new(None),
             cached_cache_size: RwLock::new(None),
         }
