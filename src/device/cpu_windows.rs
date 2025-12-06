@@ -131,19 +131,34 @@ impl WindowsCpuReader {
             let results: Result<Vec<ThermalZoneTemperature>, _> = wmi_con
                 .raw_query("SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature");
 
-            if let Ok(zones) = results {
-                for zone in zones {
-                    if let Some(temp_tenths_kelvin) = zone.current_temperature {
-                        // Convert from tenths of Kelvin to Celsius
-                        // Formula: (K / 10) - 273.15 = C
-                        let celsius = (temp_tenths_kelvin as f64 / 10.0) - 273.15;
-                        if celsius > 0.0 && celsius < 150.0 {
-                            return Some(celsius as u32);
+            match results {
+                Ok(zones) => {
+                    if zones.is_empty() {
+                        eprintln!("CPU temperature: No thermal zones found in WMI");
+                        return None;
+                    }
+                    for zone in zones {
+                        if let Some(temp_tenths_kelvin) = zone.current_temperature {
+                            // Convert from tenths of Kelvin to Celsius
+                            // Formula: (K / 10) - 273.15 = C
+                            let celsius = (temp_tenths_kelvin as f64 / 10.0) - 273.15;
+                            if celsius > 0.0 && celsius < 150.0 {
+                                return Some(celsius as u32);
+                            } else {
+                                eprintln!(
+                                    "CPU temperature: Out of range value {:.1}°C (raw: {} tenths K)",
+                                    celsius, temp_tenths_kelvin
+                                );
+                            }
                         }
                     }
+                    None
+                }
+                Err(e) => {
+                    eprintln!("CPU temperature: WMI query failed: {e}");
+                    None
                 }
             }
-            None
         })
         .flatten()
     }
