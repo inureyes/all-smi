@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::device::{CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo};
+use crate::device::{
+    CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader, CpuSocketInfo,
+};
 use crate::utils::system::get_hostname;
 use chrono::Local;
 use serde::Deserialize;
