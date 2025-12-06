@@ -120,6 +120,7 @@ fn get_process_command(process: &sysinfo::Process) -> String {
 }
 
 /// Get process priority and nice value
+#[allow(unused_variables)]
 fn get_process_priority_nice(pid: u32) -> (i32, i32) {
     #[cfg(target_os = "linux")]
     {

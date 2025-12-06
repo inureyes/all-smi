@@ -100,6 +100,7 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
     readers
 }
 
+#[allow(unused_mut)]
 pub fn get_cpu_readers() -> Vec<Box<dyn CpuReader>> {
     let mut readers: Vec<Box<dyn CpuReader>> = Vec::new();
     let os_type = get_os_type();
@@ -119,6 +120,7 @@ pub fn get_cpu_readers() -> Vec<Box<dyn CpuReader>> {
     readers
 }
 
+#[allow(unused_mut)]
 pub fn get_memory_readers() -> Vec<Box<dyn MemoryReader>> {
     let mut readers: Vec<Box<dyn MemoryReader>> = Vec::new();
     let os_type = get_os_type();
