@@ -107,9 +107,27 @@ impl AmdWindowsGpuReader {
                     .unwrap_or_else(|| format!("AMD-GPU-{idx}"));
 
                 // Get adapter RAM (in bytes)
-                // Note: Win32_VideoController.AdapterRAM is a 32-bit value and may be incorrect
-                // for GPUs with more than 4GB VRAM. We try to handle this.
+                // LIMITATION: Win32_VideoController.AdapterRAM is a 32-bit uint32 in WMI,
+                // which can only represent up to 4GB (4,294,967,295 bytes). For GPUs with
+                // more than 4GB VRAM, this value will be incorrect (wrapped or capped).
+                // Unfortunately, there's no standard WMI alternative for accurate VRAM
+                // reporting on AMD GPUs without the AMD ADL SDK.
                 let total_memory = controller.adapter_r_a_m.unwrap_or(0);
+
+                // Warn if the reported VRAM is suspiciously close to 4GB limit or 0
+                const FOUR_GB: u64 = 4 * 1024 * 1024 * 1024; // 4,294,967,296 bytes
+                if total_memory == 0 {
+                    eprintln!(
+                        "AMD GPU '{}': VRAM size unavailable (reported as 0)",
+                        name
+                    );
+                } else if total_memory >= FOUR_GB - (512 * 1024 * 1024) {
+                    // If reported value is >= 3.5GB, it might be capped/wrapped for >4GB GPU
+                    eprintln!(
+                        "AMD GPU '{}': VRAM reported as {} bytes, may be inaccurate for >4GB GPUs due to WMI 32-bit limitation",
+                        name, total_memory
+                    );
+                }
 
                 // Build detail map
                 let mut detail = HashMap::new();
