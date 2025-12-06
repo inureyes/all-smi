@@ -128,8 +128,14 @@ impl WindowsCpuReader {
     /// Get static CPU info from WMI (max frequency, cache size) - using thread-local connection
     fn get_wmi_processor_info(&self) -> (Option<u32>, Option<u32>) {
         // Check cache first
-        let cached_freq = *self.cached_max_frequency.read().unwrap();
-        let cached_cache = *self.cached_cache_size.read().unwrap();
+        let cached_freq = *self
+            .cached_max_frequency
+            .read()
+            .expect("cached_max_frequency lock poisoned");
+        let cached_cache = *self
+            .cached_cache_size
+            .read()
+            .expect("cached_cache_size lock poisoned");
 
         if cached_freq.is_some() && cached_cache.is_some() {
             return (cached_freq, cached_cache);
@@ -156,8 +162,14 @@ impl WindowsCpuReader {
         .flatten();
 
         if let Some((freq, cache)) = result {
-            *self.cached_max_frequency.write().unwrap() = Some(freq);
-            *self.cached_cache_size.write().unwrap() = Some(cache);
+            *self
+                .cached_max_frequency
+                .write()
+                .expect("cached_max_frequency lock poisoned") = Some(freq);
+            *self
+                .cached_cache_size
+                .write()
+                .expect("cached_cache_size lock poisoned") = Some(cache);
             (Some(freq), Some(cache))
         } else {
             (None, None)
@@ -166,26 +178,33 @@ impl WindowsCpuReader {
 
     fn get_cpu_info_from_system(&self) -> Result<CpuInfo, Box<dyn std::error::Error>> {
         // On first call, do two refreshes to establish baseline for delta calculation
-        if !*self.first_refresh_done.read().unwrap() {
+        if !*self
+            .first_refresh_done
+            .read()
+            .expect("first_refresh_done lock poisoned")
+        {
             self.system
                 .write()
-                .unwrap()
+                .expect("system lock poisoned")
                 .refresh_cpu_specifics(CpuRefreshKind::everything());
             std::thread::sleep(std::time::Duration::from_millis(100));
-            *self.first_refresh_done.write().unwrap() = true;
+            *self
+                .first_refresh_done
+                .write()
+                .expect("first_refresh_done lock poisoned") = true;
         }
 
         // Regular refresh for current data
         self.system
             .write()
-            .unwrap()
+            .expect("system lock poisoned")
             .refresh_cpu_specifics(CpuRefreshKind::everything());
 
         let hostname = get_hostname();
         let instance = hostname.clone();
         let time = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-        let system = self.system.read().unwrap();
+        let system = self.system.read().expect("system lock poisoned");
 
         // Get CPU information
         let cpus = system.cpus();

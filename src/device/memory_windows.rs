@@ -46,10 +46,13 @@ impl MemoryReader for WindowsMemoryReader {
         let mut memory_info = Vec::new();
 
         // Refresh memory information using the cached System instance
-        self.system.write().unwrap().refresh_memory();
+        self.system
+            .write()
+            .expect("system lock poisoned")
+            .refresh_memory();
 
         // Now read the memory information
-        let system = self.system.read().unwrap();
+        let system = self.system.read().expect("system lock poisoned");
 
         let total_bytes = system.total_memory();
         let used_bytes = system.used_memory();
