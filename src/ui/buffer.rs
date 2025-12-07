@@ -33,7 +33,9 @@ impl Default for BufferWriter {
 impl BufferWriter {
     pub fn new() -> Self {
         Self {
-            buffer: String::with_capacity(1024 * 1024), // Pre-allocate 1MB
+            // Pre-allocate 64KB - sufficient for typical terminal content
+            // while avoiding excessive memory usage
+            buffer: String::with_capacity(64 * 1024),
             line_count: 0,
         }
     }
@@ -109,14 +111,6 @@ impl DifferentialRenderer {
         // Content has changed, update hash
         self.previous_content_hash = content_hash;
 
-        // Split content into lines - no padding to avoid truncation issues
-        let current_lines: Vec<String> = content.lines().map(|line| line.to_string()).collect();
-
-        // Initialize previous_lines on first run
-        if self.previous_lines.is_empty() {
-            self.previous_lines = vec![String::new(); self.screen_height];
-        }
-
         // Adjust buffer size if screen dimensions changed
         let (width, height) = size().unwrap_or((80, 24));
         if width as usize != self.screen_width || height as usize != self.screen_height {
@@ -126,15 +120,23 @@ impl DifferentialRenderer {
                 .resize(self.screen_height, String::new());
         }
 
-        // Find changed lines and update only those
-        let mut stdout = stdout();
-        let max_lines = std::cmp::min(current_lines.len(), self.screen_height);
+        // Initialize previous_lines on first run
+        if self.previous_lines.is_empty() {
+            self.previous_lines = vec![String::new(); self.screen_height];
+        }
 
-        for (line_num, current_line) in current_lines.iter().enumerate().take(max_lines) {
+        let mut stdout = stdout();
+        let mut current_line_count = 0;
+
+        // Process lines directly from iterator, updating previous_lines in-place
+        for (line_num, current_line) in content.lines().enumerate() {
+            if line_num >= self.screen_height {
+                break;
+            }
+            current_line_count = line_num + 1;
+
             // Check if this line has changed
-            if line_num >= self.previous_lines.len()
-                || &self.previous_lines[line_num] != current_line
-            {
+            if self.previous_lines[line_num] != current_line {
                 // Update this line - clear it first to prevent artifacts from shorter lines
                 queue!(
                     stdout,
@@ -142,32 +144,27 @@ impl DifferentialRenderer {
                     crossterm::terminal::Clear(ClearType::UntilNewLine),
                     Print(current_line)
                 )?;
+
+                // Update previous_lines in-place, reusing String allocation when possible
+                self.previous_lines[line_num].clear();
+                self.previous_lines[line_num].push_str(current_line);
             }
         }
 
         // Clear any remaining lines if the new content is shorter
-        if self.previous_lines.len() > current_lines.len() {
-            for line_num in
-                current_lines.len()..std::cmp::min(self.previous_lines.len(), self.screen_height)
-            {
-                if !self.previous_lines[line_num].is_empty() {
-                    queue!(
-                        stdout,
-                        cursor::MoveTo(0, line_num as u16),
-                        crossterm::terminal::Clear(ClearType::CurrentLine)
-                    )?;
-                }
+        for line_num in current_line_count..self.screen_height {
+            if !self.previous_lines[line_num].is_empty() {
+                queue!(
+                    stdout,
+                    cursor::MoveTo(0, line_num as u16),
+                    crossterm::terminal::Clear(ClearType::CurrentLine)
+                )?;
+                self.previous_lines[line_num].clear();
             }
         }
 
         // Flush all queued updates at once
         stdout.flush()?;
-
-        // Update previous_lines for next comparison
-        self.previous_lines.clear();
-        self.previous_lines.extend(current_lines);
-        self.previous_lines
-            .resize(self.screen_height, String::new());
 
         Ok(())
     }

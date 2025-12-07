@@ -329,45 +329,76 @@ impl UiLoop {
     }
 
     fn update_scroll_offsets(&self, state: &mut AppState) {
-        let mut new_device_name_scroll_offsets = state.device_name_scroll_offsets.clone();
-        let mut new_hostname_scroll_offsets = state.host_id_scroll_offsets.clone();
-        let mut new_cpu_name_scroll_offsets = state.cpu_name_scroll_offsets.clone();
         let mut processed_hostnames = HashSet::new();
 
-        // Update GPU scroll offsets
-        for gpu in &state.gpu_info {
-            if gpu.name.len() > 15 {
-                let offset = new_device_name_scroll_offsets
-                    .entry(gpu.uuid.clone())
-                    .or_insert(0);
-                *offset = (*offset + 1) % (gpu.name.len() + 3);
-            }
-            if gpu.hostname.len() > 9 && processed_hostnames.insert(gpu.host_id.clone()) {
-                let offset = new_hostname_scroll_offsets
-                    .entry(gpu.host_id.clone())
-                    .or_insert(0);
-                *offset = (*offset + 1) % (gpu.hostname.len() + 3);
-            }
+        // Collect GPU keys and lengths first to avoid borrow conflicts
+        let gpu_updates: Vec<_> = state
+            .gpu_info
+            .iter()
+            .filter_map(|gpu| {
+                if gpu.name.len() > 15 {
+                    Some((gpu.uuid.clone(), gpu.name.len()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let gpu_hostname_updates: Vec<_> = state
+            .gpu_info
+            .iter()
+            .filter_map(|gpu| {
+                if gpu.hostname.len() > 9 && processed_hostnames.insert(gpu.host_id.clone()) {
+                    Some((gpu.host_id.clone(), gpu.hostname.len()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Collect CPU keys and lengths
+        let cpu_updates: Vec<_> = state
+            .cpu_info
+            .iter()
+            .filter_map(|cpu| {
+                if cpu.cpu_model.len() > 15 {
+                    let key = format!("{}-{}", cpu.hostname, cpu.cpu_model);
+                    Some((key, cpu.cpu_model.len()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let cpu_hostname_updates: Vec<_> = state
+            .cpu_info
+            .iter()
+            .filter_map(|cpu| {
+                if cpu.hostname.len() > 9 && processed_hostnames.insert(cpu.host_id.clone()) {
+                    Some((cpu.host_id.clone(), cpu.hostname.len()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Apply GPU device name scroll updates in-place
+        for (key, name_len) in gpu_updates {
+            let offset = state.device_name_scroll_offsets.entry(key).or_insert(0);
+            *offset = (*offset + 1) % (name_len + 3);
         }
 
-        // Update CPU scroll offsets
-        for cpu in &state.cpu_info {
-            if cpu.cpu_model.len() > 15 {
-                let key = format!("{}-{}", cpu.hostname, cpu.cpu_model);
-                let offset = new_cpu_name_scroll_offsets.entry(key).or_insert(0);
-                *offset = (*offset + 1) % (cpu.cpu_model.len() + 3);
-            }
-            if cpu.hostname.len() > 9 && processed_hostnames.insert(cpu.host_id.clone()) {
-                let offset = new_hostname_scroll_offsets
-                    .entry(cpu.host_id.clone())
-                    .or_insert(0);
-                *offset = (*offset + 1) % (cpu.hostname.len() + 3);
-            }
+        // Apply hostname scroll updates in-place (GPU + CPU)
+        for (key, hostname_len) in gpu_hostname_updates.into_iter().chain(cpu_hostname_updates) {
+            let offset = state.host_id_scroll_offsets.entry(key).or_insert(0);
+            *offset = (*offset + 1) % (hostname_len + 3);
         }
 
-        state.device_name_scroll_offsets = new_device_name_scroll_offsets;
-        state.host_id_scroll_offsets = new_hostname_scroll_offsets;
-        state.cpu_name_scroll_offsets = new_cpu_name_scroll_offsets;
+        // Apply CPU name scroll updates in-place
+        for (key, model_len) in cpu_updates {
+            let offset = state.cpu_name_scroll_offsets.entry(key).or_insert(0);
+            *offset = (*offset + 1) % (model_len + 3);
+        }
     }
 
     fn render_help_popup_content(
