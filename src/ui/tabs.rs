@@ -228,6 +228,7 @@ mod tests {
             hostname_to_host_id: HashMap::new(),
             is_local_mode: false, // Test state assumes remote mode
             runtime_environment: crate::utils::RuntimeEnvironment::detect(),
+            data_version: 0,
         }
     }
 

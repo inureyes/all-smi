@@ -50,6 +50,13 @@ pub struct UiLoop {
     previous_show_per_core_cpu: bool,
     last_render_time: std::time::Instant,
     resize_occurred: bool,
+    /// Track the last rendered data version to skip re-rendering unchanged data
+    last_rendered_data_version: u64,
+    /// Track scroll state changes
+    previous_gpu_scroll_offset: usize,
+    previous_storage_scroll_offset: usize,
+    previous_selected_process_index: usize,
+    previous_process_horizontal_scroll_offset: usize,
     #[cfg(target_os = "macos")]
     powermetrics_notified: bool,
     #[cfg(target_os = "macos")]
@@ -78,6 +85,11 @@ impl UiLoop {
             previous_show_per_core_cpu: false,
             last_render_time: std::time::Instant::now(),
             resize_occurred: false,
+            last_rendered_data_version: 0,
+            previous_gpu_scroll_offset: 0,
+            previous_storage_scroll_offset: 0,
+            previous_selected_process_index: 0,
+            previous_process_horizontal_scroll_offset: 0,
             #[cfg(target_os = "macos")]
             powermetrics_notified: false,
             #[cfg(target_os = "macos")]
@@ -216,22 +228,35 @@ impl UiLoop {
                 || state.show_per_core_cpu != self.previous_show_per_core_cpu
                 || self.resize_occurred;
 
+            // Check if data has changed (used for skipping expensive rendering when idle)
+            let data_changed = state.data_version != self.last_rendered_data_version;
+
+            // Check if scroll/selection state has changed (requires re-render)
+            let scroll_changed = state.gpu_scroll_offset != self.previous_gpu_scroll_offset
+                || state.storage_scroll_offset != self.previous_storage_scroll_offset
+                || state.selected_process_index != self.previous_selected_process_index
+                || state.process_horizontal_scroll_offset
+                    != self.previous_process_horizontal_scroll_offset;
+
             // Check if enough time has passed for rendering (throttle to prevent visual artifacts)
             let now = std::time::Instant::now();
+            let time_to_render = now.duration_since(self.last_render_time).as_millis()
+                >= AppConfig::MIN_RENDER_INTERVAL_MS as u128;
+
+            // Only render if there's something worth rendering
             let should_render = force_clear
                 || self.resize_occurred
-                || now.duration_since(self.last_render_time).as_millis()
-                    >= AppConfig::MIN_RENDER_INTERVAL_MS as u128;
+                || (time_to_render && (data_changed || scroll_changed));
 
             if !should_render {
                 drop(state);
-                continue; // Skip this iteration if not enough time has passed
+                continue; // Skip this iteration if nothing has changed
             }
 
             self.last_render_time = now;
             state.frame_counter += 1;
 
-            // Update scroll offsets for long text
+            // Update scroll offsets for long text (less frequently now)
             if state.frame_counter % AppConfig::SCROLL_UPDATE_FREQUENCY == 0 {
                 self.update_scroll_offsets(&mut state);
             }
@@ -274,6 +299,11 @@ impl UiLoop {
             self.previous_loading = state.loading;
             self.previous_tab = state.current_tab;
             self.previous_show_per_core_cpu = state.show_per_core_cpu;
+            self.last_rendered_data_version = state.data_version;
+            self.previous_gpu_scroll_offset = state.gpu_scroll_offset;
+            self.previous_storage_scroll_offset = state.storage_scroll_offset;
+            self.previous_selected_process_index = state.selected_process_index;
+            self.previous_process_horizontal_scroll_offset = state.process_horizontal_scroll_offset;
             self.resize_occurred = false;
 
             if queue!(stdout, cursor::Show).is_err() {

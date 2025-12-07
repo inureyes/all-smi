@@ -217,6 +217,9 @@ impl DataCollectionStrategy for RemoteCollector {
 
         state.process_info = Vec::new(); // No process info in remote mode
         state.loading = false;
+
+        // Mark data as changed to trigger UI update
+        state.mark_data_changed();
     }
 
     fn strategy_type(&self) -> &str {

@@ -18,9 +18,11 @@ pub struct AppConfig;
 
 impl AppConfig {
     // UI Rendering Constants
-    pub const MIN_RENDER_INTERVAL_MS: u64 = 33; // ~30 FPS
-    pub const EVENT_POLL_TIMEOUT_MS: u64 = 50;
-    pub const SCROLL_UPDATE_FREQUENCY: u64 = 2; // Every 2 frames
+    // Optimized for CPU efficiency: 10 FPS is sufficient for monitoring tools
+    // This significantly reduces CPU usage while maintaining smooth visuals
+    pub const MIN_RENDER_INTERVAL_MS: u64 = 100; // ~10 FPS (was 33ms/30 FPS)
+    pub const EVENT_POLL_TIMEOUT_MS: u64 = 100; // Poll every 100ms (was 50ms)
+    pub const SCROLL_UPDATE_FREQUENCY: u64 = 5; // Every 5 frames (was 2)
 
     // Network Configuration
     pub const BACKEND_AI_DEFAULT_PORT: u16 = 9090;
@@ -240,8 +242,8 @@ mod tests {
 
     #[test]
     fn test_app_config_constants() {
-        assert_eq!(AppConfig::MIN_RENDER_INTERVAL_MS, 33);
-        assert_eq!(AppConfig::EVENT_POLL_TIMEOUT_MS, 50);
+        assert_eq!(AppConfig::MIN_RENDER_INTERVAL_MS, 100);
+        assert_eq!(AppConfig::EVENT_POLL_TIMEOUT_MS, 100);
         assert_eq!(AppConfig::MAX_CONCURRENT_CONNECTIONS, 128);
         assert_eq!(AppConfig::CONNECTION_TIMEOUT_SECS, 5);
         assert_eq!(AppConfig::RETRY_ATTEMPTS, 3);

@@ -69,6 +69,10 @@ pub struct DifferentialRenderer {
     previous_lines: Vec<String>,
     screen_height: usize,
     screen_width: usize,
+    /// Hash of previous content for fast unchanged detection
+    previous_content_hash: u64,
+    /// Count of consecutive unchanged frames (for adaptive rendering)
+    unchanged_frame_count: u32,
 }
 
 impl DifferentialRenderer {
@@ -78,11 +82,38 @@ impl DifferentialRenderer {
             previous_lines: Vec::new(),
             screen_height: height as usize,
             screen_width: width as usize,
+            previous_content_hash: 0,
+            unchanged_frame_count: 0,
         })
+    }
+
+    /// Fast hash function for content comparison (FNV-1a)
+    fn hash_content(content: &str) -> u64 {
+        const FNV_OFFSET: u64 = 14695981039346656037;
+        const FNV_PRIME: u64 = 1099511628211;
+
+        let mut hash = FNV_OFFSET;
+        for byte in content.bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        hash
     }
 
     /// Render content with differential updates - only changed lines are updated
     pub fn render_differential(&mut self, content: &str) -> std::io::Result<()> {
+        // Fast path: check if content is identical using hash
+        let content_hash = Self::hash_content(content);
+        if content_hash == self.previous_content_hash && !self.previous_lines.is_empty() {
+            // Content is unchanged, skip all rendering work
+            self.unchanged_frame_count = self.unchanged_frame_count.saturating_add(1);
+            return Ok(());
+        }
+
+        // Content has changed, reset counter
+        self.unchanged_frame_count = 0;
+        self.previous_content_hash = content_hash;
+
         // Split content into lines - no padding to avoid truncation issues
         let current_lines: Vec<String> = content.lines().map(|line| line.to_string()).collect();
 
@@ -152,10 +183,12 @@ impl DifferentialRenderer {
         queue!(stdout, crossterm::terminal::Clear(ClearType::All))?;
         stdout.flush()?;
 
-        // Reset previous state
+        // Reset previous state including hash to force re-render
         self.previous_lines.clear();
         self.previous_lines
             .resize(self.screen_height, String::new());
+        self.previous_content_hash = 0;
+        self.unchanged_frame_count = 0;
 
         Ok(())
     }
