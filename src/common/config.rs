@@ -22,7 +22,7 @@ impl AppConfig {
     // This significantly reduces CPU usage while maintaining smooth visuals
     pub const MIN_RENDER_INTERVAL_MS: u64 = 100; // ~10 FPS (was 33ms/30 FPS)
     pub const EVENT_POLL_TIMEOUT_MS: u64 = 100; // Poll every 100ms (was 50ms)
-    pub const SCROLL_UPDATE_FREQUENCY: u64 = 5; // Every 5 frames (was 2)
+    pub const SCROLL_UPDATE_FREQUENCY: u64 = 1; // Every N frames for text scrolling (1 = every 100ms at 10 FPS)
 
     // Network Configuration
     pub const BACKEND_AI_DEFAULT_PORT: u16 = 9090;

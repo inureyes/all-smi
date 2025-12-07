@@ -57,6 +57,7 @@ pub struct UiLoop {
     previous_storage_scroll_offset: usize,
     previous_selected_process_index: usize,
     previous_process_horizontal_scroll_offset: usize,
+    previous_tab_scroll_offset: usize,
     #[cfg(target_os = "macos")]
     powermetrics_notified: bool,
     #[cfg(target_os = "macos")]
@@ -90,6 +91,7 @@ impl UiLoop {
             previous_storage_scroll_offset: 0,
             previous_selected_process_index: 0,
             previous_process_horizontal_scroll_offset: 0,
+            previous_tab_scroll_offset: 0,
             #[cfg(target_os = "macos")]
             powermetrics_notified: false,
             #[cfg(target_os = "macos")]
@@ -236,7 +238,8 @@ impl UiLoop {
                 || state.storage_scroll_offset != self.previous_storage_scroll_offset
                 || state.selected_process_index != self.previous_selected_process_index
                 || state.process_horizontal_scroll_offset
-                    != self.previous_process_horizontal_scroll_offset;
+                    != self.previous_process_horizontal_scroll_offset
+                || state.tab_scroll_offset != self.previous_tab_scroll_offset;
 
             // Check if enough time has passed for rendering (throttle to prevent visual artifacts)
             let now = std::time::Instant::now();
@@ -244,22 +247,29 @@ impl UiLoop {
                 >= AppConfig::MIN_RENDER_INTERVAL_MS as u128;
 
             // Only render if there's something worth rendering
+            // Note: We always render when time_to_render is true to ensure smooth
+            // text scrolling animations. DifferentialRenderer's hash check will
+            // skip actual rendering if content is unchanged.
             let should_render = force_clear
                 || self.resize_occurred
                 || (time_to_render && (data_changed || scroll_changed));
 
-            if !should_render {
+            // Update scroll offsets for long text (controlled by SCROLL_UPDATE_FREQUENCY)
+            // This runs independently of should_render to keep animations smooth
+            if time_to_render {
+                state.frame_counter += 1;
+                #[allow(clippy::modulo_one)]
+                if state.frame_counter % AppConfig::SCROLL_UPDATE_FREQUENCY == 0 {
+                    self.update_scroll_offsets(&mut state);
+                }
+            }
+
+            if !should_render && !time_to_render {
                 drop(state);
-                continue; // Skip this iteration if nothing has changed
+                continue; // Skip if nothing changed and not time to render yet
             }
 
             self.last_render_time = now;
-            state.frame_counter += 1;
-
-            // Update scroll offsets for long text (less frequently now)
-            if state.frame_counter % AppConfig::SCROLL_UPDATE_FREQUENCY == 0 {
-                self.update_scroll_offsets(&mut state);
-            }
 
             let (cols, rows) = match size() {
                 Ok((c, r)) => (c, r),
@@ -304,6 +314,7 @@ impl UiLoop {
             self.previous_storage_scroll_offset = state.storage_scroll_offset;
             self.previous_selected_process_index = state.selected_process_index;
             self.previous_process_horizontal_scroll_offset = state.process_horizontal_scroll_offset;
+            self.previous_tab_scroll_offset = state.tab_scroll_offset;
             self.resize_occurred = false;
 
             if queue!(stdout, cursor::Show).is_err() {

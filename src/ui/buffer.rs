@@ -71,8 +71,6 @@ pub struct DifferentialRenderer {
     screen_width: usize,
     /// Hash of previous content for fast unchanged detection
     previous_content_hash: u64,
-    /// Count of consecutive unchanged frames (for adaptive rendering)
-    unchanged_frame_count: u32,
 }
 
 impl DifferentialRenderer {
@@ -83,7 +81,6 @@ impl DifferentialRenderer {
             screen_height: height as usize,
             screen_width: width as usize,
             previous_content_hash: 0,
-            unchanged_frame_count: 0,
         })
     }
 
@@ -106,12 +103,10 @@ impl DifferentialRenderer {
         let content_hash = Self::hash_content(content);
         if content_hash == self.previous_content_hash && !self.previous_lines.is_empty() {
             // Content is unchanged, skip all rendering work
-            self.unchanged_frame_count = self.unchanged_frame_count.saturating_add(1);
             return Ok(());
         }
 
-        // Content has changed, reset counter
-        self.unchanged_frame_count = 0;
+        // Content has changed, update hash
         self.previous_content_hash = content_hash;
 
         // Split content into lines - no padding to avoid truncation issues
@@ -188,7 +183,6 @@ impl DifferentialRenderer {
         self.previous_lines
             .resize(self.screen_height, String::new());
         self.previous_content_hash = 0;
-        self.unchanged_frame_count = 0;
 
         Ok(())
     }
