@@ -117,6 +117,8 @@ pub struct AppState {
     pub is_local_mode: bool,
     // Runtime environment (container/VM) information
     pub runtime_environment: RuntimeEnvironment,
+    /// Version counter that increments when data changes, used to detect if re-render is needed
+    pub data_version: u64,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -204,7 +206,13 @@ impl AppState {
             hostname_to_host_id: HashMap::new(),
             is_local_mode: true, // Default to local mode
             runtime_environment: RuntimeEnvironment::detect(),
+            data_version: 0,
         }
+    }
+
+    /// Increment the data version to signal that data has changed
+    pub fn mark_data_changed(&mut self) {
+        self.data_version = self.data_version.wrapping_add(1);
     }
 }
 

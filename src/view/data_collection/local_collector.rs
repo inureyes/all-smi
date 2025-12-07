@@ -480,6 +480,9 @@ impl DataCollectionStrategy for LocalCollector {
 
         state.storage_info = data.storage_info;
 
+        // Mark data as changed to trigger UI update
+        state.mark_data_changed();
+
         // Update notifications
         Self::update_notifications(&mut state);
 

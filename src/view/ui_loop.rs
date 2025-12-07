@@ -50,6 +50,14 @@ pub struct UiLoop {
     previous_show_per_core_cpu: bool,
     last_render_time: std::time::Instant,
     resize_occurred: bool,
+    /// Track the last rendered data version to skip re-rendering unchanged data
+    last_rendered_data_version: u64,
+    /// Track scroll state changes
+    previous_gpu_scroll_offset: usize,
+    previous_storage_scroll_offset: usize,
+    previous_selected_process_index: usize,
+    previous_process_horizontal_scroll_offset: usize,
+    previous_tab_scroll_offset: usize,
     #[cfg(target_os = "macos")]
     powermetrics_notified: bool,
     #[cfg(target_os = "macos")]
@@ -78,6 +86,12 @@ impl UiLoop {
             previous_show_per_core_cpu: false,
             last_render_time: std::time::Instant::now(),
             resize_occurred: false,
+            last_rendered_data_version: 0,
+            previous_gpu_scroll_offset: 0,
+            previous_storage_scroll_offset: 0,
+            previous_selected_process_index: 0,
+            previous_process_horizontal_scroll_offset: 0,
+            previous_tab_scroll_offset: 0,
             #[cfg(target_os = "macos")]
             powermetrics_notified: false,
             #[cfg(target_os = "macos")]
@@ -216,25 +230,46 @@ impl UiLoop {
                 || state.show_per_core_cpu != self.previous_show_per_core_cpu
                 || self.resize_occurred;
 
+            // Check if data has changed (used for skipping expensive rendering when idle)
+            let data_changed = state.data_version != self.last_rendered_data_version;
+
+            // Check if scroll/selection state has changed (requires re-render)
+            let scroll_changed = state.gpu_scroll_offset != self.previous_gpu_scroll_offset
+                || state.storage_scroll_offset != self.previous_storage_scroll_offset
+                || state.selected_process_index != self.previous_selected_process_index
+                || state.process_horizontal_scroll_offset
+                    != self.previous_process_horizontal_scroll_offset
+                || state.tab_scroll_offset != self.previous_tab_scroll_offset;
+
             // Check if enough time has passed for rendering (throttle to prevent visual artifacts)
             let now = std::time::Instant::now();
+            let time_to_render = now.duration_since(self.last_render_time).as_millis()
+                >= AppConfig::MIN_RENDER_INTERVAL_MS as u128;
+
+            // Only render if there's something worth rendering
+            // Note: We always render when time_to_render is true to ensure smooth
+            // text scrolling animations. DifferentialRenderer's hash check will
+            // skip actual rendering if content is unchanged.
             let should_render = force_clear
                 || self.resize_occurred
-                || now.duration_since(self.last_render_time).as_millis()
-                    >= AppConfig::MIN_RENDER_INTERVAL_MS as u128;
+                || (time_to_render && (data_changed || scroll_changed));
 
-            if !should_render {
+            // Update scroll offsets for long text (controlled by SCROLL_UPDATE_FREQUENCY)
+            // This runs independently of should_render to keep animations smooth
+            if time_to_render {
+                state.frame_counter += 1;
+                #[allow(clippy::modulo_one)]
+                if state.frame_counter % AppConfig::SCROLL_UPDATE_FREQUENCY == 0 {
+                    self.update_scroll_offsets(&mut state);
+                }
+            }
+
+            if !should_render && !time_to_render {
                 drop(state);
-                continue; // Skip this iteration if not enough time has passed
+                continue; // Skip if nothing changed and not time to render yet
             }
 
             self.last_render_time = now;
-            state.frame_counter += 1;
-
-            // Update scroll offsets for long text
-            if state.frame_counter % AppConfig::SCROLL_UPDATE_FREQUENCY == 0 {
-                self.update_scroll_offsets(&mut state);
-            }
 
             let (cols, rows) = match size() {
                 Ok((c, r)) => (c, r),
@@ -274,6 +309,12 @@ impl UiLoop {
             self.previous_loading = state.loading;
             self.previous_tab = state.current_tab;
             self.previous_show_per_core_cpu = state.show_per_core_cpu;
+            self.last_rendered_data_version = state.data_version;
+            self.previous_gpu_scroll_offset = state.gpu_scroll_offset;
+            self.previous_storage_scroll_offset = state.storage_scroll_offset;
+            self.previous_selected_process_index = state.selected_process_index;
+            self.previous_process_horizontal_scroll_offset = state.process_horizontal_scroll_offset;
+            self.previous_tab_scroll_offset = state.tab_scroll_offset;
             self.resize_occurred = false;
 
             if queue!(stdout, cursor::Show).is_err() {
@@ -288,45 +329,76 @@ impl UiLoop {
     }
 
     fn update_scroll_offsets(&self, state: &mut AppState) {
-        let mut new_device_name_scroll_offsets = state.device_name_scroll_offsets.clone();
-        let mut new_hostname_scroll_offsets = state.host_id_scroll_offsets.clone();
-        let mut new_cpu_name_scroll_offsets = state.cpu_name_scroll_offsets.clone();
         let mut processed_hostnames = HashSet::new();
 
-        // Update GPU scroll offsets
-        for gpu in &state.gpu_info {
-            if gpu.name.len() > 15 {
-                let offset = new_device_name_scroll_offsets
-                    .entry(gpu.uuid.clone())
-                    .or_insert(0);
-                *offset = (*offset + 1) % (gpu.name.len() + 3);
-            }
-            if gpu.hostname.len() > 9 && processed_hostnames.insert(gpu.host_id.clone()) {
-                let offset = new_hostname_scroll_offsets
-                    .entry(gpu.host_id.clone())
-                    .or_insert(0);
-                *offset = (*offset + 1) % (gpu.hostname.len() + 3);
-            }
+        // Collect GPU keys and lengths first to avoid borrow conflicts
+        let gpu_updates: Vec<_> = state
+            .gpu_info
+            .iter()
+            .filter_map(|gpu| {
+                if gpu.name.len() > 15 {
+                    Some((gpu.uuid.clone(), gpu.name.len()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let gpu_hostname_updates: Vec<_> = state
+            .gpu_info
+            .iter()
+            .filter_map(|gpu| {
+                if gpu.hostname.len() > 9 && processed_hostnames.insert(gpu.host_id.clone()) {
+                    Some((gpu.host_id.clone(), gpu.hostname.len()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Collect CPU keys and lengths
+        let cpu_updates: Vec<_> = state
+            .cpu_info
+            .iter()
+            .filter_map(|cpu| {
+                if cpu.cpu_model.len() > 15 {
+                    let key = format!("{}-{}", cpu.hostname, cpu.cpu_model);
+                    Some((key, cpu.cpu_model.len()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let cpu_hostname_updates: Vec<_> = state
+            .cpu_info
+            .iter()
+            .filter_map(|cpu| {
+                if cpu.hostname.len() > 9 && processed_hostnames.insert(cpu.host_id.clone()) {
+                    Some((cpu.host_id.clone(), cpu.hostname.len()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Apply GPU device name scroll updates in-place
+        for (key, name_len) in gpu_updates {
+            let offset = state.device_name_scroll_offsets.entry(key).or_insert(0);
+            *offset = (*offset + 1) % (name_len + 3);
         }
 
-        // Update CPU scroll offsets
-        for cpu in &state.cpu_info {
-            if cpu.cpu_model.len() > 15 {
-                let key = format!("{}-{}", cpu.hostname, cpu.cpu_model);
-                let offset = new_cpu_name_scroll_offsets.entry(key).or_insert(0);
-                *offset = (*offset + 1) % (cpu.cpu_model.len() + 3);
-            }
-            if cpu.hostname.len() > 9 && processed_hostnames.insert(cpu.host_id.clone()) {
-                let offset = new_hostname_scroll_offsets
-                    .entry(cpu.host_id.clone())
-                    .or_insert(0);
-                *offset = (*offset + 1) % (cpu.hostname.len() + 3);
-            }
+        // Apply hostname scroll updates in-place (GPU + CPU)
+        for (key, hostname_len) in gpu_hostname_updates.into_iter().chain(cpu_hostname_updates) {
+            let offset = state.host_id_scroll_offsets.entry(key).or_insert(0);
+            *offset = (*offset + 1) % (hostname_len + 3);
         }
 
-        state.device_name_scroll_offsets = new_device_name_scroll_offsets;
-        state.host_id_scroll_offsets = new_hostname_scroll_offsets;
-        state.cpu_name_scroll_offsets = new_cpu_name_scroll_offsets;
+        // Apply CPU name scroll updates in-place
+        for (key, model_len) in cpu_updates {
+            let offset = state.cpu_name_scroll_offsets.entry(key).or_insert(0);
+            *offset = (*offset + 1) % (model_len + 3);
+        }
     }
 
     fn render_help_popup_content(
