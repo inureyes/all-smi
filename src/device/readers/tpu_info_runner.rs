@@ -70,6 +70,9 @@ impl TpuInfoRunner {
                             let reader = BufReader::new(stdout);
                             for line_res in reader.lines() {
                                 if let Ok(line) = line_res {
+                                    #[cfg(debug_assertions)]
+                                    eprintln!("[DEBUG] tpu-info raw: {}", line);
+
                                     Self::parse_line(&line, &mut current_table, &metrics_store);
                                     
                                     let mut s = status.lock().unwrap();
