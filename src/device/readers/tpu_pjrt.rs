@@ -20,6 +20,8 @@
 //! Note: This is a best-effort implementation. PJRT ABI is not strictly stable
 //! across all versions, but basic entry points are generally consistent.
 
+#![allow(unused)]
+
 #[cfg(target_os = "linux")]
 use libloading::{Library, Symbol};
 #[cfg(target_os = "linux")]

@@ -26,6 +26,8 @@
 //! - Duty cycle percentage (utilization)
 //! - Process IDs using TPU devices
 
+#![allow(unused)]
+
 #[cfg(target_os = "linux")]
 use libloading::{Library, Symbol};
 #[cfg(target_os = "linux")]

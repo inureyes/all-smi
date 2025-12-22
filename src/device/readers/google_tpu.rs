@@ -44,7 +44,7 @@ use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 #[cfg(target_os = "linux")]
 use crate::device::readers::libtpuinfo;
 #[cfg(target_os = "linux")]
-use crate::device::readers::{tpu_pjrt, tpu_sysfs};
+use crate::device::readers::tpu_sysfs;
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 #[cfg(target_os = "linux")]
@@ -217,6 +217,7 @@ struct TpuProcessInfo {
 
 /// Cache for TPU Python script availability
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 static TPU_SCRIPT_AVAILABLE: Lazy<Arc<Mutex<Option<bool>>>> =
     Lazy::new(|| Arc::new(Mutex::new(None)));
 
@@ -227,6 +228,10 @@ pub struct GoogleTpuReader {
     device_static_info: OnceLock<HashMap<String, DeviceStaticInfo>>,
 }
 
+/// Status message for TPU reader (e.g. "Install tpu-info")
+#[cfg(target_os = "linux")]
+static TPU_STATUS: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+
 impl Default for GoogleTpuReader {
     fn default() -> Self {
         Self::new()
@@ -235,14 +240,7 @@ impl Default for GoogleTpuReader {
 
 impl GoogleTpuReader {
     pub fn new() -> Self {
-        #[cfg(target_os = "linux")]
-        {
-            // Start PJRT initialization in background to avoid blocking UI
-            // This allows libtpu.so loading (slow) and client creation (potentially blocking)
-            // to happen asynchronously.
-            tpu_pjrt::initialize_in_background();
-        }
-
+        // We no longer initialize PJRT in background as we rely on tpu-info CLI
         Self {
             #[cfg(target_os = "linux")]
             device_static_info: OnceLock::new(),
@@ -320,27 +318,9 @@ impl GoogleTpuReader {
     /// Check if TPU integration is available
     #[cfg(target_os = "linux")]
     fn is_tpu_script_available() -> bool {
-        // Check cache first with timeout to avoid deadlock
-        match TPU_SCRIPT_AVAILABLE.try_lock() {
-            Ok(cache) => {
-                if let Some(available) = *cache {
-                    return available;
-                }
-            }
-            Err(_) => {
-                // If we can't acquire lock immediately, skip cache check
-            }
-        }
-
-        // Use the new availability check
-        let result = Self::check_tpu_availability();
-
-        // Cache the result
-        if let Ok(mut cache) = TPU_SCRIPT_AVAILABLE.try_lock() {
-            *cache = Some(result);
-        }
-
-        result
+        // Always return true if we detect hardware via Sysfs/PCI
+        // We will handle the "missing tool" case by showing a notification
+        Self::check_tpu_availability()
     }
 
     /// Check TPU availability using non-blocking methods
@@ -351,13 +331,8 @@ impl GoogleTpuReader {
     /// 3. Environment variables - Cloud TPU VM check
     #[cfg(target_os = "linux")]
     fn check_tpu_availability() -> bool {
-        // 1. Check Sysfs presence (Method 1)
+        // 1. Check Sysfs/PCI presence (Primary detection)
         if !tpu_sysfs::scan_sysfs_tpus().is_empty() {
-            return true;
-        }
-
-        // 2. Check for libtpu runtime (Method 2)
-        if tpu_pjrt::is_libtpu_available() || is_libtpu_available() {
             return true;
         }
 
@@ -421,75 +396,44 @@ impl GoogleTpuReader {
     fn query_tpu_devices() -> Option<Vec<TpuDeviceInfo>> {
         let mut devices = Vec::new();
 
-        // Method 1: Sysfs scan (Most reliable for hardware presence & temp)
+        // 1. Sysfs scan (Most reliable for hardware presence & temp)
         // We use this as the baseline to ensure we don't miss devices.
         let sysfs_devices = tpu_sysfs::scan_sysfs_tpus();
         
-        // Method 2: Try libtpuinfo/PJRT for real metrics
-        // First try native PJRT bindings (Preferred if implemented)
-        let pjrt_metrics = tpu_pjrt::get_tpu_metrics();
+        // 2. Check for tpu-info command availability
+        // If missing, we set the status message to notify user.
+        let has_tpu_info = Self::is_tpu_info_installed();
         
-        // Then try legacy libtpuinfo bridge
-        let mut metric_devices = if let Some(pjrt) = pjrt_metrics {
-             if !pjrt.is_empty() {
-                 // Convert PJRT metrics to TpuDeviceInfo
-                 // (Currently unimplemented, returns empty)
-                 Some(Vec::new()) 
-             } else {
-                 Self::query_via_libtpuinfo()
-             }
-        } else {
-             Self::query_via_libtpuinfo()
-        };
-        
-        // If we found sysfs devices, we can merge them with metrics
-        if !sysfs_devices.is_empty() {
-            for sys_dev in sysfs_devices {
-                // Try to find matching metric device or create new entry
-                let matched_idx = if let Some(ref mut metrics) = metric_devices {
-                    metrics.iter().position(|d| d.index == sys_dev.index)
-                } else {
-                    None
-                };
-
-                if let Some(idx) = matched_idx {
-                    // Update existing entry with sysfs data (e.g. Temperature)
-                    if let Some(metrics) = metric_devices.as_mut() {
-                        if let Some(temp) = sys_dev.temperature {
-                            metrics[idx].temperature = temp as u32;
-                        }
-                    }
-                } else {
-                    // No metric data found, but device exists in sysfs. Add it.
-                    let chip_version = Self::detect_tpu_version_from_device_id(&sys_dev.device_id);
-                    let accel_type = format!("TPU {}", &chip_version);
-                    
-                    devices.push(TpuDeviceInfo {
-                        index: sys_dev.index,
-                        chip_version,
-                        uuid: format!("TPU-{}", sys_dev.index),
-                        core_count: 1,
-                        utilization: 0.0,
-                        memory_used: 0,
-                        memory_total: 0,
-                        temperature: sys_dev.temperature.unwrap_or(0.0) as u32,
-                        power_draw: 0.0,
-                        power_max: 0.0,
-                        tpu_runtime_version: String::new(),
-                        accelerator_type: accel_type,
-                    });
-                }
+        {
+            let mut status = TPU_STATUS.lock().unwrap();
+            if !sysfs_devices.is_empty() && !has_tpu_info {
+                *status = Some("Install 'tpu-info' for full metrics".to_string());
+            } else {
+                *status = None;
             }
         }
-        
-        // Merge metric devices if we have them
-        if let Some(metrics) = metric_devices {
-             for m in metrics {
-                 // Avoid duplicates if we already added it via sysfs path above
-                 if !devices.iter().any(|d| d.index == m.index) {
-                     devices.push(m);
-                 }
-             }
+
+        // 3. Collect devices from Sysfs
+        if !sysfs_devices.is_empty() {
+            for sys_dev in sysfs_devices {
+                let chip_version = Self::detect_tpu_version_from_device_id(&sys_dev.device_id);
+                let accel_type = format!("TPU {}", &chip_version);
+                
+                devices.push(TpuDeviceInfo {
+                    index: sys_dev.index,
+                    chip_version,
+                    uuid: format!("TPU-{}", sys_dev.index),
+                    core_count: 1,
+                    utilization: 0.0,
+                    memory_used: 0,
+                    memory_total: 0,
+                    temperature: sys_dev.temperature.unwrap_or(0.0) as u32,
+                    power_draw: 0.0,
+                    power_max: 0.0,
+                    tpu_runtime_version: String::new(),
+                    accelerator_type: accel_type,
+                });
+            }
         }
 
         // Method 3: Check /dev/vfio/* for v6e and newer TPUs (if not found via sysfs)
@@ -511,6 +455,12 @@ impl GoogleTpuReader {
         } else {
             Some(devices)
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn is_tpu_info_installed() -> bool {
+        use std::process::Command;
+        Command::new("tpu-info").arg("--version").output().is_ok()
     }
 
     /// Detect TPU devices via /dev/vfio/* (used by v6e and newer)
@@ -591,6 +541,7 @@ impl GoogleTpuReader {
 
     /// Query TPU metrics via libtpuinfo library
     #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
     fn query_via_libtpuinfo() -> Option<Vec<TpuDeviceInfo>> {
         if !libtpuinfo::is_libtpuinfo_available() {
             return None;
@@ -834,7 +785,7 @@ impl GpuReader for GoogleTpuReader {
 
 #[cfg(target_os = "linux")]
 pub fn get_tpu_status_message() -> Option<String> {
-    tpu_pjrt::get_status_message()
+    TPU_STATUS.lock().unwrap().clone()
 }
 
 #[cfg(not(target_os = "linux"))]
