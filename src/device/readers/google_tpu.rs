@@ -40,8 +40,6 @@
 #[cfg(target_os = "linux")]
 use crate::device::common::constants::google_tpu::{is_libtpu_available, GOOGLE_VENDOR_ID};
 #[cfg(target_os = "linux")]
-use crate::device::common::execute_command_default;
-#[cfg(target_os = "linux")]
 use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
@@ -328,13 +326,14 @@ impl GoogleTpuReader {
         result
     }
 
-    /// Check Python TPU library availability
+    /// Check TPU availability using non-blocking methods
+    /// IMPORTANT: We avoid running Python/JAX commands here because:
+    /// 1. JAX import is very slow (can take 10+ seconds)
+    /// 2. Timeout causes orphaned processes that pollute TUI output
+    /// 3. Environment variables and libtpu presence are sufficient indicators
     #[cfg(target_os = "linux")]
     fn check_tpu_python_availability() -> bool {
-        // First check if libtpu.so exists in system paths or Python environments
-        // This includes: /usr/local/lib, /usr/lib, /opt/google/libtpu,
-        // $HOME/.local/lib/python*/site-packages/libtpu,
-        // conda/venv environments, etc.
+        // Check if libtpu.so exists in system paths or Python environments
         if is_libtpu_available() {
             return true;
         }
@@ -344,28 +343,24 @@ impl GoogleTpuReader {
             for entry in entries.flatten() {
                 if let Some(name) = entry.file_name().to_str() {
                     if name.starts_with("accel") {
-                        // Verify it's a TPU device by checking sysfs
                         let sysfs_path = format!("/sys/class/accel/{}/device/vendor", name);
                         if let Ok(vendor) = std::fs::read_to_string(&sysfs_path) {
-                            // Only accept devices with verified Google vendor ID (0x1ae0)
                             if vendor.trim() == GOOGLE_VENDOR_ID {
                                 return true;
                             }
                         }
-                        // SECURITY: Do NOT fall back to device existence check without vendor verification
-                        // This prevents misidentification of Intel Gaudi devices as TPUs
                     }
                 }
             }
         }
 
-        // Try Python check as fallback
-        if let Ok(output) =
-            execute_command_default("python3", &["-c", "import jax; jax.devices('tpu')"])
+        // Check for TPU VM environment variables (for Cloud TPU VMs like v6e)
+        if std::env::var("TPU_NAME").is_ok()
+            || std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").is_ok()
+            || std::env::var("TPU_ACCELERATOR_TYPE").is_ok()
+            || std::env::var("TPU_WORKER_ID").is_ok()
         {
-            if output.status == 0 && !output.stderr.contains("error") {
-                return true;
-            }
+            return true;
         }
 
         false
@@ -408,141 +403,180 @@ impl GoogleTpuReader {
             .collect()
     }
 
-    /// Query TPU devices using Python integration
+    /// Query TPU devices using pure Rust (sysfs and environment variables)
+    /// IMPORTANT: We avoid Python/JAX because:
+    /// 1. JAX import takes 10+ seconds and causes TUI flickering
+    /// 2. Command timeout leaves orphaned processes that pollute output
     #[cfg(target_os = "linux")]
     fn query_tpu_devices() -> Option<Vec<TpuDeviceInfo>> {
-        // Python script to query TPU devices
-        // Suppresses all logging and warnings to prevent TUI pollution
-        let python_script = r#"
-import json
-import sys
-import os
-import warnings
+        let mut devices = Vec::new();
 
-# Suppress all warnings and logging before importing anything else
-warnings.filterwarnings("ignore")
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress TensorFlow/JAX logging
-os.environ["JAX_PLATFORMS"] = ""  # Let JAX auto-detect
-os.environ["GRPC_VERBOSITY"] = "ERROR"  # Suppress gRPC logs
-os.environ["ABSL_MIN_LOG_LEVEL"] = "3"  # Suppress abseil logging
+        // Method 1: Detect TPUs via /dev/accel* devices with Google vendor ID
+        if let Ok(entries) = std::fs::read_dir("/dev") {
+            let mut accel_devices: Vec<_> = entries
+                .flatten()
+                .filter_map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    if name.starts_with("accel") {
+                        Some(name)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            accel_devices.sort();
 
-# Redirect stderr to devnull during JAX import to suppress any remaining messages
-_stderr = sys.stderr
-try:
-    sys.stderr = open(os.devnull, 'w')
-except Exception:
-    pass
+            for (i, dev_name) in accel_devices.iter().enumerate() {
+                let sysfs_base = format!("/sys/class/accel/{}/device", dev_name);
 
-def get_tpu_info():
-    devices = []
-    try:
-        import jax
-        # Restore stderr for actual errors after import
-        sys.stderr = _stderr
+                // Check vendor ID
+                let vendor_path = format!("{}/vendor", sysfs_base);
+                let vendor = std::fs::read_to_string(&vendor_path)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
 
-        try:
-            tpu_devices = jax.devices('tpu')
-        except RuntimeError:
-            # No TPU available
-            return []
+                // Only include Google TPU devices (vendor 0x1ae0)
+                if vendor != GOOGLE_VENDOR_ID {
+                    continue;
+                }
 
-        for i, device in enumerate(tpu_devices):
-            device_info = {
-                "index": i,
-                "chip_version": getattr(device, 'device_kind', 'unknown'),
-                "uuid": str(device.id) if hasattr(device, 'id') else f"TPU-{i}",
-                "core_count": 1,
-                "utilization": 0.0,
-                "memory_used": 0,
-                "memory_total": 0,
-                "temperature": 0,
-                "power_draw": 0.0,
-                "power_max": 0.0,
-                "tpu_runtime_version": "",
-                "accelerator_type": getattr(device, 'platform', 'TPU'),
+                // Try to read device info from sysfs
+                let device_id = std::fs::read_to_string(format!("{}/device", sysfs_base))
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default();
+
+                let device = TpuDeviceInfo {
+                    index: i as u32,
+                    chip_version: Self::detect_tpu_version_from_device_id(&device_id),
+                    uuid: format!("TPU-{}", i),
+                    core_count: 1,
+                    utilization: 0.0,
+                    memory_used: 0,
+                    memory_total: 0,
+                    temperature: 0,
+                    power_draw: 0.0,
+                    power_max: 0.0,
+                    tpu_runtime_version: String::new(),
+                    accelerator_type: "TPU".to_string(),
+                };
+                devices.push(device);
             }
-
-            try:
-                stats = device.memory_stats()
-                if stats:
-                    device_info["memory_used"] = stats.get("bytes_in_use", 0)
-                    device_info["memory_total"] = stats.get("peak_bytes_in_use", 0) or stats.get("bytes_limit", 0)
-            except Exception:
-                pass
-
-            devices.append(device_info)
-    except ImportError:
-        # Restore stderr
-        sys.stderr = _stderr
-        # Try alternative detection via sysfs
-        import glob
-
-        accel_devices = glob.glob("/dev/accel*")
-        for i, dev_path in enumerate(sorted(accel_devices)):
-            dev_name = os.path.basename(dev_path)
-            sysfs_base = f"/sys/class/accel/{dev_name}/device"
-
-            vendor = ""
-            try:
-                with open(f"{sysfs_base}/vendor") as f:
-                    vendor = f.read().strip()
-            except Exception:
-                pass
-
-            # Only include Google TPU devices (vendor 0x1ae0)
-            if vendor != "0x1ae0":
-                continue
-
-            device_info = {
-                "index": i,
-                "chip_version": "unknown",
-                "uuid": f"TPU-{i}",
-                "core_count": 1,
-                "utilization": 0.0,
-                "memory_used": 0,
-                "memory_total": 0,
-                "temperature": 0,
-                "power_draw": 0.0,
-                "power_max": 0.0,
-                "tpu_runtime_version": "",
-                "accelerator_type": "TPU",
-            }
-            devices.append(device_info)
-    except Exception:
-        sys.stderr = _stderr
-        return []
-    finally:
-        # Ensure stderr is always restored
-        try:
-            sys.stderr = _stderr
-        except Exception:
-            pass
-
-    return devices
-
-if __name__ == "__main__":
-    devices = get_tpu_info()
-    print(json.dumps(devices))
-"#;
-
-        let output = execute_command_default("python3", &["-c", python_script]).ok()?;
-
-        if output.status != 0 {
-            return None;
         }
 
-        let stdout = output.stdout.trim();
-        if stdout.is_empty() || stdout == "[]" {
-            return None;
+        // Method 2: For TPU VMs (like v6e) without /dev/accel*, use environment variables
+        if devices.is_empty() {
+            if let Some(tpu_info) = Self::detect_tpu_from_environment() {
+                devices.push(tpu_info);
+            }
         }
 
-        // Parse JSON and validate schema
-        let devices: Vec<TpuDeviceInfo> = serde_json::from_str(stdout).ok()?;
+        if devices.is_empty() {
+            None
+        } else {
+            Some(devices)
+        }
+    }
 
-        // Validate parsed data has required fields
-        Self::validate_tpu_device_schema(&devices)?;
+    /// Detect TPU version from PCI device ID
+    #[cfg(target_os = "linux")]
+    fn detect_tpu_version_from_device_id(device_id: &str) -> String {
+        // Google TPU PCI device IDs (approximate mapping)
+        // These may need to be updated as new TPU versions are released
+        match device_id.to_lowercase().as_str() {
+            "0x0027" => "v2".to_string(),
+            "0x0028" => "v3".to_string(),
+            "0x0050" | "0x0051" => "v4".to_string(),
+            "0x0060" | "0x0061" => "v5e".to_string(),
+            "0x0070" | "0x0071" => "v5p".to_string(),
+            "0x0080" | "0x0081" => "v6".to_string(),  // Trillium
+            "0x0090" | "0x0091" => "v7".to_string(),  // Ironwood
+            _ => "unknown".to_string(),
+        }
+    }
 
-        Some(devices)
+    /// Detect TPU info from TPU VM environment variables
+    #[cfg(target_os = "linux")]
+    fn detect_tpu_from_environment() -> Option<TpuDeviceInfo> {
+        // Check if we're on a TPU VM
+        let tpu_name = std::env::var("TPU_NAME").ok();
+        let accelerator_type = std::env::var("TPU_ACCELERATOR_TYPE").ok();
+        let chips_per_host = std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").ok();
+
+        // At least one TPU environment variable must be set
+        if tpu_name.is_none() && accelerator_type.is_none() && chips_per_host.is_none() {
+            // Also check for worker-related variables
+            if std::env::var("TPU_WORKER_ID").is_err()
+                && std::env::var("TPU_WORKER_HOSTNAMES").is_err()
+            {
+                return None;
+            }
+        }
+
+        // Parse accelerator type to determine TPU version
+        let chip_version = accelerator_type
+            .as_ref()
+            .map(|t| Self::parse_accelerator_type(t))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Parse number of chips from TPU_CHIPS_PER_HOST_BOUNDS (format: "x,y,z")
+        let chip_count = chips_per_host
+            .as_ref()
+            .and_then(|s| {
+                let parts: Vec<u32> = s
+                    .split(',')
+                    .filter_map(|p| p.trim().parse().ok())
+                    .collect();
+                if parts.len() == 3 {
+                    Some(parts[0] * parts[1] * parts[2])
+                } else {
+                    Some(1)
+                }
+            })
+            .unwrap_or(1);
+
+        // Create device info for each chip
+        // For simplicity, we report the total as one "device" since we can't get per-chip metrics
+        let device = TpuDeviceInfo {
+            index: 0,
+            chip_version,
+            uuid: tpu_name.unwrap_or_else(|| "TPU-VM".to_string()),
+            core_count: chip_count,
+            utilization: 0.0,
+            memory_used: 0,
+            memory_total: 0,
+            temperature: 0,
+            power_draw: 0.0,
+            power_max: 0.0,
+            tpu_runtime_version: String::new(),
+            accelerator_type: accelerator_type.unwrap_or_else(|| "TPU".to_string()),
+        };
+
+        Some(device)
+    }
+
+    /// Parse TPU accelerator type string (e.g., "v6e-16", "v5litepod-4")
+    #[cfg(target_os = "linux")]
+    fn parse_accelerator_type(accel_type: &str) -> String {
+        let lower = accel_type.to_lowercase();
+
+        if lower.contains("v7") || lower.contains("ironwood") {
+            "v7".to_string()
+        } else if lower.contains("v6") || lower.contains("trillium") {
+            "v6".to_string()
+        } else if lower.contains("v5p") {
+            "v5p".to_string()
+        } else if lower.contains("v5e") || lower.contains("v5lite") {
+            "v5e".to_string()
+        } else if lower.contains("v4") {
+            "v4".to_string()
+        } else if lower.contains("v3") {
+            "v3".to_string()
+        } else if lower.contains("v2") {
+            "v2".to_string()
+        } else {
+            // Return the original type if we can't parse it
+            accel_type.to_string()
+        }
     }
 
     /// Validate TPU device data schema
