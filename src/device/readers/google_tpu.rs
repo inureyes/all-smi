@@ -415,7 +415,8 @@ impl GoogleTpuReader {
     /// Priority:
     /// 1. libtpuinfo.so - provides real-time metrics (memory, utilization)
     /// 2. /dev/accel* + sysfs - device detection without runtime metrics
-    /// 3. Environment variables - for TPU VMs like v6e without /dev/accel*
+    /// 3. /dev/vfio/* - for TPU VMs like v6e
+    /// 4. Environment variables - TPU VM detection
     #[cfg(target_os = "linux")]
     fn query_tpu_devices() -> Option<Vec<TpuDeviceInfo>> {
         // Method 1: Try libtpuinfo for real metrics
@@ -478,7 +479,14 @@ impl GoogleTpuReader {
             }
         }
 
-        // Method 3: For TPU VMs (like v6e) without /dev/accel*, use environment variables
+        // Method 3: Check /dev/vfio/* for v6e and newer TPUs
+        if devices.is_empty() {
+            if let Some(vfio_devices) = Self::detect_tpu_from_vfio() {
+                devices = vfio_devices;
+            }
+        }
+
+        // Method 4: For TPU VMs, use environment variables
         if devices.is_empty() {
             if let Some(tpu_info) = Self::detect_tpu_from_environment() {
                 devices.push(tpu_info);
@@ -490,6 +498,68 @@ impl GoogleTpuReader {
         } else {
             Some(devices)
         }
+    }
+
+    /// Detect TPU devices via /dev/vfio/* (used by v6e and newer)
+    #[cfg(target_os = "linux")]
+    fn detect_tpu_from_vfio() -> Option<Vec<TpuDeviceInfo>> {
+        let vfio_path = std::path::Path::new("/dev/vfio");
+        if !vfio_path.exists() {
+            return None;
+        }
+
+        // Check if this is likely a TPU VM by checking environment
+        let has_tpu_env = std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").is_ok()
+            || std::env::var("TPU_HOST_BOUNDS").is_ok();
+
+        if !has_tpu_env {
+            return None;
+        }
+
+        // Count vfio devices (excluding "vfio" control device)
+        let mut vfio_count = 0;
+        if let Ok(entries) = std::fs::read_dir(vfio_path) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                // /dev/vfio/0, /dev/vfio/1, etc. are TPU devices
+                // /dev/vfio/vfio is the control device
+                if name.parse::<u32>().is_ok() {
+                    vfio_count += 1;
+                }
+            }
+        }
+
+        if vfio_count == 0 {
+            return None;
+        }
+
+        // Get accelerator type from tpu-info or environment
+        let chip_version = Self::get_accelerator_type_from_tpu_info()
+            .or_else(|| std::env::var("TPU_ACCELERATOR_TYPE").ok())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Create device entries for each vfio device
+        let devices: Vec<TpuDeviceInfo> = (0..vfio_count)
+            .map(|i| {
+                let accel_type = format!("TPU {}", &chip_version);
+                TpuDeviceInfo {
+                    index: i,
+                    chip_version: chip_version.clone(),
+                    uuid: format!("TPU-{}", i),
+                    core_count: 1,
+                    utilization: 0.0,
+                    memory_used: 0,
+                    memory_total: 0,
+                    temperature: 0,
+                    power_draw: 0.0,
+                    power_max: 0.0,
+                    tpu_runtime_version: String::new(),
+                    accelerator_type: accel_type,
+                }
+            })
+            .collect();
+
+        Some(devices)
     }
 
     /// Query TPU metrics via libtpuinfo library
@@ -552,6 +622,33 @@ impl GoogleTpuReader {
         }
     }
 
+    /// Try to get accelerator type from tpu-info CLI (fast, no heavy imports)
+    #[cfg(target_os = "linux")]
+    fn get_accelerator_type_from_tpu_info() -> Option<String> {
+        use std::process::Command;
+
+        // tpu-info -v is fast and outputs:
+        // - tpu-info version: 0.8.0
+        // - libtpu version: 0.0.17
+        // - accelerator type: v6e
+        let output = Command::new("tpu-info").arg("-v").output().ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains("accelerator type:") {
+                // Extract the type after the colon
+                if let Some(type_str) = line.split(':').nth(1) {
+                    return Some(type_str.trim().to_string());
+                }
+            }
+        }
+        None
+    }
+
     /// Detect TPU info from TPU VM environment variables
     #[cfg(target_os = "linux")]
     fn detect_tpu_from_environment() -> Option<TpuDeviceInfo> {
@@ -571,9 +668,9 @@ impl GoogleTpuReader {
         }
 
         // Parse accelerator type to determine TPU version
-        let chip_version = accelerator_type
-            .as_ref()
-            .map(|t| Self::parse_accelerator_type(t))
+        // Priority: 1) tpu-info CLI, 2) TPU_ACCELERATOR_TYPE env var
+        let chip_version = Self::get_accelerator_type_from_tpu_info()
+            .or_else(|| accelerator_type.as_ref().map(|t| Self::parse_accelerator_type(t)))
             .unwrap_or_else(|| "unknown".to_string());
 
         // Parse number of chips from TPU_CHIPS_PER_HOST_BOUNDS (format: "x,y,z")
@@ -591,6 +688,7 @@ impl GoogleTpuReader {
 
         // Create device info for each chip
         // For simplicity, we report the total as one "device" since we can't get per-chip metrics
+        let accel_type = format!("TPU {}", &chip_version);
         let device = TpuDeviceInfo {
             index: 0,
             chip_version,
@@ -603,7 +701,7 @@ impl GoogleTpuReader {
             power_draw: 0.0,
             power_max: 0.0,
             tpu_runtime_version: String::new(),
-            accelerator_type: accelerator_type.unwrap_or_else(|| "TPU".to_string()),
+            accelerator_type: accel_type,
         };
 
         Some(device)
