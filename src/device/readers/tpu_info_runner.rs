@@ -14,13 +14,25 @@
 
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock, OnceLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use regex::Regex;
 
 static RUNNER: OnceLock<TpuInfoRunner> = OnceLock::new();
 static ANSI_REGEX: OnceLock<Regex> = OnceLock::new();
+
+/// CLI polling interval when gRPC is NOT available (fallback mode)
+/// Set high to reduce overhead - CLI spawns a Python process each time
+const POLL_INTERVAL_IDLE_SECS: u64 = 30;
+
+/// CLI polling interval when gRPC IS available
+/// This is rarely used since gRPC handles metrics directly
+const POLL_INTERVAL_ACTIVE_SECS: u64 = 5;
+
+/// Minimum time between CLI executions to prevent hammering
+const MIN_CLI_INTERVAL_SECS: u64 = 5;
 
 pub fn get_runner() -> &'static TpuInfoRunner {
     RUNNER.get_or_init(TpuInfoRunner::new)
@@ -42,6 +54,10 @@ pub struct TpuInfoRunner {
     pub device_metrics: Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>,
     /// Status message for notification
     pub status: Arc<Mutex<String>>,
+    /// Whether gRPC is currently available (set by tpu_grpc module)
+    grpc_available: Arc<AtomicBool>,
+    /// Last CLI execution timestamp (unix seconds)
+    last_cli_run: Arc<AtomicU64>,
 }
 
 impl TpuInfoRunner {
@@ -49,72 +65,125 @@ impl TpuInfoRunner {
         let runner = Self {
             device_metrics: Arc::new(RwLock::new(HashMap::new())),
             status: Arc::new(Mutex::new("Initializing tpu-info...".to_string())),
+            grpc_available: Arc::new(AtomicBool::new(false)),
+            last_cli_run: Arc::new(AtomicU64::new(0)),
         };
         runner.start_background_thread();
         runner
     }
 
+    /// Notify that gRPC is available (reduces CLI polling frequency)
+    pub fn set_grpc_available(&self, available: bool) {
+        self.grpc_available.store(available, Ordering::Relaxed);
+    }
+
+    /// Check if gRPC is currently available
+    pub fn is_grpc_available(&self) -> bool {
+        self.grpc_available.load(Ordering::Relaxed)
+    }
+
+    /// Force an immediate CLI refresh (within rate limits)
+    pub fn request_refresh(&self) {
+        let now = Instant::now().elapsed().as_secs();
+        let last = self.last_cli_run.load(Ordering::Relaxed);
+
+        // Only allow refresh if enough time has passed
+        if now.saturating_sub(last) >= MIN_CLI_INTERVAL_SECS {
+            self.run_cli_once();
+        }
+    }
+
     fn start_background_thread(&self) {
         let metrics_store = self.device_metrics.clone();
         let status = self.status.clone();
+        let grpc_available = self.grpc_available.clone();
+        let last_cli_run = self.last_cli_run.clone();
 
         thread::spawn(move || {
-            // Poll interval for tpu-info execution
-            const POLL_INTERVAL_SECS: u64 = 2;
+            // Run once immediately at startup
+            Self::run_cli_internal(&metrics_store, &status, &last_cli_run);
 
             loop {
-                // Run tpu-info in normal mode (NOT streaming mode)
-                // Streaming mode uses Rich's Live display which doesn't work with pipes
-                // Normal mode outputs tables to stdout which we can capture and parse
-                let output_res = Command::new("tpu-info")
-                    .env("TERM", "dumb")
-                    .env("NO_COLOR", "1")
-                    .env("FORCE_COLOR", "0")
-                    .output();
+                // Determine polling interval based on gRPC availability
+                let poll_interval = if grpc_available.load(Ordering::Relaxed) {
+                    // gRPC is handling metrics - poll CLI less frequently
+                    POLL_INTERVAL_ACTIVE_SECS
+                } else {
+                    // Fallback mode - still poll infrequently to reduce overhead
+                    POLL_INTERVAL_IDLE_SECS
+                };
 
-                match output_res {
-                    Ok(output) => {
-                        if output.status.success() {
-                            let stdout = String::from_utf8_lossy(&output.stdout);
-                            let mut current_table = TableType::None;
-                            let mut any_updated = false;
+                thread::sleep(Duration::from_secs(poll_interval));
 
-                            for line in stdout.lines() {
-                                let updated = Self::parse_line(line, &mut current_table, &metrics_store);
-                                if updated {
-                                    any_updated = true;
-                                }
-                            }
-
-                            if any_updated {
-                                let mut s = status.lock().unwrap();
-                                *s = "Ready".to_string();
-                            } else {
-                                // Check if we got any data at all
-                                let metrics = metrics_store.read().unwrap();
-                                if metrics.is_empty() {
-                                    let mut s = status.lock().unwrap();
-                                    *s = "tpu-info running, no metrics yet...".to_string();
-                                }
-                            }
-                        } else {
-                            let stderr = String::from_utf8_lossy(&output.stderr);
-                            let mut s = status.lock().unwrap();
-                            *s = format!("tpu-info error: {}", stderr.lines().next().unwrap_or("unknown error"));
-                        }
-                    }
-                    Err(e) => {
-                        let mut s = status.lock().unwrap();
-                        *s = format!("Failed to run tpu-info: {}", e);
-                        // Wait longer on error before retrying
-                        thread::sleep(Duration::from_secs(10));
-                        continue;
-                    }
+                // Skip CLI execution if gRPC is available
+                // (gRPC provides real-time metrics, CLI is just for fallback)
+                if !grpc_available.load(Ordering::Relaxed) {
+                    Self::run_cli_internal(&metrics_store, &status, &last_cli_run);
                 }
-
-                thread::sleep(Duration::from_secs(POLL_INTERVAL_SECS));
             }
         });
+    }
+
+    fn run_cli_once(&self) {
+        Self::run_cli_internal(&self.device_metrics, &self.status, &self.last_cli_run);
+    }
+
+    fn run_cli_internal(
+        metrics_store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>,
+        status: &Arc<Mutex<String>>,
+        last_cli_run: &Arc<AtomicU64>,
+    ) {
+        // Update last run timestamp
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        last_cli_run.store(now, Ordering::Relaxed);
+
+        // Run tpu-info in normal mode (NOT streaming mode)
+        // Streaming mode uses Rich's Live display which doesn't work with pipes
+        let output_res = Command::new("tpu-info")
+            .env("TERM", "dumb")
+            .env("NO_COLOR", "1")
+            .env("FORCE_COLOR", "0")
+            .output();
+
+        match output_res {
+            Ok(output) => {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let mut current_table = TableType::None;
+                    let mut any_updated = false;
+
+                    for line in stdout.lines() {
+                        let updated = Self::parse_line(line, &mut current_table, metrics_store);
+                        if updated {
+                            any_updated = true;
+                        }
+                    }
+
+                    if any_updated {
+                        let mut s = status.lock().unwrap();
+                        *s = "Ready".to_string();
+                    } else {
+                        // Check if we got any data at all
+                        let metrics = metrics_store.read().unwrap();
+                        if metrics.is_empty() {
+                            let mut s = status.lock().unwrap();
+                            *s = "tpu-info running, no metrics yet...".to_string();
+                        }
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let mut s = status.lock().unwrap();
+                    *s = format!("tpu-info error: {}", stderr.lines().next().unwrap_or("unknown error"));
+                }
+            }
+            Err(e) => {
+                let mut s = status.lock().unwrap();
+                *s = format!("Failed to run tpu-info: {}", e);
+            }
+        }
     }
 
     fn parse_line(line: &str, current_table: &mut TableType, store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>) -> bool {

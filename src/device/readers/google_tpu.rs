@@ -42,7 +42,7 @@ use crate::device::common::constants::google_tpu::is_libtpu_available;
 #[cfg(target_os = "linux")]
 use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 #[cfg(target_os = "linux")]
-use crate::device::readers::libtpuinfo;
+use crate::device::readers::tpu_grpc;
 #[cfg(target_os = "linux")]
 use crate::device::readers::tpu_info_runner;
 #[cfg(target_os = "linux")]
@@ -381,7 +381,7 @@ impl GoogleTpuReader {
         false
     }
 
-    /// Get TPU info by executing Python script
+    /// Get TPU info using gRPC (primary) or CLI fallback
     #[cfg(target_os = "linux")]
     fn get_tpu_info_internal(&self) -> Vec<GpuInfo> {
         // Perform device discovery once and cache the result
@@ -391,6 +391,9 @@ impl GoogleTpuReader {
             return Vec::new();
         }
 
+        // Try gRPC first (native, faster when TPU workload is running)
+        let grpc_metrics = tpu_grpc::get_tpu_metrics_grpc_sync();
+
         // Construct current device info by combining static metadata with dynamic metrics
         let runner = tpu_info_runner::get_runner();
         let devices: Vec<TpuDeviceInfo> = metadata_list.iter().map(|meta| {
@@ -398,24 +401,36 @@ impl GoogleTpuReader {
             let mut memory_used = 0;
             let mut total_memory = meta.memory_total;
             let mut power_draw = 0.0;
-            
-            // Fetch dynamic metrics
-            if let Some(val) = runner.get_metric(meta.index, "duty_cycle_percent") {
-                utilization = val;
-            } else if let Some(val) = runner.get_metric(meta.index, "tensorcore_utilization") {
-                utilization = val;
-            }
-            
-            if let Some(val) = runner.get_metric(meta.index, "hbm_usage") {
-                memory_used = val as u64;
-            }
-            
-            if let Some(val) = runner.get_metric(meta.index, "memory_total") {
-                if val > 0.0 {
-                    total_memory = val as u64;
+
+            // Try gRPC metrics first (more accurate when available)
+            if let Some(ref metrics) = grpc_metrics {
+                if let Some(grpc_data) = metrics.iter().find(|m| m.device_id == meta.index as i64) {
+                    utilization = grpc_data.duty_cycle_pct;
+                    memory_used = grpc_data.memory_usage;
+                    if grpc_data.total_memory > 0 {
+                        total_memory = grpc_data.total_memory;
+                    }
+                }
+            } else {
+                // Fallback to CLI-based metrics (tpu-info polling)
+                if let Some(val) = runner.get_metric(meta.index, "duty_cycle_percent") {
+                    utilization = val;
+                } else if let Some(val) = runner.get_metric(meta.index, "tensorcore_utilization") {
+                    utilization = val;
+                }
+
+                if let Some(val) = runner.get_metric(meta.index, "hbm_usage") {
+                    memory_used = val as u64;
+                }
+
+                if let Some(val) = runner.get_metric(meta.index, "memory_total") {
+                    if val > 0.0 {
+                        total_memory = val as u64;
+                    }
                 }
             }
-            
+
+            // Power metrics (only available via CLI for now)
             if let Some(val) = runner.get_metric(meta.index, "power_usage") {
                 power_draw = val;
             }
@@ -580,50 +595,6 @@ impl GoogleTpuReader {
     #[cfg(target_os = "linux")]
     fn detect_tpu_from_vfio() -> Option<Vec<TpuDeviceInfo>> {
         None
-    }
-
-    /// Query TPU metrics via libtpuinfo library
-    #[cfg(target_os = "linux")]
-    #[allow(dead_code)]
-    fn query_via_libtpuinfo() -> Option<Vec<TpuDeviceInfo>> {
-        if !libtpuinfo::is_libtpuinfo_available() {
-            return None;
-        }
-
-        let metrics = libtpuinfo::get_tpu_metrics()?;
-        if metrics.is_empty() {
-            return None;
-        }
-
-        // Get chip version from environment if available
-        let chip_version = std::env::var("TPU_ACCELERATOR_TYPE")
-            .ok()
-            .map(|t| Self::parse_accelerator_type(&t))
-            .unwrap_or_else(|| "unknown".to_string());
-
-        let accelerator_type =
-            std::env::var("TPU_ACCELERATOR_TYPE").unwrap_or_else(|_| "TPU".to_string());
-
-        let devices: Vec<TpuDeviceInfo> = metrics
-            .into_iter()
-            .enumerate()
-            .map(|(i, m)| TpuDeviceInfo {
-                index: i as u32,
-                chip_version: chip_version.clone(),
-                uuid: format!("TPU-{}", m.device_id),
-                core_count: 1,
-                utilization: m.duty_cycle_pct,
-                memory_used: m.memory_usage,
-                memory_total: m.total_memory,
-                temperature: 0,  // Not available via libtpuinfo
-                power_draw: 0.0, // Not available via libtpuinfo
-                power_max: 0.0,
-                tpu_runtime_version: String::new(),
-                accelerator_type: accelerator_type.clone(),
-            })
-            .collect();
-
-        Some(devices)
     }
 
     /// Detect TPU version from PCI device ID

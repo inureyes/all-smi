@@ -1,0 +1,190 @@
+// Copyright 2023 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package tpu.monitoring.runtime;
+
+import "google/protobuf/timestamp.proto";
+// Note: tpu_telemetry.proto import removed - we only use GetRuntimeMetric
+
+option java_package = "com.google.tpu.monitoring.runtime.service.proto";
+option java_multiple_files = true;
+option objc_class_prefix = "GRPC";
+
+
+message Exemplar {
+  double value = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  repeated Attribute attributes = 3;
+}
+
+message Distribution {
+  int64 count = 1;
+  double mean = 2;
+  double min = 3;
+  double max = 4;
+  double sum_of_squared_deviation = 5;
+
+  message BucketOptions {
+    oneof options {
+      Regular regular_buckets = 1 [deprecated = true];
+      Exponential exponential_buckets = 2;
+      Explicit explicit_buckets = 3;
+      Linear linear_buckets = 4;
+    }
+    message Regular {
+      option deprecated = true;
+      int32 num_finite_buckets = 1;
+      repeated Bound bounds = 2;
+    }
+    message Exponential {
+      int32 num_finite_buckets = 1;
+      double growth_factor = 2;
+      double scale = 3;
+    }
+    message Bound {
+      option deprecated = true;
+      double width = 1;
+      double offset = 2;
+    }
+    message Linear {
+      int32 num_finite_buckets = 1;
+      double width = 2;
+      double offset = 3;
+    }
+    message Explicit {
+      repeated double bounds = 1;
+    }
+  }
+
+  BucketOptions bucket_options = 6;
+  repeated int64 bucket_counts = 7;
+  repeated Exemplar exemplars = 8;
+}
+
+// Gauge represents a single-point measure.
+message Gauge {
+  oneof value {
+    double as_double = 1;
+    int64 as_int = 2;
+    string as_string = 3;
+    bool as_bool = 4;
+  }
+}
+
+// Counter is a monotonically increasing measure (until reset to zero).
+message Counter {
+  oneof value {
+    double as_double = 1;
+    uint64 as_int = 2;
+  }
+  Exemplar exemplar = 3;
+}
+
+// Quantile represents the value at a given quantile of a distribution.
+message Quantile {
+  double quantile = 1;
+  double value = 2;
+}
+
+// Summary represents observed sampling for different quantiles.
+message Summary {
+  uint64 sample_count = 1;
+  double sample_sum = 2;
+  repeated Quantile quantile = 3;
+}
+
+// AttrValue represents an attribute value.
+message AttrValue {
+  oneof attr {
+    string string_attr = 1;
+    bool bool_attr = 2;
+    int64 int_attr = 3;
+    double double_attr = 4;
+    ArrayAttrValue array_attr = 5;
+    KeyValueList kvlist_attr = 6;
+    bytes bytes_attr = 7;
+  }
+}
+
+// ArrayAttrValue is a list of AttrValue messages.
+message ArrayAttrValue {
+  repeated AttrValue attrs = 1;
+}
+
+// KeyValueList is a list of Key-AttrValue messages.
+message KeyValueList {
+  repeated Attribute attributes = 1;
+}
+
+// Attribute is a key-value pair to store the attributes of a metric.
+message Attribute {
+  string key = 1;
+  AttrValue value = 2;
+}
+
+// Metric represents a metric datapoint.
+message Metric {
+  Attribute attribute = 1;
+  google.protobuf.Timestamp start_timestamp = 7;
+  google.protobuf.Timestamp timestamp = 2;
+  oneof measure {
+    Gauge gauge = 3;
+    Counter counter = 4;
+    Distribution distribution = 5;
+    Summary summary = 6;
+  }
+}
+
+// TPUMetric is a standalone metric object.
+message TPUMetric {
+  string name = 1;
+  string description = 2;
+  repeated Metric metrics = 3;
+}
+
+// MetricRequest is the request object to fetch metrics from LibTPU.
+message MetricRequest {
+  string metric_name = 1;
+  bool skip_node_aggregation = 2;
+}
+
+// MetricResponse is the response object for RuntimeService.GetRuntimeMetric.
+message MetricResponse {
+  TPUMetric metric = 1;
+}
+
+// ListSupportedMetricsRequest
+message ListSupportedMetricsRequest {
+  string filter = 1;
+}
+
+message SupportedMetric {
+  string metric_name = 1;
+}
+
+// ListSupportedMetricsResponse
+message ListSupportedMetricsResponse {
+  repeated SupportedMetric supported_metric = 1;
+}
+
+service RuntimeMetricService {
+  // GetRuntimeMetric returns the TPU metrics data for the MetricRequest.
+  rpc GetRuntimeMetric(MetricRequest) returns (MetricResponse);
+
+  // ListSupportedMetrics lists the supported metrics.
+  rpc ListSupportedMetrics(ListSupportedMetricsRequest)
+      returns (ListSupportedMetricsResponse);
+}

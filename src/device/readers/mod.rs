@@ -25,7 +25,7 @@ pub mod gaudi;
 #[cfg(target_os = "linux")]
 pub mod google_tpu;
 #[cfg(target_os = "linux")]
-pub mod libtpuinfo;
+pub mod tpu_grpc;
 #[cfg(target_os = "linux")]
 pub mod tpu_info_runner;
 #[cfg(target_os = "linux")]

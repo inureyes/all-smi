@@ -39,6 +39,10 @@ num_cpus = "1.17"
 async-trait = "0.1"
 thiserror = "2.0"
 url = "2.5"
+# gRPC for TPU metrics
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
 [target.'cfg(target_os = "linux")'.dependencies]
 # Tenstorrent dependencies from GitHub
 all-smi-luwen-core = "0.2.0"
@@ -47,7 +51,7 @@ all-smi-luwen-ref = "0.7.9"
 all-smi-ttkmd-if = "0.2.2"
 furiosa-smi-rs = { version = "2025.3.0", optional = true }
 cgroups-rs = "0.5.0"
-# Dynamic library loading for libtpuinfo
+# Dynamic library loading for tpu_pjrt
 libloading = "0.8"
 
 # AMD GPU support (glibc only, not compatible with musl static linking)
@@ -66,6 +70,9 @@ wmi = "0.14"
 
 [dev-dependencies]
 tempfile = "3.23"
+
+[build-dependencies]
+tonic-build = "0.12"
 
 [features]
 mock = []
