@@ -66,7 +66,7 @@ pub fn run_command_with_timeout(
                     let _ = child.wait(); // Reap the zombie process
                     return Err(io::Error::new(
                         io::ErrorKind::TimedOut,
-                        format!("Command '{}' timed out after {:?}", command, timeout),
+                        format!("Command '{command}' timed out after {timeout:?}"),
                     ));
                 }
                 // Sleep briefly before polling again

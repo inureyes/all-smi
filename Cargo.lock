@@ -38,6 +38,7 @@ dependencies = [
  "hyper-util",
  "libamdgpu_top",
  "libc",
+ "libloading",
  "num_cpus",
  "nvml-wrapper",
  "once_cell",

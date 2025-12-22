@@ -24,6 +24,8 @@ pub mod furiosa;
 pub mod gaudi;
 #[cfg(target_os = "linux")]
 pub mod google_tpu;
+#[cfg(target_os = "linux")]
+pub mod libtpuinfo;
 pub mod nvidia;
 pub mod nvidia_jetson;
 pub mod rebellions;

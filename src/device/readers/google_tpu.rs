@@ -41,6 +41,8 @@
 use crate::device::common::constants::google_tpu::{is_libtpu_available, GOOGLE_VENDOR_ID};
 #[cfg(target_os = "linux")]
 use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
+#[cfg(target_os = "linux")]
+use crate::device::readers::libtpuinfo;
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
 #[cfg(target_os = "linux")]
@@ -410,15 +412,23 @@ impl GoogleTpuReader {
             .collect()
     }
 
-    /// Query TPU devices using pure Rust (sysfs and environment variables)
-    /// IMPORTANT: We avoid Python/JAX because:
-    /// 1. JAX import takes 10+ seconds and causes TUI flickering
-    /// 2. Command timeout leaves orphaned processes that pollute output
+    /// Query TPU devices using libtpuinfo (preferred) or fallback to sysfs/environment
+    ///
+    /// Priority:
+    /// 1. libtpuinfo.so - provides real-time metrics (memory, utilization)
+    /// 2. /dev/accel* + sysfs - device detection without runtime metrics
+    /// 3. Environment variables - for TPU VMs like v6e without /dev/accel*
     #[cfg(target_os = "linux")]
     fn query_tpu_devices() -> Option<Vec<TpuDeviceInfo>> {
-        let mut devices = Vec::new();
+        // Method 1: Try libtpuinfo for real metrics
+        if let Some(metrics) = Self::query_via_libtpuinfo() {
+            if !metrics.is_empty() {
+                return Some(metrics);
+            }
+        }
 
-        // Method 1: Detect TPUs via /dev/accel* devices with Google vendor ID
+        // Method 2: Detect via /dev/accel* with sysfs (no runtime metrics)
+        let mut devices = Vec::new();
         if let Ok(entries) = std::fs::read_dir("/dev") {
             let mut accel_devices: Vec<_> = entries
                 .flatten()
@@ -470,7 +480,7 @@ impl GoogleTpuReader {
             }
         }
 
-        // Method 2: For TPU VMs (like v6e) without /dev/accel*, use environment variables
+        // Method 3: For TPU VMs (like v6e) without /dev/accel*, use environment variables
         if devices.is_empty() {
             if let Some(tpu_info) = Self::detect_tpu_from_environment() {
                 devices.push(tpu_info);
@@ -482,6 +492,49 @@ impl GoogleTpuReader {
         } else {
             Some(devices)
         }
+    }
+
+    /// Query TPU metrics via libtpuinfo library
+    #[cfg(target_os = "linux")]
+    fn query_via_libtpuinfo() -> Option<Vec<TpuDeviceInfo>> {
+        if !libtpuinfo::is_libtpuinfo_available() {
+            return None;
+        }
+
+        let metrics = libtpuinfo::get_tpu_metrics()?;
+        if metrics.is_empty() {
+            return None;
+        }
+
+        // Get chip version from environment if available
+        let chip_version = std::env::var("TPU_ACCELERATOR_TYPE")
+            .ok()
+            .map(|t| Self::parse_accelerator_type(&t))
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let accelerator_type =
+            std::env::var("TPU_ACCELERATOR_TYPE").unwrap_or_else(|_| "TPU".to_string());
+
+        let devices: Vec<TpuDeviceInfo> = metrics
+            .into_iter()
+            .enumerate()
+            .map(|(i, m)| TpuDeviceInfo {
+                index: i as u32,
+                chip_version: chip_version.clone(),
+                uuid: format!("TPU-{}", m.device_id),
+                core_count: 1,
+                utilization: m.duty_cycle_pct,
+                memory_used: m.memory_usage,
+                memory_total: m.total_memory,
+                temperature: 0,  // Not available via libtpuinfo
+                power_draw: 0.0, // Not available via libtpuinfo
+                power_max: 0.0,
+                tpu_runtime_version: String::new(),
+                accelerator_type: accelerator_type.clone(),
+            })
+            .collect();
+
+        Some(devices)
     }
 
     /// Detect TPU version from PCI device ID
