@@ -56,7 +56,7 @@ static POWERMETRICS_INITIALIZED: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "linux")]
 static HLSMI_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
     // Set up panic handler for cleanup
     #[cfg(target_os = "macos")]
