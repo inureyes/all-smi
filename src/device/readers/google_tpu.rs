@@ -422,21 +422,21 @@ impl GoogleTpuReader {
                 let mut total_memory = 0;
                 let mut power_draw = 0.0;
                 
-                if let Some(val) = runner.get_metric("duty_cycle_percent") {
+                if let Some(val) = runner.get_metric(sys_dev.index, "duty_cycle_percent") {
                     utilization = val;
-                } else if let Some(val) = runner.get_metric("tensorcore_utilization") {
+                } else if let Some(val) = runner.get_metric(sys_dev.index, "tensorcore_utilization") {
                     utilization = val;
                 }
                 
-                if let Some(val) = runner.get_metric("hbm_usage") {
+                if let Some(val) = runner.get_metric(sys_dev.index, "hbm_usage") {
                     memory_used = val as u64;
                 }
                 
-                if let Some(val) = runner.get_metric("memory_total") {
+                if let Some(val) = runner.get_metric(sys_dev.index, "memory_total") {
                     total_memory = val as u64;
                 }
                 
-                if let Some(val) = runner.get_metric("power_usage") {
+                if let Some(val) = runner.get_metric(sys_dev.index, "power_usage") {
                     power_draw = val;
                 }
 
