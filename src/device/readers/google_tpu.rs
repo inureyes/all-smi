@@ -44,6 +44,8 @@ use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
 #[cfg(target_os = "linux")]
 use crate::device::readers::libtpuinfo;
 #[cfg(target_os = "linux")]
+use crate::device::readers::tpu_info_runner;
+#[cfg(target_os = "linux")]
 use crate::device::readers::tpu_sysfs;
 use crate::device::types::{GpuInfo, ProcessInfo};
 use crate::device::GpuReader;
@@ -229,8 +231,9 @@ pub struct GoogleTpuReader {
 }
 
 /// Status message for TPU reader (e.g. "Install tpu-info")
-#[cfg(target_os = "linux")]
-static TPU_STATUS: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+// Deprecated: using tpu_info_runner status
+// #[cfg(target_os = "linux")]
+// static TPU_STATUS: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
 impl Default for GoogleTpuReader {
     fn default() -> Self {
@@ -240,7 +243,12 @@ impl Default for GoogleTpuReader {
 
 impl GoogleTpuReader {
     pub fn new() -> Self {
-        // We no longer initialize PJRT in background as we rely on tpu-info CLI
+        #[cfg(target_os = "linux")]
+        {
+            // Initialize background runner for tpu-info streaming
+            tpu_info_runner::get_runner();
+        }
+
         Self {
             #[cfg(target_os = "linux")]
             device_static_info: OnceLock::new(),
@@ -400,18 +408,9 @@ impl GoogleTpuReader {
         // We use this as the baseline to ensure we don't miss devices.
         let sysfs_devices = tpu_sysfs::scan_sysfs_tpus();
         
-        // 2. Check for tpu-info command availability
-        // If missing, we set the status message to notify user.
-        let has_tpu_info = Self::is_tpu_info_installed();
-        
-        {
-            let mut status = TPU_STATUS.lock().unwrap();
-            if !sysfs_devices.is_empty() && !has_tpu_info {
-                *status = Some("Install 'tpu-info' for full metrics".to_string());
-            } else {
-                *status = None;
-            }
-        }
+        // 2. Try to get metrics from background runner
+        // If runner has data, we can use it (Not implemented yet, just presence)
+        // let runner_data = tpu_info_runner::get_runner().get_latest_data();
 
         // 3. Collect devices from Sysfs
         if !sysfs_devices.is_empty() {
@@ -455,12 +454,6 @@ impl GoogleTpuReader {
         } else {
             Some(devices)
         }
-    }
-
-    #[cfg(target_os = "linux")]
-    fn is_tpu_info_installed() -> bool {
-        use std::process::Command;
-        Command::new("tpu-info").arg("--version").output().is_ok()
     }
 
     /// Detect TPU devices via /dev/vfio/* (used by v6e and newer)
@@ -785,7 +778,7 @@ impl GpuReader for GoogleTpuReader {
 
 #[cfg(target_os = "linux")]
 pub fn get_tpu_status_message() -> Option<String> {
-    TPU_STATUS.lock().unwrap().clone()
+    tpu_info_runner::get_runner().get_status()
 }
 
 #[cfg(not(target_os = "linux"))]

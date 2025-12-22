@@ -27,6 +27,8 @@ pub mod google_tpu;
 #[cfg(target_os = "linux")]
 pub mod libtpuinfo;
 #[cfg(target_os = "linux")]
+pub mod tpu_info_runner;
+#[cfg(target_os = "linux")]
 pub mod tpu_pjrt;
 #[cfg(target_os = "linux")]
 pub mod tpu_sysfs;
