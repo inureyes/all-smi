@@ -629,27 +629,30 @@ impl GoogleTpuReader {
     #[cfg(target_os = "linux")]
     fn get_accelerator_type_from_tpu_info() -> Option<String> {
         use std::process::Command;
+        static ACCELERATOR_TYPE_CACHE: OnceLock<Option<String>> = OnceLock::new();
 
-        // tpu-info -v is fast and outputs:
-        // - tpu-info version: 0.8.0
-        // - libtpu version: 0.0.17
-        // - accelerator type: v6e
-        let output = Command::new("tpu-info").arg("-v").output().ok()?;
+        ACCELERATOR_TYPE_CACHE.get_or_init(|| {
+            // tpu-info -v is fast and outputs:
+            // - tpu-info version: 0.8.0
+            // - libtpu version: 0.0.17
+            // - accelerator type: v6e
+            let output = Command::new("tpu-info").arg("-v").output().ok()?;
 
-        if !output.status.success() {
-            return None;
-        }
+            if !output.status.success() {
+                return None;
+            }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            if line.contains("accelerator type:") {
-                // Extract the type after the colon
-                if let Some(type_str) = line.split(':').nth(1) {
-                    return Some(type_str.trim().to_string());
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if line.contains("accelerator type:") {
+                    // Extract the type after the colon
+                    if let Some(type_str) = line.split(':').nth(1) {
+                        return Some(type_str.trim().to_string());
+                    }
                 }
             }
-        }
-        None
+            None
+        }).clone()
     }
 
     /// Detect TPU info from TPU VM environment variables
