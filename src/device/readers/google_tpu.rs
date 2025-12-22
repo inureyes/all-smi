@@ -74,6 +74,7 @@ pub enum TpuGeneration {
     V6e,        // Cost-optimized v6 (16 GB HBM)
     V6Trillium, // Full v6 Trillium (32 GB HBM)
     V7Ironwood,
+    V7x,
     Unknown,
 }
 
@@ -90,6 +91,7 @@ impl TpuGeneration {
             TpuGeneration::V6e => 16 * 1024 * 1024 * 1024, // 16 GB (cost-optimized)
             TpuGeneration::V6Trillium => 32 * 1024 * 1024 * 1024, // 32 GB
             TpuGeneration::V7Ironwood => 192 * 1024 * 1024 * 1024, // 192 GB HBM3e
+            TpuGeneration::V7x => 192 * 1024 * 1024 * 1024, // 192 GB
             TpuGeneration::Unknown => 16 * 1024 * 1024 * 1024, // Default 16 GB
         }
     }
@@ -105,6 +107,7 @@ impl TpuGeneration {
             TpuGeneration::V6e => 1, // Cost-optimized, single core
             TpuGeneration::V6Trillium => 2,
             TpuGeneration::V7Ironwood => 2, // Estimated based on architecture
+            TpuGeneration::V7x => 2,
             TpuGeneration::Unknown => 1,
         }
     }
@@ -120,6 +123,7 @@ impl TpuGeneration {
             TpuGeneration::V6e => "Google TPU v6e",
             TpuGeneration::V6Trillium => "Google TPU v6 Trillium",
             TpuGeneration::V7Ironwood => "Google TPU v7 Ironwood 192GB HBM3e",
+            TpuGeneration::V7x => "Google TPU v7x",
             TpuGeneration::Unknown => "Google TPU",
         }
     }
@@ -127,7 +131,7 @@ impl TpuGeneration {
     /// Get memory type string for the TPU generation
     pub fn memory_type(&self) -> &'static str {
         match self {
-            TpuGeneration::V7Ironwood => "HBM3e",
+            TpuGeneration::V7Ironwood | TpuGeneration::V7x => "HBM3e",
             TpuGeneration::V5p | TpuGeneration::V6e | TpuGeneration::V6Trillium => "HBM2e",
             _ => "HBM2",
         }
@@ -136,7 +140,9 @@ impl TpuGeneration {
     /// Parse TPU generation from chip version string
     pub fn from_chip_version(version: &str) -> Self {
         let version_lower = version.to_lowercase();
-        if version_lower.contains("v7") || version_lower.contains("ironwood") {
+        if version_lower.contains("v7x") || version_lower.contains("7x") {
+            TpuGeneration::V7x
+        } else if version_lower.contains("v7") || version_lower.contains("ironwood") {
             TpuGeneration::V7Ironwood
         } else if version_lower.contains("v6e") {
             // Must check v6e before v6 to avoid false positive
@@ -149,7 +155,7 @@ impl TpuGeneration {
             TpuGeneration::V5e
         } else if version_lower.contains("v4") {
             TpuGeneration::V4
-        } else if version_lower.contains("v3") {
+        } else if version_lower.contains("v3") || version_lower.contains("v2/v3") {
             TpuGeneration::V3
         } else if version_lower.contains("v2") {
             TpuGeneration::V2
@@ -601,17 +607,20 @@ impl GoogleTpuReader {
     /// Detect TPU version from PCI device ID
     #[cfg(target_os = "linux")]
     fn detect_tpu_version_from_device_id(device_id: &str) -> String {
-        // Google TPU PCI device IDs (approximate mapping)
-        // These may need to be updated as new TPU versions are released
+        // Google TPU PCI device IDs (mappings from tpu-info/device.py)
         match device_id.to_lowercase().as_str() {
-            "0x0027" => "v2".to_string(),
-            "0x0028" => "v3".to_string(),
-            "0x0050" | "0x0051" => "v4".to_string(),
-            "0x0060" | "0x0061" | "0x0062" => "v5e".to_string(),
-            "0x006f" => "v6e".to_string(), // v5e/v6e VFIO device
-            "0x0070" | "0x0071" => "v5p".to_string(),
-            "0x0080" | "0x0081" => "v6".to_string(), // Trillium
-            "0x0090" | "0x0091" => "v7".to_string(), // Ironwood
+            "0x0027" => "v2/v3".to_string(),
+            "0x005e" => "v4".to_string(),
+            "0x0063" => "v5e".to_string(),
+            "0x0062" => "v5p".to_string(),
+            "0x006f" => "v6e".to_string(),
+            "0x0076" => "v7x".to_string(),
+            // Fallbacks for IDs that might appear in sysfs without 0x or with variations
+            "005e" => "v4".to_string(),
+            "0063" => "v5e".to_string(),
+            "0062" => "v5p".to_string(),
+            "006f" => "v6e".to_string(),
+            "0076" => "v7x".to_string(),
             _ => "unknown".to_string(),
         }
     }

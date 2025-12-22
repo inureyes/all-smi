@@ -11,6 +11,13 @@ pub fn get_runner() -> &'static TpuInfoRunner {
     RUNNER.get_or_init(TpuInfoRunner::new)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TableType {
+    None,
+    RuntimeUtilization,
+    TensorCoreUtilization,
+}
+
 #[derive(Clone)]
 pub struct TpuInfoRunner {
     /// Latest captured metrics per device index
@@ -35,14 +42,17 @@ impl TpuInfoRunner {
         let status = self.status.clone();
 
         thread::spawn(move || {
-            let mut current_device_idx: u32 = 0;
+            let mut current_table = TableType::None;
             
             loop {
+                // Attempt to run tpu-info in streaming mode
+                // Setting TERM=dumb and NO_COLOR=1 to get plain text output
                 let child_res = Command::new("tpu-info")
-                    .arg("--metrics")
-                    .arg("duty_cycle_percent,hbm_usage,tensorcore_utilization,memory_total,power_usage")
+                    .arg("--streaming")
                     .arg("--rate")
                     .arg("1")
+                    .env("TERM", "dumb")
+                    .env("NO_COLOR", "1")
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn();
@@ -58,18 +68,7 @@ impl TpuInfoRunner {
                             let reader = BufReader::new(stdout);
                             for line_res in reader.lines() {
                                 if let Ok(line) = line_res {
-                                    let line = line.trim();
-                                    if line.is_empty() { continue; }
-
-                                    // 1. Detect device section header
-                                    // Common formats: "Device 0:", "Chip 0:", "[0]", etc.
-                                    if let Some(idx) = Self::extract_device_index(line) {
-                                        current_device_idx = idx;
-                                        continue;
-                                    }
-
-                                    // 2. Parse metric line for the current device
-                                    Self::parse_and_update(line, current_device_idx, &metrics_store);
+                                    Self::parse_line(&line, &mut current_table, &metrics_store);
                                     
                                     let mut s = status.lock().unwrap();
                                     if s.contains("Initializing") {
@@ -93,57 +92,98 @@ impl TpuInfoRunner {
         });
     }
 
-    fn extract_device_index(line: &str) -> Option<u32> {
-        let line_lower = line.to_lowercase();
-        // Look for patterns like "device 0", "chip 1", "tpu 2"
-        for prefix in &["device", "chip", "tpu"] {
-            if line_lower.starts_with(prefix) {
-                return line_lower
-                    .trim_start_matches(prefix)
-                    .trim_matches(|c: char| !c.is_numeric())
-                    .parse().ok();
+    fn parse_line(line: &str, current_table: &mut TableType, store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>) {
+        let line = line.trim();
+        if line.is_empty() { return; }
+
+        // 1. Detect table headers
+        if line.contains("TPU Runtime Utilization") {
+            *current_table = TableType::RuntimeUtilization;
+            return;
+        } else if line.contains("TensorCore Utilization") {
+            *current_table = TableType::TensorCoreUtilization;
+            return;
+        } else if line.contains("TPU Chips") || line.contains("TPU Process Info") {
+            *current_table = TableType::None; // Skip these tables
+            return;
+        }
+
+        // 2. Parse table rows
+        // Rich tables use box characters like │, ┌, └, ├
+        if line.contains('│') {
+            let parts: Vec<&str> = line.split('│')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .collect();
+
+            match *current_table {
+                TableType::RuntimeUtilization => {
+                    // Header: ["Chip", "HBM Usage (GiB)", "Duty cycle"]
+                    // Row: "0", "1.23 GiB / 16.00 GiB", "45.67%"
+                    if parts.len() >= 3 {
+                        if let Ok(idx) = parts[0].parse::<u32>() {
+                            let hbm_str = parts[1];
+                            let duty_str = parts[2];
+
+                            let (used_hbm, total_hbm) = Self::parse_hbm_usage(hbm_str);
+                            let duty = Self::parse_percent(duty_str);
+
+                            if let Ok(mut map_guard) = store.write() {
+                                let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
+                                dev_map.insert("hbm_usage".to_string(), used_hbm);
+                                dev_map.insert("memory_total".to_string(), total_hbm);
+                                dev_map.insert("duty_cycle_percent".to_string(), duty);
+                            }
+                        }
+                    }
+                }
+                TableType::TensorCoreUtilization => {
+                    // Header: ["Core ID", "TensorCore Utilization"]
+                    // Row: "0", "45.67%"
+                    if parts.len() >= 2 {
+                        if let Ok(idx) = parts[0].parse::<u32>() {
+                            let util = Self::parse_percent(parts[1]);
+                            if let Ok(mut map_guard) = store.write() {
+                                let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
+                                dev_map.insert("tensorcore_utilization".to_string(), util);
+                            }
+                        }
+                    }
+                }
+                TableType::None => {}
             }
         }
-        // Handle bracket format: "[0]"
-        if line.starts_with('[') && line.ends_with(']') {
-            return line.trim_matches(|c: char| !c.is_numeric()).parse().ok();
-        }
-        None
     }
 
-    fn parse_and_update(line: &str, device_idx: u32, store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>) {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with("---") || line.starts_with("===") { return; }
-
-        let parts: Vec<&str> = if line.contains(':') {
-            line.splitn(2, ':').collect()
-        } else if line.contains('=') {
-            line.splitn(2, '=').collect()
-        } else {
-            line.split_whitespace().collect()
-        };
-
+    fn parse_hbm_usage(s: &str) -> (f64, f64) {
+        // "1.23 GiB / 16.00 GiB"
+        let parts: Vec<&str> = s.split('/').map(|p| p.trim()).collect();
         if parts.len() >= 2 {
-            let key = parts[0].trim().to_lowercase();
-            let raw_value = parts[1].trim();
-            let value_str = raw_value.split_whitespace().next().unwrap_or("0");
-            
-            if let Ok(mut value) = value_str.parse::<f64>() {
-                let suffix = raw_value.to_lowercase();
-                if suffix.contains("mb") || suffix.contains("mib") { value *= 1024.0 * 1024.0; }
-                else if suffix.contains("gb") || suffix.contains("gib") { value *= 1024.0 * 1024.0 * 1024.0; }
-                else if suffix.contains("kb") || suffix.contains("kib") { value *= 1024.0; }
-                else if suffix.contains("mw") { value /= 1000.0; }
-                
-                if let Ok(mut store_guard) = store.write() {
-                    let device_map = store_guard.entry(device_idx).or_insert_with(HashMap::new);
-                    device_map.insert(key.clone(), value);
-                }
-                
-                #[cfg(debug_assertions)]
-                eprintln!("[DEBUG] Parsed metric [Dev {}]: {} = {}", device_idx, key, value);
-            }
+            (Self::parse_bytes(parts[0]), Self::parse_bytes(parts[1]))
+        } else {
+            (0.0, 0.0)
         }
+    }
+
+    fn parse_bytes(s: &str) -> f64 {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        if parts.is_empty() { return 0.0; }
+        if let Ok(mut val) = parts[0].parse::<f64>() {
+            if parts.len() >= 2 {
+                let unit = parts[1].to_lowercase();
+                if unit.contains("gi") || unit == "gb" { val *= 1024.0 * 1024.0 * 1024.0; }
+                else if unit.contains("mi") || unit == "mb" { val *= 1024.0 * 1024.0; }
+                else if unit.contains("ki") || unit == "kb" { val *= 1024.0; }
+            }
+            val
+        } else {
+            0.0
+        }
+    }
+
+    fn parse_percent(s: &str) -> f64 {
+        // "45.67%" or "N/A"
+        s.trim_end_matches('%').parse::<f64>().unwrap_or(0.0)
     }
 
     pub fn get_status(&self) -> Option<String> {
