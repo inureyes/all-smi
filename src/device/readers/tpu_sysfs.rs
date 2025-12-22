@@ -34,32 +34,79 @@ pub struct SysfsTpuInfo {
     pub temperature: Option<f64>,
 }
 
-/// Scans /sys/class/accel for Google TPU devices
+/// Scans /sys/class/accel and /sys/bus/pci/devices for Google TPU devices
 pub fn scan_sysfs_tpus() -> Vec<SysfsTpuInfo> {
     let mut devices = Vec::new();
+    
+    // 1. Try /sys/class/accel (Standard driver)
     let accel_path = Path::new("/sys/class/accel");
+    if accel_path.exists() {
+        if let Ok(entries) = fs::read_dir(accel_path) {
+            let mut accel_entries: Vec<_> = entries
+                .flatten()
+                .map(|e| e.path())
+                .collect();
+            
+            accel_entries.sort();
 
-    if !accel_path.exists() {
-        return devices;
+            for (idx, path) in accel_entries.iter().enumerate() {
+                if let Some(info) = parse_accel_device(path, idx as u32) {
+                    devices.push(info);
+                }
+            }
+        }
     }
 
-    if let Ok(entries) = fs::read_dir(accel_path) {
-        let mut accel_entries: Vec<_> = entries
-            .flatten()
-            .map(|e| e.path())
-            .collect();
-        
-        // Sort to keep index order (accel0, accel1...)
-        accel_entries.sort();
+    // 2. If no accel devices found, try scanning PCI bus directly (VFIO/Passthrough)
+    if devices.is_empty() {
+        let pci_path = Path::new("/sys/bus/pci/devices");
+        if pci_path.exists() {
+            if let Ok(entries) = fs::read_dir(pci_path) {
+                let mut pci_entries: Vec<_> = entries
+                    .flatten()
+                    .map(|e| e.path())
+                    .collect();
+                pci_entries.sort();
 
-        for (idx, path) in accel_entries.iter().enumerate() {
-            if let Some(info) = parse_accel_device(path, idx as u32) {
-                devices.push(info);
+                let mut index = 0;
+                for path in pci_entries {
+                    if let Some(info) = parse_pci_device(&path, index) {
+                        devices.push(info);
+                        index += 1;
+                    }
+                }
             }
         }
     }
 
     devices
+}
+
+fn parse_pci_device(path: &Path, index: u32) -> Option<SysfsTpuInfo> {
+    // Check Vendor ID
+    let vendor_path = path.join("vendor");
+    let vendor = read_sysfs_string(&vendor_path)?;
+    
+    // Normalize vendor string (handle 0x prefix)
+    let vendor_norm = vendor.trim().to_lowercase();
+    if !vendor_norm.ends_with("1ae0") { // 0x1ae0 or 1ae0
+        return None;
+    }
+
+    // Get Device ID
+    let device_id_path = path.join("device");
+    let device_id = read_sysfs_string(&device_id_path).unwrap_or_else(|| "unknown".to_string());
+
+    // Get Temperature (Likely not available for VFIO devices via sysfs)
+    let temperature = read_temperature(path);
+
+    Some(SysfsTpuInfo {
+        index,
+        path: path.to_path_buf(),
+        vendor_id: vendor,
+        device_id,
+        temperature,
+    })
 }
 
 fn parse_accel_device(path: &Path, index: u32) -> Option<SysfsTpuInfo> {
