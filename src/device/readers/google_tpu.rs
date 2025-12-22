@@ -198,6 +198,7 @@ struct TpuDeviceInfo {
 
 /// JSON structure for TPU process information
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 #[cfg(target_os = "linux")]
 struct TpuProcessInfo {
     /// Device index
@@ -751,6 +752,7 @@ impl GoogleTpuReader {
 
     /// Validate TPU device data schema
     #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
     fn validate_tpu_device_schema(devices: &[TpuDeviceInfo]) -> Option<()> {
         if devices.is_empty() {
             return None;

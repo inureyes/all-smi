@@ -45,6 +45,7 @@ pub struct TpuDeviceMetrics {
     /// Duty cycle percentage (0-100)
     pub duty_cycle_pct: f64,
     /// Process ID using this device (0 if none)
+    #[allow(dead_code)]
     pub pid: u64,
 }
 
