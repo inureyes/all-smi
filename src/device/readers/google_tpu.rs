@@ -408,26 +408,48 @@ impl GoogleTpuReader {
         // We use this as the baseline to ensure we don't miss devices.
         let sysfs_devices = tpu_sysfs::scan_sysfs_tpus();
         
-        // 2. Try to get metrics from background runner
-        // If runner has data, we can use it (Not implemented yet, just presence)
-        // let runner_data = tpu_info_runner::get_runner().get_latest_data();
-
-        // 3. Collect devices from Sysfs
+        // 2. Collect devices from Sysfs
         if !sysfs_devices.is_empty() {
+            let runner = tpu_info_runner::get_runner();
+            
             for sys_dev in sysfs_devices {
                 let chip_version = Self::detect_tpu_version_from_device_id(&sys_dev.device_id);
                 let accel_type = format!("TPU {}", &chip_version);
                 
+                // Fetch metrics from background runner
+                let mut utilization = 0.0;
+                let mut memory_used = 0;
+                let mut total_memory = 0;
+                let mut power_draw = 0.0;
+                
+                if let Some(val) = runner.get_metric("duty_cycle_percent") {
+                    utilization = val;
+                } else if let Some(val) = runner.get_metric("tensorcore_utilization") {
+                    utilization = val;
+                }
+                
+                if let Some(val) = runner.get_metric("hbm_usage") {
+                    memory_used = val as u64;
+                }
+                
+                if let Some(val) = runner.get_metric("memory_total") {
+                    total_memory = val as u64;
+                }
+                
+                if let Some(val) = runner.get_metric("power_usage") {
+                    power_draw = val;
+                }
+
                 devices.push(TpuDeviceInfo {
                     index: sys_dev.index,
                     chip_version,
                     uuid: format!("TPU-{}", sys_dev.index),
                     core_count: 1,
-                    utilization: 0.0,
-                    memory_used: 0,
-                    memory_total: 0,
+                    utilization,
+                    memory_used,
+                    memory_total: total_memory,
                     temperature: sys_dev.temperature.unwrap_or(0.0) as u32,
-                    power_draw: 0.0,
+                    power_draw,
                     power_max: 0.0,
                     tpu_runtime_version: String::new(),
                     accelerator_type: accel_type,

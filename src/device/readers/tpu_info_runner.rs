@@ -1,17 +1,4 @@
-// Copyright 2025 Lablup Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, RwLock, OnceLock};
@@ -26,8 +13,8 @@ pub fn get_runner() -> &'static TpuInfoRunner {
 
 #[derive(Clone)]
 pub struct TpuInfoRunner {
-    /// Latest captured metrics (raw JSON or text)
-    pub latest_data: Arc<RwLock<Option<String>>>,
+    /// Latest captured metrics (key-value map)
+    pub metrics: Arc<RwLock<HashMap<String, f64>>>,
     /// Status message for notification (e.g. "Running", "Failed")
     pub status: Arc<Mutex<String>>,
 }
@@ -35,7 +22,7 @@ pub struct TpuInfoRunner {
 impl TpuInfoRunner {
     pub fn new() -> Self {
         let runner = Self {
-            latest_data: Arc::new(RwLock::new(None)),
+            metrics: Arc::new(RwLock::new(HashMap::new())),
             status: Arc::new(Mutex::new("Initializing tpu-info...".to_string())),
         };
         runner.start_background_thread();
@@ -43,19 +30,18 @@ impl TpuInfoRunner {
     }
 
     fn start_background_thread(&self) {
-        let latest_data = self.latest_data.clone();
+        let metrics_store = self.metrics.clone();
         let status = self.status.clone();
 
         thread::spawn(move || {
             loop {
                 // Attempt to run tpu-info in streaming mode
-                // Flags: --csv or --json might be better if available, but user suggested --streaming
+                // We request specific metrics based on user feedback
                 let child_res = Command::new("tpu-info")
-                    // .arg("--json") // Try JSON if supported for easier parsing?
-                    // .arg("--streaming") // As requested
-                    // .arg("--rate").arg("2")
-                    // Since we don't know exact flags, we'll try a common monitoring pattern.
-                    // If tpu-info supports standard unix style:
+                    .arg("--metrics")
+                    .arg("duty_cycle_percent,hbm_usage,tensorcore_utilization,memory_total,power_usage") // Added likely metrics
+                    .arg("--rate")
+                    .arg("1") // 1Hz update rate
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn();
@@ -69,17 +55,15 @@ impl TpuInfoRunner {
 
                         if let Some(stdout) = child.stdout.take() {
                             let reader = BufReader::new(stdout);
-                            // We assume line-based JSON or text output
                             for line_res in reader.lines() {
                                 if let Ok(line) = line_res {
                                     if !line.trim().is_empty() {
-                                        // Update latest data
-                                        let mut data = latest_data.write().unwrap();
-                                        *data = Some(line);
+                                        // Parse line and update metrics
+                                        // Format assumption: "metric_name: value" or "metric_name=value" or "value" if only one asked?
+                                        // We will try to extract key-value pairs
+                                        Self::parse_and_update(&line, &metrics_store);
                                         
                                         // Once we get data, update status to empty (Ready)
-                                        // or keep "Running" if we want persistent status?
-                                        // Usually notifications are for setup/errors.
                                         let mut s = status.lock().unwrap();
                                         if s.contains("Initializing") {
                                             *s = "Ready".to_string();
@@ -112,6 +96,33 @@ impl TpuInfoRunner {
         });
     }
 
+    fn parse_and_update(line: &str, store: &Arc<RwLock<HashMap<String, f64>>>) {
+        // Simple parser for "key: value" or "key=value"
+        // Also handles "key value" (space separated)
+        // Adjust regex or logic as needed based on actual output
+        let line = line.trim();
+        let parts: Vec<&str> = if line.contains(':') {
+            line.split(':').collect()
+        } else if line.contains('=') {
+            line.split('=').collect()
+        } else {
+            line.split_whitespace().collect()
+        };
+
+        if parts.len() >= 2 {
+            let key = parts[0].trim();
+            // Handle cases like "12.5 %" or "100 MB"
+            let value_str = parts[1].trim()
+                .split_whitespace().next().unwrap_or("0"); // Take first part ("12.5")
+            
+            if let Ok(value) = value_str.parse::<f64>() {
+                if let Ok(mut map) = store.write() {
+                    map.insert(key.to_string(), value);
+                }
+            }
+        }
+    }
+
     pub fn get_status(&self) -> Option<String> {
         let s = self.status.lock().unwrap().clone();
         if s == "Ready" {
@@ -121,8 +132,7 @@ impl TpuInfoRunner {
         }
     }
     
-    #[allow(dead_code)]
-    pub fn get_latest_data(&self) -> Option<String> {
-        self.latest_data.read().unwrap().clone()
+    pub fn get_metric(&self, key: &str) -> Option<f64> {
+        self.metrics.read().unwrap().get(key).copied()
     }
 }
