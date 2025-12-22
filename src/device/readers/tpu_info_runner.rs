@@ -28,6 +28,7 @@ pub fn get_runner() -> &'static TpuInfoRunner {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TableType {
     None,
+    RuntimeUtilization,
     DutyCycle,
     HbmUsage,
     TensorCoreUtilization,
@@ -61,16 +62,11 @@ impl TpuInfoRunner {
             
             loop {
                 // Attempt to run tpu-info in streaming mode
-                // Setting TERM=dumb and NO_COLOR=1 to get plain text output
-                // Using multiple --metric flags as required by tpu-info
-                // Removed invalid metrics: memory_total, power_usage
+                // Using default mode (no --metric flags) to get standard tables
                 let child_res = Command::new("tpu-info")
                     .arg("--streaming")
                     .arg("--rate")
                     .arg("2")
-                    .arg("--metric").arg("duty_cycle_percent")
-                    .arg("--metric").arg("hbm_usage")
-                    .arg("--metric").arg("tensorcore_utilization")
                     .env("TERM", "dumb")
                     .env("NO_COLOR", "1")
                     .stdout(Stdio::piped())
@@ -79,9 +75,6 @@ impl TpuInfoRunner {
 
                 match child_res {
                     Ok(mut child) => {
-                        // Keep "Initializing..." status until we actually get data
-                        // This prevents the notification from flashing too quickly if the process starts fast but data takes time
-                        
                         if let Some(stdout) = child.stdout.take() {
                             let reader = BufReader::new(stdout);
                             for line_res in reader.lines() {
@@ -119,8 +112,10 @@ impl TpuInfoRunner {
         if line.is_empty() { return; }
 
         // 1. Detect table headers
-        // Based on actual logs provided by user
-        if line.contains("TPU Duty Cycle") {
+        if line.contains("TPU Runtime Utilization") {
+            *current_table = TableType::RuntimeUtilization;
+            return;
+        } else if line.contains("TPU Duty Cycle") {
             *current_table = TableType::DutyCycle;
             return;
         } else if line.contains("TPU HBM Usage") {
@@ -129,15 +124,13 @@ impl TpuInfoRunner {
         } else if line.contains("TensorCore Utilization") {
             *current_table = TableType::TensorCoreUtilization;
             return;
-        } else if line.contains("Runtime Utilization Status") || line.contains("Supported Metrics") {
-            *current_table = TableType::None; // Skip warning boxes/menus
+        } else if line.contains("Runtime Utilization Status") || line.contains("Supported Metrics") || line.contains("TPU Chips") || line.contains("TPU Process Info") {
+            *current_table = TableType::None; // Skip other tables/warnings
             return;
         }
 
         // 2. Parse table rows
-        // Rich tables use box characters like │, ┌, └, ├, ┃, ┏, ┡
         if line.contains('│') || line.contains('┃') {
-            // Normalize separators to '|' for easier splitting
             let normalized_line = line.replace('│', "|").replace('┃', "|");
             let parts: Vec<&str> = normalized_line.split('|')
                 .map(|s| s.trim())
@@ -145,6 +138,37 @@ impl TpuInfoRunner {
                 .collect();
 
             match *current_table {
+                TableType::RuntimeUtilization => {
+                    // Header: ["Chip", "HBM Usage (GiB)", "Duty cycle"]
+                    // Row: "0", "1.23 GiB / 16.00 GiB", "45.67%" (or "N/A")
+                    if parts.len() >= 3 {
+                        if let Ok(idx) = parts[0].parse::<u32>() {
+                            let hbm_str = parts[1];
+                            let duty_str = parts[2];
+
+                            if hbm_str != "N/A" {
+                                let (used, total) = Self::parse_hbm_usage(hbm_str);
+                                if let Ok(mut map_guard) = store.write() {
+                                    let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
+                                    dev_map.insert("hbm_usage".to_string(), used);
+                                    dev_map.insert("memory_total".to_string(), total);
+                                }
+                                #[cfg(debug_assertions)]
+                                eprintln!("[DEBUG] Parsed RuntimeUtil HBM [Dev {}]: {} / {}", idx, used, total);
+                            }
+                            
+                            if duty_str != "N/A" && !duty_str.is_empty() {
+                                let duty = Self::parse_percent(duty_str);
+                                if let Ok(mut map_guard) = store.write() {
+                                    let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
+                                    dev_map.insert("duty_cycle_percent".to_string(), duty);
+                                }
+                                #[cfg(debug_assertions)]
+                                eprintln!("[DEBUG] Parsed RuntimeUtil Duty [Dev {}]: {}", idx, duty);
+                            }
+                        }
+                    }
+                }
                 TableType::DutyCycle => {
                     // Header: ["Core ID", "Duty Cycle (%)"]
                     // Row: "0", "N/A" or "10.5%"
