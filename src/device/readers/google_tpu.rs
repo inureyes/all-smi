@@ -38,6 +38,10 @@
 //! | TPU v7 | Ironwood | 192 GB | Latest generation, HBM3e |
 
 #[cfg(target_os = "linux")]
+use crate::device::common::constants::google_tpu::GOOGLE_VENDOR_ID;
+#[cfg(target_os = "linux")]
+use crate::device::common::constants::google_tpu::LIBTPU_PATHS;
+#[cfg(target_os = "linux")]
 use crate::device::common::execute_command_default;
 #[cfg(target_os = "linux")]
 use crate::device::readers::common_cache::{DetailBuilder, DeviceStaticInfo};
@@ -302,18 +306,24 @@ impl GoogleTpuReader {
     /// Check if TPU Python integration is available
     #[cfg(target_os = "linux")]
     fn is_tpu_script_available() -> bool {
-        // Check cache first
-        if let Ok(cache) = TPU_SCRIPT_AVAILABLE.lock() {
-            if let Some(available) = *cache {
-                return available;
+        // Check cache first with timeout to avoid deadlock
+        match TPU_SCRIPT_AVAILABLE.try_lock() {
+            Ok(cache) => {
+                if let Some(available) = *cache {
+                    return available;
+                }
+            }
+            Err(_) => {
+                // If we can't acquire lock immediately, skip cache check
+                // This prevents blocking during concurrent initialization
             }
         }
 
         // Check if we can import jax.tools.colab_tpu or cloud-tpu-diagnostics
         let result = Self::check_tpu_python_availability();
 
-        // Cache the result
-        if let Ok(mut cache) = TPU_SCRIPT_AVAILABLE.lock() {
+        // Cache the result with timeout to avoid deadlock
+        if let Ok(mut cache) = TPU_SCRIPT_AVAILABLE.try_lock() {
             *cache = Some(result);
         }
 
@@ -324,19 +334,13 @@ impl GoogleTpuReader {
     #[cfg(target_os = "linux")]
     fn check_tpu_python_availability() -> bool {
         // First check if libtpu.so exists
-        const LIBTPU_PATHS: &[&str] = &[
-            "/usr/local/lib/libtpu.so",
-            "/usr/lib/libtpu.so",
-            "/opt/google/libtpu/libtpu.so",
-        ];
-
         for path in LIBTPU_PATHS {
             if Path::new(path).exists() {
                 return true;
             }
         }
 
-        // Check if /dev/accel* devices exist
+        // Check if /dev/accel* devices exist with verified Google vendor ID
         if let Ok(entries) = std::fs::read_dir("/dev") {
             for entry in entries.flatten() {
                 if let Some(name) = entry.file_name().to_str() {
@@ -344,15 +348,13 @@ impl GoogleTpuReader {
                         // Verify it's a TPU device by checking sysfs
                         let sysfs_path = format!("/sys/class/accel/{}/device/vendor", name);
                         if let Ok(vendor) = std::fs::read_to_string(&sysfs_path) {
-                            // Google vendor ID: 0x1ae0
-                            if vendor.trim() == "0x1ae0" {
+                            // Only accept devices with verified Google vendor ID (0x1ae0)
+                            if vendor.trim() == GOOGLE_VENDOR_ID {
                                 return true;
                             }
                         }
-                        // If we can't verify vendor, check if the device exists anyway
-                        if Path::new(&format!("/dev/{}", name)).exists() {
-                            return true;
-                        }
+                        // SECURITY: Do NOT fall back to device existence check without vendor verification
+                        // This prevents misidentification of Intel Gaudi devices as TPUs
                     }
                 }
             }
@@ -443,7 +445,7 @@ def get_tpu_info():
                 if stats:
                     device_info["memory_used"] = stats.get("bytes_in_use", 0)
                     device_info["memory_total"] = stats.get("peak_bytes_in_use", 0) or stats.get("bytes_limit", 0)
-            except:
+            except Exception:
                 pass
 
             devices.append(device_info)
@@ -462,7 +464,7 @@ def get_tpu_info():
             try:
                 with open(f"{sysfs_base}/vendor") as f:
                     vendor = f.read().strip()
-            except:
+            except Exception:
                 pass
 
             # Only include Google TPU devices (vendor 0x1ae0)
@@ -506,7 +508,46 @@ if __name__ == "__main__":
             return None;
         }
 
-        serde_json::from_str(stdout).ok()
+        // Parse JSON and validate schema
+        let devices: Vec<TpuDeviceInfo> = serde_json::from_str(stdout).ok()?;
+
+        // Validate parsed data has required fields
+        Self::validate_tpu_device_schema(&devices)?;
+
+        Some(devices)
+    }
+
+    /// Validate TPU device data schema
+    #[cfg(target_os = "linux")]
+    fn validate_tpu_device_schema(devices: &[TpuDeviceInfo]) -> Option<()> {
+        if devices.is_empty() {
+            return None;
+        }
+
+        // Perform basic validation on the device data
+        for device in devices {
+            // Ensure utilization is within valid range
+            if !(0.0..=100.0).contains(&device.utilization) {
+                return None;
+            }
+
+            // Ensure memory values are reasonable
+            if device.memory_used > device.memory_total && device.memory_total > 0 {
+                return None;
+            }
+
+            // Ensure power values are non-negative
+            if device.power_draw < 0.0 || device.power_max < 0.0 {
+                return None;
+            }
+
+            // Ensure temperature is in a reasonable range (0-200 C)
+            if device.temperature > 200 {
+                return None;
+            }
+        }
+
+        Some(())
     }
 
     /// Get TPU process information
