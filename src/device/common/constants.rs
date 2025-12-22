@@ -63,6 +63,8 @@ pub mod google_tpu {
     pub const TPU_V5E_HBM_BYTES: u64 = 16 * 1024 * 1024 * 1024;
     /// TPU v5p HBM memory size in bytes (95 GB)
     pub const TPU_V5P_HBM_BYTES: u64 = 95 * 1024 * 1024 * 1024;
+    /// TPU v6e HBM memory size in bytes (16 GB, cost-optimized)
+    pub const TPU_V6E_HBM_BYTES: u64 = 16 * 1024 * 1024 * 1024;
     /// TPU v6 Trillium HBM memory size in bytes (32 GB)
     pub const TPU_V6_TRILLIUM_HBM_BYTES: u64 = 32 * 1024 * 1024 * 1024;
     /// TPU v7 Ironwood HBM3e memory size in bytes (192 GB)
@@ -106,9 +108,7 @@ pub mod google_tpu {
                         let name = entry.file_name();
                         let name_str = name.to_string_lossy();
                         if name_str.starts_with("python") {
-                            let libtpu_path = entry
-                                .path()
-                                .join("site-packages/libtpu/libtpu.so");
+                            let libtpu_path = entry.path().join("site-packages/libtpu/libtpu.so");
                             if libtpu_path.exists() {
                                 paths.push(libtpu_path);
                             }
@@ -128,9 +128,7 @@ pub mod google_tpu {
                         let name = entry.file_name();
                         let name_str = name.to_string_lossy();
                         if name_str.starts_with("python") {
-                            let libtpu_path = entry
-                                .path()
-                                .join("site-packages/libtpu/libtpu.so");
+                            let libtpu_path = entry.path().join("site-packages/libtpu/libtpu.so");
                             if libtpu_path.exists() {
                                 paths.push(libtpu_path);
                             }
@@ -178,9 +176,8 @@ pub mod google_tpu {
                             let name = entry.file_name();
                             let name_str = name.to_string_lossy();
                             if name_str.starts_with("python") {
-                                let libtpu_path = entry
-                                    .path()
-                                    .join("site-packages/libtpu/libtpu.so");
+                                let libtpu_path =
+                                    entry.path().join("site-packages/libtpu/libtpu.so");
                                 if libtpu_path.exists() {
                                     paths.push(libtpu_path);
                                 }
@@ -202,9 +199,7 @@ pub mod google_tpu {
                         let name = entry.file_name();
                         let name_str = name.to_string_lossy();
                         if name_str.starts_with("python") {
-                            let libtpu_path = entry
-                                .path()
-                                .join("site-packages/libtpu/libtpu.so");
+                            let libtpu_path = entry.path().join("site-packages/libtpu/libtpu.so");
                             if libtpu_path.exists() {
                                 paths.push(libtpu_path);
                             }

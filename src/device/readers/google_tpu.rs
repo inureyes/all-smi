@@ -67,7 +67,8 @@ pub enum TpuGeneration {
     V4,
     V5e,
     V5p,
-    V6Trillium,
+    V6e,        // Cost-optimized v6 (16 GB HBM)
+    V6Trillium, // Full v6 Trillium (32 GB HBM)
     V7Ironwood,
     Unknown,
 }
@@ -82,6 +83,7 @@ impl TpuGeneration {
             TpuGeneration::V4 => 32 * 1024 * 1024 * 1024,  // 32 GB
             TpuGeneration::V5e => 16 * 1024 * 1024 * 1024, // 16 GB
             TpuGeneration::V5p => 95 * 1024 * 1024 * 1024, // 95 GB
+            TpuGeneration::V6e => 16 * 1024 * 1024 * 1024, // 16 GB (cost-optimized)
             TpuGeneration::V6Trillium => 32 * 1024 * 1024 * 1024, // 32 GB
             TpuGeneration::V7Ironwood => 192 * 1024 * 1024 * 1024, // 192 GB HBM3e
             TpuGeneration::Unknown => 16 * 1024 * 1024 * 1024, // Default 16 GB
@@ -96,6 +98,7 @@ impl TpuGeneration {
             TpuGeneration::V4 => 2,
             TpuGeneration::V5e => 1,
             TpuGeneration::V5p => 2,
+            TpuGeneration::V6e => 1, // Cost-optimized, single core
             TpuGeneration::V6Trillium => 2,
             TpuGeneration::V7Ironwood => 2, // Estimated based on architecture
             TpuGeneration::Unknown => 1,
@@ -110,6 +113,7 @@ impl TpuGeneration {
             TpuGeneration::V4 => "Google TPU v4",
             TpuGeneration::V5e => "Google TPU v5e",
             TpuGeneration::V5p => "Google TPU v5p",
+            TpuGeneration::V6e => "Google TPU v6e",
             TpuGeneration::V6Trillium => "Google TPU v6 Trillium",
             TpuGeneration::V7Ironwood => "Google TPU v7 Ironwood 192GB HBM3e",
             TpuGeneration::Unknown => "Google TPU",
@@ -120,7 +124,7 @@ impl TpuGeneration {
     pub fn memory_type(&self) -> &'static str {
         match self {
             TpuGeneration::V7Ironwood => "HBM3e",
-            TpuGeneration::V5p | TpuGeneration::V6Trillium => "HBM2e",
+            TpuGeneration::V5p | TpuGeneration::V6e | TpuGeneration::V6Trillium => "HBM2e",
             _ => "HBM2",
         }
     }
@@ -130,11 +134,14 @@ impl TpuGeneration {
         let version_lower = version.to_lowercase();
         if version_lower.contains("v7") || version_lower.contains("ironwood") {
             TpuGeneration::V7Ironwood
+        } else if version_lower.contains("v6e") {
+            // Must check v6e before v6 to avoid false positive
+            TpuGeneration::V6e
         } else if version_lower.contains("v6") || version_lower.contains("trillium") {
             TpuGeneration::V6Trillium
         } else if version_lower.contains("v5p") {
             TpuGeneration::V5p
-        } else if version_lower.contains("v5e") {
+        } else if version_lower.contains("v5e") || version_lower.contains("v5lite") {
             TpuGeneration::V5e
         } else if version_lower.contains("v4") {
             TpuGeneration::V4
@@ -488,8 +495,8 @@ impl GoogleTpuReader {
             "0x0050" | "0x0051" => "v4".to_string(),
             "0x0060" | "0x0061" => "v5e".to_string(),
             "0x0070" | "0x0071" => "v5p".to_string(),
-            "0x0080" | "0x0081" => "v6".to_string(),  // Trillium
-            "0x0090" | "0x0091" => "v7".to_string(),  // Ironwood
+            "0x0080" | "0x0081" => "v6".to_string(), // Trillium
+            "0x0090" | "0x0091" => "v7".to_string(), // Ironwood
             _ => "unknown".to_string(),
         }
     }
@@ -522,10 +529,7 @@ impl GoogleTpuReader {
         let chip_count = chips_per_host
             .as_ref()
             .and_then(|s| {
-                let parts: Vec<u32> = s
-                    .split(',')
-                    .filter_map(|p| p.trim().parse().ok())
-                    .collect();
+                let parts: Vec<u32> = s.split(',').filter_map(|p| p.trim().parse().ok()).collect();
                 if parts.len() == 3 {
                     Some(parts[0] * parts[1] * parts[2])
                 } else {
@@ -561,6 +565,9 @@ impl GoogleTpuReader {
 
         if lower.contains("v7") || lower.contains("ironwood") {
             "v7".to_string()
+        } else if lower.contains("v6e") {
+            // Must check v6e before v6 to avoid false positive
+            "v6e".to_string()
         } else if lower.contains("v6") || lower.contains("trillium") {
             "v6".to_string()
         } else if lower.contains("v5p") {
@@ -768,7 +775,16 @@ mod tests {
         assert_eq!(TpuGeneration::from_chip_version("v3"), TpuGeneration::V3);
         assert_eq!(TpuGeneration::from_chip_version("v4"), TpuGeneration::V4);
         assert_eq!(TpuGeneration::from_chip_version("v5e"), TpuGeneration::V5e);
+        assert_eq!(
+            TpuGeneration::from_chip_version("v5lite"),
+            TpuGeneration::V5e
+        );
         assert_eq!(TpuGeneration::from_chip_version("v5p"), TpuGeneration::V5p);
+        assert_eq!(TpuGeneration::from_chip_version("v6e"), TpuGeneration::V6e);
+        assert_eq!(
+            TpuGeneration::from_chip_version("v6e-16"),
+            TpuGeneration::V6e
+        );
         assert_eq!(
             TpuGeneration::from_chip_version("trillium"),
             TpuGeneration::V6Trillium
@@ -798,6 +814,7 @@ mod tests {
         assert_eq!(TpuGeneration::V4.hbm_size_bytes(), 32 * 1024 * 1024 * 1024);
         assert_eq!(TpuGeneration::V5e.hbm_size_bytes(), 16 * 1024 * 1024 * 1024);
         assert_eq!(TpuGeneration::V5p.hbm_size_bytes(), 95 * 1024 * 1024 * 1024);
+        assert_eq!(TpuGeneration::V6e.hbm_size_bytes(), 16 * 1024 * 1024 * 1024);
         assert_eq!(
             TpuGeneration::V6Trillium.hbm_size_bytes(),
             32 * 1024 * 1024 * 1024
@@ -815,6 +832,7 @@ mod tests {
         assert_eq!(TpuGeneration::V4.display_name(), "Google TPU v4");
         assert_eq!(TpuGeneration::V5e.display_name(), "Google TPU v5e");
         assert_eq!(TpuGeneration::V5p.display_name(), "Google TPU v5p");
+        assert_eq!(TpuGeneration::V6e.display_name(), "Google TPU v6e");
         assert_eq!(
             TpuGeneration::V6Trillium.display_name(),
             "Google TPU v6 Trillium"
@@ -829,6 +847,7 @@ mod tests {
     fn test_tpu_generation_memory_type() {
         assert_eq!(TpuGeneration::V2.memory_type(), "HBM2");
         assert_eq!(TpuGeneration::V5p.memory_type(), "HBM2e");
+        assert_eq!(TpuGeneration::V6e.memory_type(), "HBM2e");
         assert_eq!(TpuGeneration::V6Trillium.memory_type(), "HBM2e");
         assert_eq!(TpuGeneration::V7Ironwood.memory_type(), "HBM3e");
     }

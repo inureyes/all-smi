@@ -260,11 +260,8 @@ pub fn has_rebellions() -> bool {
 }
 
 /// Check if Google TPU devices are present
-/// Supports multiple detection methods:
-/// 1. /dev/accel* devices with Google vendor ID (on-premise TPU nodes)
-/// 2. TPU VM environment variables (Cloud TPU VMs like v6e)
-/// 3. libtpu.so with TPU environment variables
-/// 4. lspci detection (physical TPU cards)
+/// Uses only file system and environment variable checks to avoid process spawning.
+/// IMPORTANT: No external commands are executed to prevent process accumulation.
 #[cfg(target_os = "linux")]
 pub fn has_google_tpu() -> bool {
     // Method 1: Check if /dev/accel* devices exist with Google vendor ID
@@ -287,79 +284,29 @@ pub fn has_google_tpu() -> bool {
 
     // Method 2: Check for TPU VM environment variables
     // TPU VMs (like v6e) set these environment variables
-    // TPU_NAME, TPU_CHIPS_PER_HOST_BOUNDS, CLOUD_TPU_TASK_ID, etc.
     if std::env::var("TPU_NAME").is_ok()
         || std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").is_ok()
         || std::env::var("CLOUD_TPU_TASK_ID").is_ok()
         || std::env::var("TPU_ACCELERATOR_TYPE").is_ok()
+        || std::env::var("TPU_WORKER_ID").is_ok()
+        || std::env::var("TPU_WORKER_HOSTNAMES").is_ok()
     {
         return true;
     }
 
-    // Method 3: Check libtpu availability combined with TPU worker hint
-    // If libtpu is available AND we're in a known TPU environment
+    // Method 3: Check libtpu availability combined with TPU indicators
     if is_libtpu_available() {
-        // Check for TPU worker environment indicators
-        // TPU_WORKER_ID is set on TPU VMs
-        if std::env::var("TPU_WORKER_ID").is_ok()
-            || std::env::var("TPU_WORKER_HOSTNAMES").is_ok()
-        {
-            return true;
-        }
-
         // Check for PJRT TPU plugin indicators
         if let Ok(pjrt_names) = std::env::var("PJRT_DEVICE") {
             if pjrt_names.to_lowercase().contains("tpu") {
                 return true;
             }
         }
-    }
 
-    // Method 4: Check lspci for Google TPU devices (physical cards)
-    if let Ok(output) = execute_command_default("lspci", &["-n"]) {
-        if output.status == 0 {
-            // Google vendor ID: 1ae0
-            for line in output.stdout.lines() {
-                if line.contains("1ae0:") {
-                    return true;
-                }
-            }
-        }
-    }
-
-    // Also check regular lspci output for text matches
-    if let Ok(output) = execute_command_default("lspci", &[]) {
-        if output.status == 0 {
-            let stdout_lower = output.stdout.to_lowercase();
-            if stdout_lower.contains("google") && stdout_lower.contains("tpu") {
-                return true;
-            }
-        }
-    }
-
-    // Method 5: Check GCE metadata for TPU VM
-    // This is a last resort as it requires network access
-    // Only check if we're likely on GCE (check for metadata IP)
-    if std::path::Path::new("/sys/class/dmi/id/product_name").exists() {
+        // If on GCE (Google Compute Engine), libtpu likely means TPU
         if let Ok(product) = std::fs::read_to_string("/sys/class/dmi/id/product_name") {
             if product.to_lowercase().contains("google") {
-                // We're on GCE, check metadata
-                if let Ok(output) = execute_command_default(
-                    "curl",
-                    &[
-                        "-s",
-                        "-f",
-                        "--connect-timeout",
-                        "1",
-                        "-H",
-                        "Metadata-Flavor: Google",
-                        "http://metadata.google.internal/computeMetadata/v1/instance/attributes/tpu-env",
-                    ],
-                ) {
-                    if output.status == 0 && !output.stdout.is_empty() {
-                        return true;
-                    }
-                }
+                return true;
             }
         }
     }
