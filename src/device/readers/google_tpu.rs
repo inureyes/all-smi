@@ -412,23 +412,47 @@ impl GoogleTpuReader {
     #[cfg(target_os = "linux")]
     fn query_tpu_devices() -> Option<Vec<TpuDeviceInfo>> {
         // Python script to query TPU devices
+        // Suppresses all logging and warnings to prevent TUI pollution
         let python_script = r#"
 import json
 import sys
+import os
+import warnings
+
+# Suppress all warnings and logging before importing anything else
+warnings.filterwarnings("ignore")
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress TensorFlow/JAX logging
+os.environ["JAX_PLATFORMS"] = ""  # Let JAX auto-detect
+os.environ["GRPC_VERBOSITY"] = "ERROR"  # Suppress gRPC logs
+os.environ["ABSL_MIN_LOG_LEVEL"] = "3"  # Suppress abseil logging
+
+# Redirect stderr to devnull during JAX import to suppress any remaining messages
+_stderr = sys.stderr
+try:
+    sys.stderr = open(os.devnull, 'w')
+except Exception:
+    pass
 
 def get_tpu_info():
     devices = []
     try:
         import jax
-        tpu_devices = jax.devices('tpu')
+        # Restore stderr for actual errors after import
+        sys.stderr = _stderr
+
+        try:
+            tpu_devices = jax.devices('tpu')
+        except RuntimeError:
+            # No TPU available
+            return []
 
         for i, device in enumerate(tpu_devices):
             device_info = {
                 "index": i,
                 "chip_version": getattr(device, 'device_kind', 'unknown'),
                 "uuid": str(device.id) if hasattr(device, 'id') else f"TPU-{i}",
-                "core_count": 1,  # Per-chip core count
-                "utilization": 0.0,  # JAX doesn't provide utilization directly
+                "core_count": 1,
+                "utilization": 0.0,
                 "memory_used": 0,
                 "memory_total": 0,
                 "temperature": 0,
@@ -438,7 +462,6 @@ def get_tpu_info():
                 "accelerator_type": getattr(device, 'platform', 'TPU'),
             }
 
-            # Try to get memory stats if available
             try:
                 stats = device.memory_stats()
                 if stats:
@@ -449,8 +472,9 @@ def get_tpu_info():
 
             devices.append(device_info)
     except ImportError:
+        # Restore stderr
+        sys.stderr = _stderr
         # Try alternative detection via sysfs
-        import os
         import glob
 
         accel_devices = glob.glob("/dev/accel*")
@@ -458,7 +482,6 @@ def get_tpu_info():
             dev_name = os.path.basename(dev_path)
             sysfs_base = f"/sys/class/accel/{dev_name}/device"
 
-            # Read device info from sysfs
             vendor = ""
             try:
                 with open(f"{sysfs_base}/vendor") as f:
@@ -485,9 +508,15 @@ def get_tpu_info():
                 "accelerator_type": "TPU",
             }
             devices.append(device_info)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
+    except Exception:
+        sys.stderr = _stderr
         return []
+    finally:
+        # Ensure stderr is always restored
+        try:
+            sys.stderr = _stderr
+        except Exception:
+            pass
 
     return devices
 
