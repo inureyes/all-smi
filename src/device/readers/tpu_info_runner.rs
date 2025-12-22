@@ -59,10 +59,12 @@ impl TpuInfoRunner {
 
                 match child_res {
                     Ok(mut child) => {
-                        {
-                            let mut s = status.lock().unwrap();
-                            *s = "tpu-info running".to_string();
-                        }
+                        // Keep "Initializing..." status until we actually get data
+                        // This prevents the notification from flashing too quickly if the process starts fast but data takes time
+                        // {
+                        //    let mut s = status.lock().unwrap();
+                        //    *s = "tpu-info running".to_string();
+                        // }
 
                         if let Some(stdout) = child.stdout.take() {
                             let reader = BufReader::new(stdout);
