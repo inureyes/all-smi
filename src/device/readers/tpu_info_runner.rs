@@ -65,6 +65,7 @@ impl TpuInfoRunner {
                 // Attempt to run tpu-info in streaming mode
                 // Using default mode (no --metric flags) to get standard tables
                 // We use PR_SET_PDEATHSIG to ensure the child dies when we die
+                // We use PYTHONUNBUFFERED=1 to force line buffering for Python scripts
                 let child_res = unsafe {
                     Command::new("tpu-info")
                         .arg("--streaming")
@@ -72,6 +73,7 @@ impl TpuInfoRunner {
                         .arg("2")
                         .env("TERM", "dumb")
                         .env("NO_COLOR", "1")
+                        .env("PYTHONUNBUFFERED", "1")
                         .stdout(Stdio::piped())
                         .stderr(Stdio::null()) // Discard stderr to prevent buffer deadlocks
                         .pre_exec(|| {
@@ -84,6 +86,11 @@ impl TpuInfoRunner {
 
                 match child_res {
                     Ok(mut child) => {
+                        {
+                            let mut s = status.lock().unwrap();
+                            *s = "tpu-info started, waiting for metrics...".to_string();
+                        }
+                        
                         if let Some(stdout) = child.stdout.take() {
                             let reader = BufReader::new(stdout);
                             for line_res in reader.lines() {
@@ -92,11 +99,13 @@ impl TpuInfoRunner {
                                     #[cfg(debug_assertions)]
                                     eprintln!("[DEBUG] tpu-info raw: '{}'", line);
 
-                                    Self::parse_line(&line, &mut current_table, &metrics_store);
+                                    let updated = Self::parse_line(&line, &mut current_table, &metrics_store);
                                     
-                                    let mut s = status.lock().unwrap();
-                                    if s.contains("Initializing") {
-                                        *s = "Ready".to_string();
+                                    if updated {
+                                        let mut s = status.lock().unwrap();
+                                        if *s != "Ready" {
+                                            *s = "Ready".to_string();
+                                        }
                                     }
                                 }
                             }
@@ -116,26 +125,26 @@ impl TpuInfoRunner {
         });
     }
 
-    fn parse_line(line: &str, current_table: &mut TableType, store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>) {
+    fn parse_line(line: &str, current_table: &mut TableType, store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>) -> bool {
         let line = line.trim();
-        if line.is_empty() { return; }
+        if line.is_empty() { return false; }
 
         // 1. Detect table headers
         if line.contains("TPU Runtime Utilization") {
             *current_table = TableType::RuntimeUtilization;
-            return;
+            return false;
         } else if line.contains("TPU Duty Cycle") {
             *current_table = TableType::DutyCycle;
-            return;
+            return false;
         } else if line.contains("TPU HBM Usage") {
             *current_table = TableType::HbmUsage;
-            return;
+            return false;
         } else if line.contains("TensorCore Utilization") {
             *current_table = TableType::TensorCoreUtilization;
-            return;
+            return false;
         } else if line.contains("Runtime Utilization Status") || line.contains("Supported Metrics") || line.contains("TPU Chips") || line.contains("TPU Process Info") {
             *current_table = TableType::None; // Skip other tables/warnings
-            return;
+            return false;
         }
 
         // 2. Parse table rows
@@ -146,6 +155,7 @@ impl TpuInfoRunner {
                 .filter(|s| !s.is_empty())
                 .collect();
 
+            let mut updated = false;
             match *current_table {
                 TableType::RuntimeUtilization => {
                     // Header: ["Chip", "HBM Usage (GiB)", "Duty cycle"]
@@ -161,6 +171,7 @@ impl TpuInfoRunner {
                                     let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
                                     dev_map.insert("hbm_usage".to_string(), used);
                                     dev_map.insert("memory_total".to_string(), total);
+                                    updated = true;
                                 }
                                 #[cfg(debug_assertions)]
                                 eprintln!("[DEBUG] Parsed RuntimeUtil HBM [Dev {}]: {} / {}", idx, used, total);
@@ -171,6 +182,7 @@ impl TpuInfoRunner {
                                 if let Ok(mut map_guard) = store.write() {
                                     let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
                                     dev_map.insert("duty_cycle_percent".to_string(), duty);
+                                    updated = true;
                                 }
                                 #[cfg(debug_assertions)]
                                 eprintln!("[DEBUG] Parsed RuntimeUtil Duty [Dev {}]: {}", idx, duty);
@@ -189,6 +201,7 @@ impl TpuInfoRunner {
                                 if let Ok(mut map_guard) = store.write() {
                                     let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
                                     dev_map.insert("duty_cycle_percent".to_string(), val);
+                                    updated = true;
                                 }
                                 #[cfg(debug_assertions)]
                                 eprintln!("[DEBUG] Parsed DutyCycle [Dev {}]: {}", idx, val);
@@ -208,6 +221,7 @@ impl TpuInfoRunner {
                                     let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
                                     dev_map.insert("hbm_usage".to_string(), used);
                                     dev_map.insert("memory_total".to_string(), total);
+                                    updated = true;
                                 }
                                 #[cfg(debug_assertions)]
                                 eprintln!("[DEBUG] Parsed HBM [Dev {}]: {} / {}", idx, used, total);
@@ -226,6 +240,7 @@ impl TpuInfoRunner {
                                 if let Ok(mut map_guard) = store.write() {
                                     let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
                                     dev_map.insert("tensorcore_utilization".to_string(), util);
+                                    updated = true;
                                 }
                                 #[cfg(debug_assertions)]
                                 eprintln!("[DEBUG] Parsed TensorCore [Dev {}]: {}", idx, util);
@@ -235,7 +250,9 @@ impl TpuInfoRunner {
                 }
                 TableType::None => {}
             }
+            return updated;
         }
+        false
     }
 
     fn parse_hbm_usage(s: &str) -> (f64, f64) {
