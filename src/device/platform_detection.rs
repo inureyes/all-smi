@@ -257,11 +257,81 @@ pub fn has_rebellions() -> bool {
     false
 }
 
+/// Check if Google TPU devices are present
+#[cfg(target_os = "linux")]
+pub fn has_google_tpu() -> bool {
+    // Check if /dev/accel* devices exist with Google vendor ID
+    if let Ok(entries) = std::fs::read_dir("/dev") {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.starts_with("accel") {
+                    // Check sysfs for Google vendor ID (0x1ae0)
+                    let sysfs_path = format!("/sys/class/accel/{}/device/vendor", name);
+                    if let Ok(vendor) = std::fs::read_to_string(&sysfs_path) {
+                        if vendor.trim() == "0x1ae0" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check for libtpu.so library
+    const LIBTPU_PATHS: &[&str] = &[
+        "/usr/local/lib/libtpu.so",
+        "/usr/lib/libtpu.so",
+        "/opt/google/libtpu/libtpu.so",
+    ];
+
+    for path in LIBTPU_PATHS {
+        if std::path::Path::new(path).exists() {
+            return true;
+        }
+    }
+
+    // Check lspci for Google TPU devices
+    if let Ok(output) = execute_command_default("lspci", &["-n"]) {
+        if output.status == 0 {
+            // Google vendor ID: 1ae0
+            for line in output.stdout.lines() {
+                if line.contains("1ae0:") {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Also check regular lspci output for text matches
+    if let Ok(output) = execute_command_default("lspci", &[]) {
+        if output.status == 0 {
+            let stdout_lower = output.stdout.to_lowercase();
+            if stdout_lower.contains("google") && stdout_lower.contains("tpu") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 pub fn has_gaudi() -> bool {
     // First check if device files exist (typical Gaudi device paths)
     // Intel Gaudi uses /dev/accel/accel* device files
     if std::path::Path::new("/dev/accel/accel0").exists() {
-        return true;
+        // Make sure it's not a Google TPU by checking vendor ID
+        let sysfs_path = "/sys/class/accel/accel0/device/vendor";
+        if let Ok(vendor) = std::fs::read_to_string(sysfs_path) {
+            // Google vendor ID is 0x1ae0, Habana is 0x1da3
+            if vendor.trim() == "0x1ae0" {
+                // This is a Google TPU, not Gaudi
+                // Fall through to check for hl-smi
+            } else {
+                return true;
+            }
+        } else {
+            return true;
+        }
     }
 
     // Also check /dev/hl* device files (older naming convention)

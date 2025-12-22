@@ -21,10 +21,10 @@ use crate::device::{
 };
 
 #[cfg(target_os = "linux")]
-use crate::device::platform_detection::has_tenstorrent;
+use crate::device::platform_detection::{has_google_tpu, has_tenstorrent};
 
 #[cfg(target_os = "linux")]
-use crate::device::readers::tenstorrent;
+use crate::device::readers::{google_tpu, tenstorrent};
 
 #[cfg(target_os = "macos")]
 use crate::device::{
@@ -85,6 +85,12 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
             // Check for Intel Gaudi NPU support
             if has_gaudi() {
                 readers.push(Box::new(gaudi::GaudiNpuReader::new()));
+            }
+
+            // Check for Google TPU support
+            #[cfg(target_os = "linux")]
+            if has_google_tpu() {
+                readers.push(Box::new(google_tpu::GoogleTpuReader::new()));
             }
 
             // Check for AMD GPU support (glibc only, not musl))
