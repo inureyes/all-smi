@@ -47,10 +47,16 @@ impl TpuInfoRunner {
             loop {
                 // Attempt to run tpu-info in streaming mode
                 // Setting TERM=dumb and NO_COLOR=1 to get plain text output
+                // Using multiple --metric flags as required by tpu-info
                 let child_res = Command::new("tpu-info")
                     .arg("--streaming")
                     .arg("--rate")
-                    .arg("2") // 2Hz update rate (optimized for balance)
+                    .arg("2")
+                    .arg("--metric").arg("duty_cycle_percent")
+                    .arg("--metric").arg("hbm_usage")
+                    .arg("--metric").arg("tensorcore_utilization")
+                    .arg("--metric").arg("memory_total")
+                    // .arg("--metric").arg("power_usage") // power_usage not in supported list? Removing to be safe.
                     .env("TERM", "dumb")
                     .env("NO_COLOR", "1")
                     .stdout(Stdio::piped())
