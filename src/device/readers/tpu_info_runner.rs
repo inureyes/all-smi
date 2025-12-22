@@ -98,28 +98,57 @@ impl TpuInfoRunner {
 
     fn parse_and_update(line: &str, store: &Arc<RwLock<HashMap<String, f64>>>) {
         // Simple parser for "key: value" or "key=value"
-        // Also handles "key value" (space separated)
-        // Adjust regex or logic as needed based on actual output
         let line = line.trim();
+        
+        // Skip separators or empty lines
+        if line.is_empty() || line.starts_with("---") || line.starts_with("===") {
+            return;
+        }
+
         let parts: Vec<&str> = if line.contains(':') {
-            line.split(':').collect()
+            line.splitn(2, ':').collect()
         } else if line.contains('=') {
-            line.split('=').collect()
+            line.splitn(2, '=').collect()
         } else {
+            // Space separated is risky without known keys, but let's try
             line.split_whitespace().collect()
         };
 
         if parts.len() >= 2 {
-            let key = parts[0].trim();
-            // Handle cases like "12.5 %" or "100 MB"
-            let value_str = parts[1].trim()
-                .split_whitespace().next().unwrap_or("0"); // Take first part ("12.5")
+            let key = parts[0].trim().to_lowercase();
+            let raw_value = parts[1].trim();
             
-            if let Ok(value) = value_str.parse::<f64>() {
-                if let Ok(mut map) = store.write() {
-                    map.insert(key.to_string(), value);
+            // Extract numeric part and handle suffixes
+            // e.g. "12.5 %", "100 MB", "50 W"
+            let value_str = raw_value.split_whitespace().next().unwrap_or("0");
+            
+            if let Ok(mut value) = value_str.parse::<f64>() {
+                // Handle unit suffixes if present in the *raw_value* (not just the first part)
+                let suffix = raw_value.to_lowercase();
+                
+                if suffix.contains("mb") || suffix.contains("mib") {
+                    value *= 1024.0 * 1024.0;
+                } else if suffix.contains("gb") || suffix.contains("gib") {
+                    value *= 1024.0 * 1024.0 * 1024.0;
+                } else if suffix.contains("kb") || suffix.contains("kib") {
+                    value *= 1024.0;
+                } else if suffix.contains("mw") {
+                    value /= 1000.0; // Convert to W
                 }
+                
+                if let Ok(mut map) = store.write() {
+                    map.insert(key.clone(), value);
+                }
+                
+                #[cfg(debug_assertions)]
+                eprintln!("[DEBUG] Parsed metric: {} = {}", key, value);
+            } else {
+                #[cfg(debug_assertions)]
+                eprintln!("[DEBUG] Failed to parse value '{}' from line: {}", raw_value, line);
             }
+        } else {
+             #[cfg(debug_assertions)]
+             eprintln!("[DEBUG] Unparsed line (unknown format): {}", line);
         }
     }
 
