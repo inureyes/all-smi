@@ -53,12 +53,41 @@ impl NpuExporter for GoogleTpuExporter {
             return;
         }
 
+        let index_str = index.to_string();
         let base_labels = [
             ("npu", info.name.as_str()),
             ("instance", info.instance.as_str()),
             ("uuid", info.uuid.as_str()),
-            ("index", &index.to_string()),
+            ("index", index_str.as_str()),
         ];
+
+        // TPU Utilization (duty cycle or tensorcore utilization)
+        builder
+            .help("all_smi_tpu_utilization_percent", "TPU utilization percentage")
+            .type_("all_smi_tpu_utilization_percent", "gauge")
+            .metric("all_smi_tpu_utilization_percent", &base_labels, info.utilization);
+
+        // TPU HBM Memory Usage
+        builder
+            .help("all_smi_tpu_memory_used_bytes", "TPU HBM memory used in bytes")
+            .type_("all_smi_tpu_memory_used_bytes", "gauge")
+            .metric("all_smi_tpu_memory_used_bytes", &base_labels, info.used_memory as f64);
+
+        builder
+            .help("all_smi_tpu_memory_total_bytes", "TPU HBM memory total in bytes")
+            .type_("all_smi_tpu_memory_total_bytes", "gauge")
+            .metric("all_smi_tpu_memory_total_bytes", &base_labels, info.total_memory as f64);
+
+        // Memory utilization percentage
+        let memory_util = if info.total_memory > 0 {
+            (info.used_memory as f64 / info.total_memory as f64) * 100.0
+        } else {
+            0.0
+        };
+        builder
+            .help("all_smi_tpu_memory_utilization_percent", "TPU HBM memory utilization percentage")
+            .type_("all_smi_tpu_memory_utilization_percent", "gauge")
+            .metric("all_smi_tpu_memory_utilization_percent", &base_labels, memory_util);
 
         // 1. Chip Version / Accelerator Type
         if let Some(chip_version) = info.detail.get("Chip Version") {
@@ -66,7 +95,7 @@ impl NpuExporter for GoogleTpuExporter {
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
                 ("uuid", info.uuid.as_str()),
-                ("index", &index.to_string()),
+                ("index", index_str.as_str()),
                 ("version", chip_version.as_str()),
             ];
             builder
@@ -80,7 +109,7 @@ impl NpuExporter for GoogleTpuExporter {
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
                 ("uuid", info.uuid.as_str()),
-                ("index", &index.to_string()),
+                ("index", index_str.as_str()),
                 ("type", accel_type.as_str()),
             ];
             builder
@@ -114,7 +143,7 @@ impl NpuExporter for GoogleTpuExporter {
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
                 ("uuid", info.uuid.as_str()),
-                ("index", &index.to_string()),
+                ("index", index_str.as_str()),
                 ("type", mem_type.as_str()),
             ];
             builder
@@ -129,7 +158,7 @@ impl NpuExporter for GoogleTpuExporter {
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
                 ("uuid", info.uuid.as_str()),
-                ("index", &index.to_string()),
+                ("index", index_str.as_str()),
                 ("version", lib_ver.as_str()),
             ];
             builder

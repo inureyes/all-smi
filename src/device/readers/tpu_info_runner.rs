@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader};
-use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::{Arc, Mutex, RwLock, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -61,68 +59,60 @@ impl TpuInfoRunner {
         let status = self.status.clone();
 
         thread::spawn(move || {
-            let mut current_table = TableType::None;
-            
+            // Poll interval for tpu-info execution
+            const POLL_INTERVAL_SECS: u64 = 2;
+
             loop {
-                // Attempt to run tpu-info in streaming mode
-                // Using default mode (no --metric flags) to get standard tables
-                // We use PR_SET_PDEATHSIG to ensure the child dies when we die
-                // We use PYTHONUNBUFFERED=1 to force line buffering for Python scripts
-                let child_res = unsafe {
-                    Command::new("tpu-info")
-                        .arg("--streaming")
-                        .arg("--rate")
-                        .arg("2")
-                        .env("TERM", "dumb")
-                        .env("NO_COLOR", "1")
-                        .env("PYTHONUNBUFFERED", "1")
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::null()) // Discard stderr to prevent buffer deadlocks
-                        .pre_exec(|| {
-                            // Request SIGTERM if parent dies
-                            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
-                            Ok(())
-                        })
-                        .spawn()
-                };
+                // Run tpu-info in normal mode (NOT streaming mode)
+                // Streaming mode uses Rich's Live display which doesn't work with pipes
+                // Normal mode outputs tables to stdout which we can capture and parse
+                let output_res = Command::new("tpu-info")
+                    .env("TERM", "dumb")
+                    .env("NO_COLOR", "1")
+                    .env("FORCE_COLOR", "0")
+                    .output();
 
-                match child_res {
-                    Ok(mut child) => {
-                        {
-                            let mut s = status.lock().unwrap();
-                            *s = "tpu-info started, waiting for metrics...".to_string();
-                        }
-                        
-                        if let Some(stdout) = child.stdout.take() {
-                            let reader = BufReader::new(stdout);
-                            for line_res in reader.lines() {
-                                if let Ok(line) = line_res {
-                                    // Debug raw output to diagnose parsing issues
-                                    #[cfg(debug_assertions)]
-                                    eprintln!("[DEBUG] tpu-info raw: '{}'", line);
+                match output_res {
+                    Ok(output) => {
+                        if output.status.success() {
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            let mut current_table = TableType::None;
+                            let mut any_updated = false;
 
-                                    let updated = Self::parse_line(&line, &mut current_table, &metrics_store);
-                                    
-                                    if updated {
-                                        let mut s = status.lock().unwrap();
-                                        if *s != "Ready" {
-                                            *s = "Ready".to_string();
-                                        }
-                                    }
+                            for line in stdout.lines() {
+                                let updated = Self::parse_line(line, &mut current_table, &metrics_store);
+                                if updated {
+                                    any_updated = true;
                                 }
                             }
+
+                            if any_updated {
+                                let mut s = status.lock().unwrap();
+                                *s = "Ready".to_string();
+                            } else {
+                                // Check if we got any data at all
+                                let metrics = metrics_store.read().unwrap();
+                                if metrics.is_empty() {
+                                    let mut s = status.lock().unwrap();
+                                    *s = "tpu-info running, no metrics yet...".to_string();
+                                }
+                            }
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            let mut s = status.lock().unwrap();
+                            *s = format!("tpu-info error: {}", stderr.lines().next().unwrap_or("unknown error"));
                         }
-                        let _ = child.wait();
-                        let mut s = status.lock().unwrap();
-                        *s = "tpu-info exited, restarting...".to_string();
                     }
                     Err(e) => {
                         let mut s = status.lock().unwrap();
-                        *s = format!("Failed to start tpu-info: {}", e);
+                        *s = format!("Failed to run tpu-info: {}", e);
+                        // Wait longer on error before retrying
                         thread::sleep(Duration::from_secs(10));
+                        continue;
                     }
                 }
-                thread::sleep(Duration::from_secs(1));
+
+                thread::sleep(Duration::from_secs(POLL_INTERVAL_SECS));
             }
         });
     }
