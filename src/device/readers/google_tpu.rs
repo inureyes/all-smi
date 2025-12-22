@@ -526,22 +526,31 @@ impl GoogleTpuReader {
             return None;
         }
 
-        // Try to get accelerator type from tpu-info CLI first (most reliable)
-        // Then fall back to environment variable
-        let chip_version = Self::get_accelerator_type_from_tpu_info()
-            .or_else(|| std::env::var("TPU_ACCELERATOR_TYPE").ok())
-            .unwrap_or_else(|| "unknown".to_string());
+        // Check if this looks like a TPU VM:
+        // 1. tpu-info CLI can detect it (most reliable)
+        // 2. TPU environment variables are set
+        // 3. libtpu.so exists in known locations
+        let chip_version_from_cli = Self::get_accelerator_type_from_tpu_info();
+        let chip_version_from_env = std::env::var("TPU_ACCELERATOR_TYPE").ok();
+        let has_tpu_env = std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").is_ok()
+            || std::env::var("TPU_HOST_BOUNDS").is_ok()
+            || std::env::var("TPU_NAME").is_ok();
+        let has_libtpu = is_libtpu_available();
 
-        // If we can't identify the TPU type and there's no TPU env hint, skip
-        // This prevents false positives on non-TPU VMs with vfio devices
-        if chip_version == "unknown" {
-            let has_tpu_env = std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").is_ok()
-                || std::env::var("TPU_HOST_BOUNDS").is_ok()
-                || std::env::var("TPU_NAME").is_ok();
-            if !has_tpu_env {
-                return None;
-            }
+        // Determine if this is actually a TPU VM
+        let is_tpu_vm = chip_version_from_cli.is_some()
+            || chip_version_from_env.is_some()
+            || has_tpu_env
+            || has_libtpu;
+
+        if !is_tpu_vm {
+            return None;
         }
+
+        // Get the best available version info
+        let chip_version = chip_version_from_cli
+            .or(chip_version_from_env)
+            .unwrap_or_else(|| "unknown".to_string());
 
         // Create device entries for each vfio device
         let devices: Vec<TpuDeviceInfo> = (0..vfio_count)
