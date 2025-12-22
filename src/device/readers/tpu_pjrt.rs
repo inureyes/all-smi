@@ -203,34 +203,44 @@ pub fn is_libtpu_available() -> bool {
 
 #[cfg(target_os = "linux")]
 fn get_libtpu() -> Option<&'static Mutex<Option<LibTpu>>> {
-    Some(LIBTPU.get_or_init(|| Mutex::new(load_libtpu())))
+    Some(LIBTPU.get_or_init(|| {
+        eprintln!("[DEBUG] PJRT: Initializing LIBTPU singleton...");
+        Mutex::new(load_libtpu())
+    }))
 }
 
 #[cfg(target_os = "linux")]
 fn load_libtpu() -> Option<LibTpu> {
+    eprintln!("[DEBUG] PJRT: Starting load_libtpu search...");
+
     // 1. Try to find in user python site-packages (Highest Priority)
     if let Some(home) = std::env::var_os("HOME") {
         let local_lib = std::path::Path::new(&home).join(".local/lib");
+        eprintln!("[DEBUG] PJRT: Scanning user local lib: {:?}", local_lib);
         if let Some(lib) = scan_python_dirs_for_libtpu(&local_lib) {
             return Some(lib);
         }
     }
 
     // 2. Try system python paths
+    eprintln!("[DEBUG] PJRT: Scanning /usr/local/lib...");
     if let Some(lib) = scan_python_dirs_for_libtpu(std::path::Path::new("/usr/local/lib")) {
         return Some(lib);
     }
+    eprintln!("[DEBUG] PJRT: Scanning /usr/lib...");
     if let Some(lib) = scan_python_dirs_for_libtpu(std::path::Path::new("/usr/lib")) {
         return Some(lib);
     }
 
     // 3. Try standard system paths
+    eprintln!("[DEBUG] PJRT: Checking standard paths...");
     for path in LIBTPU_PATHS {
         if let Some(lib) = unsafe { try_load_library(path) } {
             return Some(lib);
         }
     }
 
+    eprintln!("[DEBUG] PJRT: Library not found.");
     None
 }
 
@@ -265,7 +275,17 @@ fn scan_python_dirs_for_libtpu(base_dir: &std::path::Path) -> Option<LibTpu> {
 
 #[cfg(target_os = "linux")]
 unsafe fn try_load_library(path: &str) -> Option<LibTpu> {
-    let lib = Library::new(path).ok()?;
+    eprintln!("[DEBUG] PJRT: Trying to load library at: {}", path);
+    let lib = match Library::new(path) {
+        Ok(l) => {
+             eprintln!("[DEBUG] PJRT: Successfully loaded library: {}", path);
+             l
+        },
+        Err(e) => {
+             eprintln!("[DEBUG] PJRT: Failed to load library: {} - Error: {}", path, e);
+             return None;
+        }
+    };
     
     // Get the API table
     let get_api_sym: Symbol<unsafe extern "C" fn() -> *const PJRT_Api> = 
@@ -292,31 +312,48 @@ unsafe fn try_load_library(path: &str) -> Option<LibTpu> {
 // --- Metrics Retrieval ---
 
 #[cfg(target_os = "linux")]
+pub fn initialize_in_background() {
+    std::thread::spawn(|| {
+        eprintln!("[DEBUG] PJRT: Starting background initialization...");
+        // This triggers the heavy loading and client creation
+        let _ = get_pjrt_client();
+        eprintln!("[DEBUG] PJRT: Background initialization complete.");
+    });
+}
+
+#[cfg(target_os = "linux")]
 fn get_pjrt_client() -> Option<&'static Mutex<Option<PjrtClientHandle>>> {
     Some(PJRT_CLIENT.get_or_init(|| {
         unsafe {
             // Helper to handle ? logic inside unsafe block
             let try_create = || -> Option<PjrtClientHandle> {
+                eprintln!("[DEBUG] PJRT: Loading libtpu...");
                 let lib_mutex = get_libtpu()?;
                 let guard = lib_mutex.lock().ok()?;
                 let lib = guard.as_ref()?;
                 let api = &*lib.api;
 
+                eprintln!("[DEBUG] PJRT: Attempting to create client...");
                 // Try to create client
                 // No args needed for default local client
                 let mut client: *mut PJRT_Client = std::ptr::null_mut();
+                
+                // This call might block if TPU is busy!
                 let err = (api.client_create)(std::ptr::null(), 0, &mut client);
                 
                 if !err.is_null() {
+                    eprintln!("[DEBUG] PJRT: Client creation failed with error object.");
                     // Failed to create client (maybe locked?)
                     // (api.error_destroy)(err); // Cleanup error
                     return None;
                 }
 
                 if client.is_null() {
+                    eprintln!("[DEBUG] PJRT: Client pointer is null.");
                     return None;
                 }
 
+                eprintln!("[DEBUG] PJRT: Client created successfully.");
                 Some(PjrtClientHandle { client_ptr: client })
             };
 
@@ -327,13 +364,17 @@ fn get_pjrt_client() -> Option<&'static Mutex<Option<PjrtClientHandle>>> {
 
 #[cfg(target_os = "linux")]
 pub fn get_tpu_metrics() -> Option<Vec<PjrtTpuMetrics>> {
-    let mutex = get_libtpu()?;
-    let guard = mutex.lock().ok()?;
-    let lib = guard.as_ref()?;
+    // Non-blocking check: ONLY proceed if client is already initialized
+    // If PJRT_CLIENT is not initialized yet (background thread working), returns None immediately.
+    let client_mutex = PJRT_CLIENT.get()?;
+    
+    // Check if library is loaded (should be if client is init)
+    let lib_mutex = LIBTPU.get()?;
+    let lib_guard = lib_mutex.lock().ok()?;
+    let lib = lib_guard.as_ref()?;
     let api = unsafe { &*lib.api };
     
-    // Ensure client is initialized (singleton pattern)
-    let client_mutex = get_pjrt_client()?;
+    // Lock the client mutex
     let client_guard = client_mutex.lock().ok()?;
     let client = client_guard.as_ref()?;
 
@@ -381,12 +422,6 @@ pub fn get_tpu_metrics() -> Option<Vec<PjrtTpuMetrics>> {
                 memory_total_bytes: total,
             });
         }
-        
-        // Note: We don't free the devices array itself? 
-        // PJRT semantics usually imply the array is owned by caller or callee depending on version.
-        // Standard C API implies we might need to free it, but without `client_devices_free` in the table,
-        // it might be managed or we are leaking a small pointer array. 
-        // Given minimal implementation, we skip complex memory management for the array pointer itself.
     }
     
     Some(metrics)
@@ -396,3 +431,6 @@ pub fn get_tpu_metrics() -> Option<Vec<PjrtTpuMetrics>> {
 pub fn get_tpu_metrics() -> Option<Vec<PjrtTpuMetrics>> {
     None
 }
+
+#[cfg(not(target_os = "linux"))]
+pub fn initialize_in_background() {}

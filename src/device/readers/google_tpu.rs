@@ -235,6 +235,14 @@ impl Default for GoogleTpuReader {
 
 impl GoogleTpuReader {
     pub fn new() -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            // Start PJRT initialization in background to avoid blocking UI
+            // This allows libtpu.so loading (slow) and client creation (potentially blocking)
+            // to happen asynchronously.
+            tpu_pjrt::initialize_in_background();
+        }
+
         Self {
             #[cfg(target_os = "linux")]
             device_static_info: OnceLock::new(),
