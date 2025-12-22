@@ -607,7 +607,8 @@ impl GoogleTpuReader {
             "0x0027" => "v2".to_string(),
             "0x0028" => "v3".to_string(),
             "0x0050" | "0x0051" => "v4".to_string(),
-            "0x0060" | "0x0061" => "v5e".to_string(),
+            "0x0060" | "0x0061" | "0x0062" => "v5e".to_string(),
+            "0x006f" => "v6e".to_string(), // v5e/v6e VFIO device
             "0x0070" | "0x0071" => "v5p".to_string(),
             "0x0080" | "0x0081" => "v6".to_string(), // Trillium
             "0x0090" | "0x0091" => "v7".to_string(), // Ironwood
