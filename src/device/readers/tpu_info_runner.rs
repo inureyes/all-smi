@@ -128,10 +128,19 @@ impl TpuInfoRunner {
     }
 
     fn parse_line(line: &str, current_table: &mut TableType, store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>) -> bool {
-        let ansi_regex = ANSI_REGEX.get_or_init(|| Regex::new(r"\x1b\[[0-9;]*m").unwrap());
-        let line_cow = ansi_regex.replace_all(line, "");
-        let line = line_cow.trim();
+        let ansi_regex = ANSI_REGEX.get_or_init(|| Regex::new(r"[\u001b\u009b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]").unwrap());
+        let line_no_ansi = ansi_regex.replace_all(line, "");
+        let line = line_no_ansi.trim();
         
+        // Debug logging to file
+        #[cfg(debug_assertions)]
+        {
+            use std::io::Write;
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/all-smi-tpu.log") {
+                let _ = writeln!(file, "[Table: {:?}] Raw: '{}' | Clean: '{}'", current_table, line.escape_debug(), line);
+            }
+        }
+
         if line.is_empty() { return false; }
 
         // 1. Detect table headers
@@ -153,7 +162,7 @@ impl TpuInfoRunner {
         }
 
         // 2. Parse table rows
-        if line.contains('│') || line.contains('┃') {
+        if line.contains('│') || line.contains('┃') || line.contains('|') {
             let normalized_line = line.replace('│', "|").replace('┃', "|");
             let parts: Vec<&str> = normalized_line.split('|')
                 .map(|s| s.trim())
