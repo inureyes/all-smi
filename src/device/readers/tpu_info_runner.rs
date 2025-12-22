@@ -19,8 +19,10 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, RwLock, OnceLock};
 use std::thread;
 use std::time::Duration;
+use regex::Regex;
 
 static RUNNER: OnceLock<TpuInfoRunner> = OnceLock::new();
+static ANSI_REGEX: OnceLock<Regex> = OnceLock::new();
 
 pub fn get_runner() -> &'static TpuInfoRunner {
     RUNNER.get_or_init(TpuInfoRunner::new)
@@ -126,7 +128,10 @@ impl TpuInfoRunner {
     }
 
     fn parse_line(line: &str, current_table: &mut TableType, store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>) -> bool {
-        let line = line.trim();
+        let ansi_regex = ANSI_REGEX.get_or_init(|| Regex::new(r"\x1b\[[0-9;]*m").unwrap());
+        let line_cow = ansi_regex.replace_all(line, "");
+        let line = line_cow.trim();
+        
         if line.is_empty() { return false; }
 
         // 1. Detect table headers

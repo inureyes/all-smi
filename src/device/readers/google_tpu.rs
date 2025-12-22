@@ -223,6 +223,20 @@ struct TpuProcessInfo {
     memory_used: u64,
 }
 
+/// Static metadata for a TPU device (does not change during runtime)
+#[derive(Debug, Clone)]
+#[cfg(target_os = "linux")]
+struct TpuDeviceMetadata {
+    index: u32,
+    chip_version: String,
+    uuid: String,
+    core_count: u32,
+    memory_total: u64,
+    accelerator_type: String,
+    #[allow(dead_code)]
+    source: String,
+}
+
 /// Cache for TPU Python script availability
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
@@ -234,6 +248,9 @@ pub struct GoogleTpuReader {
     /// Cached static device information per UUID
     #[cfg(target_os = "linux")]
     device_static_info: OnceLock<HashMap<String, DeviceStaticInfo>>,
+    /// Cached detected device metadata (to avoid re-scanning filesystem)
+    #[cfg(target_os = "linux")]
+    device_metadata: OnceLock<Vec<TpuDeviceMetadata>>,
 }
 
 /// Status message for TPU reader (e.g. "Install tpu-info")
@@ -258,6 +275,8 @@ impl GoogleTpuReader {
         Self {
             #[cfg(target_os = "linux")]
             device_static_info: OnceLock::new(),
+            #[cfg(target_os = "linux")]
+            device_metadata: OnceLock::new(),
         }
     }
 
@@ -365,19 +384,57 @@ impl GoogleTpuReader {
     /// Get TPU info by executing Python script
     #[cfg(target_os = "linux")]
     fn get_tpu_info_internal(&self) -> Vec<GpuInfo> {
-        if !Self::is_tpu_script_available() {
+        // Perform device discovery once and cache the result
+        let metadata_list = self.device_metadata.get_or_init(|| Self::discover_tpu_devices());
+
+        if metadata_list.is_empty() {
             return Vec::new();
         }
 
-        // Try to get TPU information via Python
-        let devices = match Self::query_tpu_devices() {
-            Some(d) => d,
-            None => return Vec::new(),
-        };
+        // Construct current device info by combining static metadata with dynamic metrics
+        let runner = tpu_info_runner::get_runner();
+        let devices: Vec<TpuDeviceInfo> = metadata_list.iter().map(|meta| {
+            let mut utilization = 0.0;
+            let mut memory_used = 0;
+            let mut total_memory = meta.memory_total;
+            let mut power_draw = 0.0;
+            
+            // Fetch dynamic metrics
+            if let Some(val) = runner.get_metric(meta.index, "duty_cycle_percent") {
+                utilization = val;
+            } else if let Some(val) = runner.get_metric(meta.index, "tensorcore_utilization") {
+                utilization = val;
+            }
+            
+            if let Some(val) = runner.get_metric(meta.index, "hbm_usage") {
+                memory_used = val as u64;
+            }
+            
+            if let Some(val) = runner.get_metric(meta.index, "memory_total") {
+                if val > 0.0 {
+                    total_memory = val as u64;
+                }
+            }
+            
+            if let Some(val) = runner.get_metric(meta.index, "power_usage") {
+                power_draw = val;
+            }
 
-        if devices.is_empty() {
-            return Vec::new();
-        }
+            TpuDeviceInfo {
+                index: meta.index,
+                chip_version: meta.chip_version.clone(),
+                uuid: meta.uuid.clone(),
+                core_count: meta.core_count,
+                utilization,
+                memory_used,
+                memory_total: total_memory,
+                temperature: 0,
+                power_draw,
+                power_max: 0.0,
+                tpu_runtime_version: String::new(),
+                accelerator_type: meta.accelerator_type.clone(),
+            }
+        }).collect();
 
         // Initialize static cache on first call
         self.ensure_static_cache_initialized(&devices);
@@ -399,94 +456,57 @@ impl GoogleTpuReader {
             .collect()
     }
 
-    /// Query TPU devices using Sysfs (Method 1) and libtpu/PJRT (Method 2)
-    ///
-    /// Priority:
-    /// 1. libtpuinfo.so - (Legacy) provides real-time metrics if available
-    /// 2. Sysfs (/sys/class/accel) - (Method 1) Reliable for temp/presence
-    /// 3. /dev/vfio/* - for TPU VMs like v6e
-    /// 4. Environment variables - TPU VM detection
+    /// Discover TPU devices (sysfs, vfio, env) - Run only once!
     #[cfg(target_os = "linux")]
-    fn query_tpu_devices() -> Option<Vec<TpuDeviceInfo>> {
-        let mut devices = Vec::new();
+    fn discover_tpu_devices() -> Vec<TpuDeviceMetadata> {
+        let mut metadata = Vec::new();
 
-        // 1. Sysfs scan (Most reliable for hardware presence & temp)
-        // We use this as the baseline to ensure we don't miss devices.
+        // 1. Sysfs scan (Most reliable for hardware presence)
         let sysfs_devices = tpu_sysfs::scan_sysfs_tpus();
-        
-        // 2. Collect devices from Sysfs
         if !sysfs_devices.is_empty() {
-            let runner = tpu_info_runner::get_runner();
-            
             for sys_dev in sysfs_devices {
                 let chip_version = Self::detect_tpu_version_from_device_id(&sys_dev.device_id);
                 let accel_type = format!("TPU {}", &chip_version);
+                let generation = TpuGeneration::from_chip_version(&chip_version);
                 
-                // Fetch metrics from background runner
-                let mut utilization = 0.0;
-                let mut memory_used = 0;
-                let mut total_memory = 0;
-                let mut power_draw = 0.0;
-                
-                if let Some(val) = runner.get_metric(sys_dev.index, "duty_cycle_percent") {
-                    utilization = val;
-                } else if let Some(val) = runner.get_metric(sys_dev.index, "tensorcore_utilization") {
-                    utilization = val;
-                }
-                
-                if let Some(val) = runner.get_metric(sys_dev.index, "hbm_usage") {
-                    memory_used = val as u64;
-                }
-                
-                if let Some(val) = runner.get_metric(sys_dev.index, "memory_total") {
-                    total_memory = val as u64;
-                }
-                
-                if let Some(val) = runner.get_metric(sys_dev.index, "power_usage") {
-                    power_draw = val;
-                }
-
-                devices.push(TpuDeviceInfo {
+                metadata.push(TpuDeviceMetadata {
                     index: sys_dev.index,
                     chip_version,
                     uuid: format!("TPU-{}", sys_dev.index),
                     core_count: 1,
-                    utilization,
-                    memory_used,
-                    memory_total: total_memory,
-                    temperature: sys_dev.temperature.unwrap_or(0.0) as u32,
-                    power_draw,
-                    power_max: 0.0,
-                    tpu_runtime_version: String::new(),
+                    memory_total: generation.hbm_size_bytes(),
                     accelerator_type: accel_type,
+                    source: "sysfs".to_string(),
                 });
             }
         }
 
         // Method 3: Check /dev/vfio/* for v6e and newer TPUs (if not found via sysfs)
-        if devices.is_empty() {
-            if let Some(vfio_devices) = Self::detect_tpu_from_vfio() {
-                devices = vfio_devices;
+        if metadata.is_empty() {
+            if let Some(vfio_metadata) = Self::detect_tpu_metadata_from_vfio() {
+                metadata = vfio_metadata;
             }
         }
 
         // Method 4: For TPU VMs, use environment variables
-        if devices.is_empty() {
-            if let Some(tpu_info) = Self::detect_tpu_from_environment() {
-                devices.push(tpu_info);
+        if metadata.is_empty() {
+            if let Some(env_metadata) = Self::detect_tpu_metadata_from_environment() {
+                metadata.push(env_metadata);
             }
         }
 
-        if devices.is_empty() {
-            None
-        } else {
-            Some(devices)
-        }
+        metadata
+    }
+
+    // Deprecated: kept for compatibility if needed, or remove
+    #[cfg(target_os = "linux")]
+    fn query_tpu_devices() -> Option<Vec<TpuDeviceInfo>> {
+        None
     }
 
     /// Detect TPU devices via /dev/vfio/* (used by v6e and newer)
     #[cfg(target_os = "linux")]
-    fn detect_tpu_from_vfio() -> Option<Vec<TpuDeviceInfo>> {
+    fn detect_tpu_metadata_from_vfio() -> Option<Vec<TpuDeviceMetadata>> {
         let vfio_path = std::path::Path::new("/dev/vfio");
         if !vfio_path.exists() {
             return None;
@@ -535,29 +555,31 @@ impl GoogleTpuReader {
         let chip_version = chip_version_from_cli
             .or(chip_version_from_env)
             .unwrap_or_else(|| "unknown".to_string());
+            
+        let generation = TpuGeneration::from_chip_version(&chip_version);
 
         // Create device entries for each vfio device
-        let devices: Vec<TpuDeviceInfo> = (0..vfio_count)
+        let devices: Vec<TpuDeviceMetadata> = (0..vfio_count)
             .map(|i| {
                 let accel_type = format!("TPU {}", &chip_version);
-                TpuDeviceInfo {
+                TpuDeviceMetadata {
                     index: i,
                     chip_version: chip_version.clone(),
                     uuid: format!("TPU-{}", i),
                     core_count: 1,
-                    utilization: 0.0,
-                    memory_used: 0,
-                    memory_total: 0,
-                    temperature: 0,
-                    power_draw: 0.0,
-                    power_max: 0.0,
-                    tpu_runtime_version: String::new(),
+                    memory_total: generation.hbm_size_bytes(),
                     accelerator_type: accel_type,
+                    source: "vfio".to_string(),
                 }
             })
             .collect();
 
         Some(devices)
+    }
+    
+    #[cfg(target_os = "linux")]
+    fn detect_tpu_from_vfio() -> Option<Vec<TpuDeviceInfo>> {
+        None
     }
 
     /// Query TPU metrics via libtpuinfo library
@@ -657,7 +679,7 @@ impl GoogleTpuReader {
 
     /// Detect TPU info from TPU VM environment variables
     #[cfg(target_os = "linux")]
-    fn detect_tpu_from_environment() -> Option<TpuDeviceInfo> {
+    fn detect_tpu_metadata_from_environment() -> Option<TpuDeviceMetadata> {
         // Check if we're on a TPU VM
         let tpu_name = std::env::var("TPU_NAME").ok();
         let accelerator_type = std::env::var("TPU_ACCELERATOR_TYPE").ok();
@@ -678,6 +700,8 @@ impl GoogleTpuReader {
         let chip_version = Self::get_accelerator_type_from_tpu_info()
             .or_else(|| accelerator_type.as_ref().map(|t| Self::parse_accelerator_type(t)))
             .unwrap_or_else(|| "unknown".to_string());
+            
+        let generation = TpuGeneration::from_chip_version(&chip_version);
 
         // Parse number of chips from TPU_CHIPS_PER_HOST_BOUNDS (format: "x,y,z")
         let chip_count = chips_per_host
@@ -695,22 +719,22 @@ impl GoogleTpuReader {
         // Create device info for each chip
         // For simplicity, we report the total as one "device" since we can't get per-chip metrics
         let accel_type = format!("TPU {}", &chip_version);
-        let device = TpuDeviceInfo {
+        let device = TpuDeviceMetadata {
             index: 0,
             chip_version,
             uuid: tpu_name.unwrap_or_else(|| "TPU-VM".to_string()),
             core_count: chip_count,
-            utilization: 0.0,
-            memory_used: 0,
-            memory_total: 0,
-            temperature: 0,
-            power_draw: 0.0,
-            power_max: 0.0,
-            tpu_runtime_version: String::new(),
+            memory_total: generation.hbm_size_bytes() * chip_count as u64,
             accelerator_type: accel_type,
+            source: "env".to_string(),
         };
 
         Some(device)
+    }
+    
+    #[cfg(target_os = "linux")]
+    fn detect_tpu_from_environment() -> Option<TpuDeviceInfo> {
+        None
     }
 
     /// Parse TPU accelerator type string (e.g., "v6e-16", "v5litepod-4")
