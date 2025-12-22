@@ -38,9 +38,7 @@
 //! | TPU v7 | Ironwood | 192 GB | Latest generation, HBM3e |
 
 #[cfg(target_os = "linux")]
-use crate::device::common::constants::google_tpu::GOOGLE_VENDOR_ID;
-#[cfg(target_os = "linux")]
-use crate::device::common::constants::google_tpu::LIBTPU_PATHS;
+use crate::device::common::constants::google_tpu::{is_libtpu_available, GOOGLE_VENDOR_ID};
 #[cfg(target_os = "linux")]
 use crate::device::common::execute_command_default;
 #[cfg(target_os = "linux")]
@@ -333,11 +331,12 @@ impl GoogleTpuReader {
     /// Check Python TPU library availability
     #[cfg(target_os = "linux")]
     fn check_tpu_python_availability() -> bool {
-        // First check if libtpu.so exists
-        for path in LIBTPU_PATHS {
-            if Path::new(path).exists() {
-                return true;
-            }
+        // First check if libtpu.so exists in system paths or Python environments
+        // This includes: /usr/local/lib, /usr/lib, /opt/google/libtpu,
+        // $HOME/.local/lib/python*/site-packages/libtpu,
+        // conda/venv environments, etc.
+        if is_libtpu_available() {
+            return true;
         }
 
         // Check if /dev/accel* devices exist with verified Google vendor ID

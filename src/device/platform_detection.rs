@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #[cfg(target_os = "linux")]
-use crate::device::common::constants::google_tpu::LIBTPU_PATHS;
+use crate::device::common::constants::google_tpu::is_libtpu_available;
 use crate::device::common::execute_command_default;
 
 pub fn has_nvidia() -> bool {
@@ -279,11 +279,9 @@ pub fn has_google_tpu() -> bool {
         }
     }
 
-    // Check for libtpu.so library (using centralized constant)
-    for path in LIBTPU_PATHS {
-        if std::path::Path::new(path).exists() {
-            return true;
-        }
+    // Check for libtpu.so library (searches system paths and Python environments)
+    if is_libtpu_available() {
+        return true;
     }
 
     // Check lspci for Google TPU devices
