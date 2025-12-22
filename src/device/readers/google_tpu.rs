@@ -56,8 +56,6 @@ use serde::Deserialize;
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;
 #[cfg(target_os = "linux")]
-use std::path::Path;
-#[cfg(target_os = "linux")]
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// TPU generation enumeration with specifications

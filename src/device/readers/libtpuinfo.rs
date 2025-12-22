@@ -80,29 +80,40 @@ const LIBTPUINFO_PATHS: &[&str] = &[
 fn load_libtpuinfo() -> Option<LibTpuInfo> {
     for path in LIBTPUINFO_PATHS {
         if let Ok(lib) = unsafe { Library::new(path) } {
-            // Try to load all required symbols
-            let tpu_chip_count: Symbol<unsafe extern "C" fn() -> i32> =
-                match unsafe { lib.get(b"tpu_chip_count\0") } {
-                    Ok(sym) => sym,
+            // Try to load all required symbols and convert to raw function pointers
+            let tpu_chip_count = unsafe {
+                let sym: Symbol<unsafe extern "C" fn() -> i32> =
+                    match lib.get(b"tpu_chip_count\0") {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                *sym
+            };
+
+            let tpu_pids = unsafe {
+                let sym: Symbol<unsafe extern "C" fn(*mut i64, i32) -> i32> =
+                    match lib.get(b"tpu_pids\0") {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                *sym
+            };
+
+            let tpu_metrics = unsafe {
+                let sym: Symbol<
+                    unsafe extern "C" fn(i32, *mut i64, *mut i64, *mut i64, *mut f64, i32) -> i32,
+                > = match lib.get(b"tpu_metrics\0") {
+                    Ok(s) => s,
                     Err(_) => continue,
                 };
-            let tpu_pids: Symbol<unsafe extern "C" fn(*mut i64, i32) -> i32> =
-                match unsafe { lib.get(b"tpu_pids\0") } {
-                    Ok(sym) => sym,
-                    Err(_) => continue,
-                };
-            let tpu_metrics: Symbol<
-                unsafe extern "C" fn(i32, *mut i64, *mut i64, *mut i64, *mut f64, i32) -> i32,
-            > = match unsafe { lib.get(b"tpu_metrics\0") } {
-                Ok(sym) => sym,
-                Err(_) => continue,
+                *sym
             };
 
             return Some(LibTpuInfo {
                 _library: lib,
-                tpu_chip_count: *tpu_chip_count,
-                tpu_pids: *tpu_pids,
-                tpu_metrics: *tpu_metrics,
+                tpu_chip_count,
+                tpu_pids,
+                tpu_metrics,
             });
         }
     }
