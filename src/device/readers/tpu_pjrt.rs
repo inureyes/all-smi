@@ -77,14 +77,7 @@ fn get_libtpu() -> Option<&'static Mutex<Option<LibTpu>>> {
 
 #[cfg(target_os = "linux")]
 fn load_libtpu() -> Option<LibTpu> {
-    // 1. Try standard paths
-    for path in LIBTPU_PATHS {
-        if let Some(lib) = unsafe { try_load_library(path) } {
-            return Some(lib);
-        }
-    }
-
-    // 2. Try to find in user/system python site-packages
+    // 1. Try to find in user python site-packages (Highest Priority)
     // Common pattern: ~/.local/lib/python3.*/site-packages/libtpu/libtpu.so
     if let Some(home) = std::env::var_os("HOME") {
         let local_lib = std::path::Path::new(&home).join(".local/lib");
@@ -93,6 +86,7 @@ fn load_libtpu() -> Option<LibTpu> {
         }
     }
 
+    // 2. Try system python paths
     // Common pattern: /usr/local/lib/python3.*/dist-packages/libtpu/libtpu.so
     if let Some(lib) = scan_python_dirs_for_libtpu(std::path::Path::new("/usr/local/lib")) {
         return Some(lib);
@@ -101,6 +95,13 @@ fn load_libtpu() -> Option<LibTpu> {
     // Common pattern: /usr/lib/python3.*/site-packages/libtpu/libtpu.so
     if let Some(lib) = scan_python_dirs_for_libtpu(std::path::Path::new("/usr/lib")) {
         return Some(lib);
+    }
+
+    // 3. Try standard system paths (Fallback)
+    for path in LIBTPU_PATHS {
+        if let Some(lib) = unsafe { try_load_library(path) } {
+            return Some(lib);
+        }
     }
 
     None
