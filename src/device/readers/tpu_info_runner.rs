@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, RwLock, OnceLock};
 use std::thread;
@@ -63,15 +64,23 @@ impl TpuInfoRunner {
             loop {
                 // Attempt to run tpu-info in streaming mode
                 // Using default mode (no --metric flags) to get standard tables
-                let child_res = Command::new("tpu-info")
-                    .arg("--streaming")
-                    .arg("--rate")
-                    .arg("2")
-                    .env("TERM", "dumb")
-                    .env("NO_COLOR", "1")
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn();
+                // We use PR_SET_PDEATHSIG to ensure the child dies when we die
+                let child_res = unsafe {
+                    Command::new("tpu-info")
+                        .arg("--streaming")
+                        .arg("--rate")
+                        .arg("2")
+                        .env("TERM", "dumb")
+                        .env("NO_COLOR", "1")
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null()) // Discard stderr to prevent buffer deadlocks
+                        .pre_exec(|| {
+                            // Request SIGTERM if parent dies
+                            libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                            Ok(())
+                        })
+                        .spawn()
+                };
 
                 match child_res {
                     Ok(mut child) => {
