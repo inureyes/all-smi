@@ -284,6 +284,31 @@ Note: Furiosa NPUs use the RNGD architecture with 8 cores per NPU. Each core con
 
 Note: Intel Gaudi NPUs (Gaudi 1/2/3) are monitored via the `hl-smi` command-line tool running as a background process. Device names are automatically mapped from internal identifiers (e.g., HL-325L) to human-friendly names (e.g., Intel Gaudi 3 PCIe LP). The tool supports various form factors including PCIe, OAM, UBB, and HLS variants.
 
+### Google TPU Metrics
+
+#### Basic NPU Metrics
+| Metric                                | Description                | Unit    | Labels                                    |
+|---------------------------------------|----------------------------|---------|-------------------------------------------|
+| `all_smi_gpu_utilization`             | TPU utilization percentage | percent | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_memory_used_bytes`       | TPU memory used            | bytes   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_memory_total_bytes`      | TPU memory total           | bytes   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_temperature_celsius`     | TPU temperature            | celsius | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_power_consumption_watts` | TPU power consumption      | watts   | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_frequency_mhz`           | TPU clock frequency        | MHz     | `gpu_index`, `gpu_name`                   |
+| `all_smi_gpu_info`                    | TPU device information     | info    | `gpu_index`, `gpu_name`, `driver_version` |
+
+#### TPU-Specific Metrics
+| Metric                                     | Description                          | Unit  | Labels                                                   |
+|--------------------------------------------|--------------------------------------|-------|----------------------------------------------------------|
+| `all_smi_tpu_chip_version_info`            | TPU chip version information         | info  | `npu`, `instance`, `uuid`, `index`, `version`            |
+| `all_smi_tpu_accelerator_type_info`        | TPU accelerator type information     | info  | `npu`, `instance`, `uuid`, `index`, `type`               |
+| `all_smi_tpu_core_count`                   | Number of TPU cores                  | gauge | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_tensorcore_count`             | Number of TensorCores per chip       | gauge | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_runtime_version_info`         | TPU runtime/library version          | info  | `npu`, `instance`, `uuid`, `index`, `version`            |
+| `all_smi_tpu_power_max_watts`              | TPU maximum power limit              | watts | `npu`, `instance`, `uuid`, `index`                       |
+
+Note: Google Cloud TPUs (v2-v7/Ironwood) are monitored via the `tpu-info` command-line tool running in streaming mode. Metrics include duty cycle utilization, HBM memory tracking, and chip configuration details.
+
 ### CPU Metrics (All Platforms)
 
 | Metric                                | Description                | Unit    | Labels   |
@@ -370,6 +395,7 @@ Runtime environment metrics are detected at startup and provide information abou
 | Linux + Tenstorrent          | ✓ Full***      | ✓ Full         | ✓ Full         | ✗ N/A****       |
 | Linux + Rebellions           | ✓ Full         | ✓ Full         | ✓ Full         | ✗ N/A*****      |
 | Linux + Furiosa              | ✓ Full         | ✓ Full         | ✓ Full         | ✗ N/A******     |
+| Linux + Google TPU           | ✓ Full         | ✓ Full         | ✓ Full         | ✗ N/A********    |
 | macOS + Apple Silicon        | ✓ Partial*     | ✓ Enhanced**   | ✓ Full         | ✓ Basic         |
 | NVIDIA Jetson                | ✓ Full + DLA   | ✓ Full         | ✓ Full         | ✓ Full          |
 
@@ -380,6 +406,7 @@ Runtime environment metrics are detected at startup and provide information abou
 *****Rebellions NPUs do not expose per-process GPU usage information
 ******Furiosa NPUs do not expose per-process GPU usage information
 *******Intel Gaudi NPUs do not expose per-process GPU usage information via hl-smi
+********Google Cloud TPUs do not expose per-process GPU usage information via tpu-info
 
 ## Example Prometheus Queries
 
@@ -508,6 +535,21 @@ count by (internal_name) (all_smi_gaudi_internal_name_info)
 
 # Driver version consistency check
 count by (version) (all_smi_gaudi_driver_info) > 1
+```
+
+### Google TPU Specific
+```promql
+# TPU utilization across all chips
+avg(all_smi_gpu_utilization{gpu_name=~".*TPU.*"})
+
+# HBM memory utilization percentage
+(all_smi_gpu_memory_used_bytes / all_smi_gpu_memory_total_bytes) * 100
+
+# Count TPUs by accelerator type
+count by (type) (all_smi_tpu_accelerator_type_info)
+
+# TPU chips with high duty cycle (> 90%)
+all_smi_gpu_utilization{gpu_name=~".*TPU.*"} > 90
 ```
 
 ### Process Monitoring

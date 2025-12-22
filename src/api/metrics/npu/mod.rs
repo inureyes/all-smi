@@ -16,6 +16,7 @@ pub mod common;
 pub mod exporter_trait;
 pub mod furiosa;
 pub mod gaudi;
+pub mod google_tpu;
 pub mod rebellions;
 #[cfg(target_os = "linux")]
 pub mod tenstorrent;
@@ -43,6 +44,7 @@ impl<'a> NpuMetricExporter<'a> {
                 Box::new(gaudi::GaudiExporter::new()),
                 Box::new(rebellions::RebellionsExporter::new()),
                 Box::new(furiosa::FuriosaExporter::new()),
+                Box::new(google_tpu::GoogleTpuExporter::new()),
             ];
             #[cfg(target_os = "linux")]
             exporters.insert(0, Box::new(tenstorrent::TenstorrentExporter::new()));
@@ -69,12 +71,12 @@ impl<'a> NpuMetricExporter<'a> {
             }
 
             // Index mapping based on platform
-            // Linux: [Tenstorrent, Gaudi, Rebellions, Furiosa]
-            // Other: [Gaudi, Rebellions, Furiosa]
+            // Linux: [Tenstorrent, Gaudi, Rebellions, Furiosa, Google TPU]
+            // Other: [Gaudi, Rebellions, Furiosa, Google TPU]
             #[cfg(target_os = "linux")]
-            let (gaudi_idx, rebellions_idx, furiosa_idx) = (1, 2, 3);
+            let (gaudi_idx, rebellions_idx, furiosa_idx, tpu_idx) = (1, 2, 3, 4);
             #[cfg(not(target_os = "linux"))]
-            let (gaudi_idx, rebellions_idx, furiosa_idx) = (0, 1, 2);
+            let (gaudi_idx, rebellions_idx, furiosa_idx, tpu_idx) = (0, 1, 2, 3);
 
             if name.contains("Gaudi") || name.contains("HL-") {
                 return Some(exporters[gaudi_idx].as_ref());
@@ -82,6 +84,8 @@ impl<'a> NpuMetricExporter<'a> {
                 return Some(exporters[rebellions_idx].as_ref());
             } else if name.contains("Furiosa") || name.contains("RNGD") || name.contains("Warboy") {
                 return Some(exporters[furiosa_idx].as_ref());
+            } else if name.contains("TPU") || name.contains("Google") {
+                return Some(exporters[tpu_idx].as_ref());
             }
 
             // Fallback to dynamic check for unknown patterns
@@ -150,8 +154,8 @@ impl<'a> MetricExporter for NpuMetricExporter<'a> {
 
         // Filter NPU devices and export metrics
         for (i, info) in self.npu_info.iter().enumerate() {
-            // Only process NPU devices
-            if info.device_type == "NPU" {
+            // Only process NPU or TPU devices
+            if info.device_type == "NPU" || info.device_type == "TPU" {
                 self.export_device_metrics(&mut builder, info, i);
             }
         }
