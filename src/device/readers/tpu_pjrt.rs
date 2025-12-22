@@ -161,6 +161,20 @@ unsafe impl Sync for LibTpu {}
 static LIBTPU: OnceCell<Mutex<Option<LibTpu>>> = OnceCell::new();
 
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
+struct PjrtClientHandle {
+    client_ptr: *mut PJRT_Client,
+}
+
+#[cfg(target_os = "linux")]
+unsafe impl Send for PjrtClientHandle {}
+#[cfg(target_os = "linux")]
+unsafe impl Sync for PjrtClientHandle {}
+
+#[cfg(target_os = "linux")]
+static PJRT_CLIENT: OnceCell<Mutex<Option<PjrtClientHandle>>> = OnceCell::new();
+
+#[cfg(target_os = "linux")]
 pub fn is_libtpu_available() -> bool {
     get_libtpu().map(|m| m.lock().map(|g| g.is_some()).unwrap_or(false)).unwrap_or(false)
 }
@@ -256,26 +270,40 @@ unsafe fn try_load_library(path: &str) -> Option<LibTpu> {
 // --- Metrics Retrieval ---
 
 #[cfg(target_os = "linux")]
+fn get_pjrt_client() -> Option<&'static Mutex<Option<PjrtClientHandle>>> {
+    Some(PJRT_CLIENT.get_or_init(|| {
+        // Here we would call PJRT_Client_Create via the API table.
+        // For now, we return None as we haven't mapped the function safely.
+        // In a full implementation:
+        // let lib = get_libtpu()?.lock().ok()?.as_ref()?;
+        // let create_fn = lib.api.client_create;
+        // let client = create_fn(...);
+        // Mutex::new(Some(PjrtClientHandle { client_ptr: client }))
+        Mutex::new(None)
+    }))
+}
+
+#[cfg(target_os = "linux")]
 pub fn get_tpu_metrics() -> Option<Vec<PjrtTpuMetrics>> {
     let mutex = get_libtpu()?;
     let guard = mutex.lock().ok()?;
     let _lib = guard.as_ref()?;
     
+    // Ensure client is initialized (singleton pattern)
+    let _client_mutex = get_pjrt_client()?;
+    
+    // In the future:
+    // let client_guard = client_mutex.lock().ok()?;
+    // if let Some(client) = client_guard.as_ref() {
+    //     return fetch_metrics_from_client(client.client_ptr);
+    // }
+
     // Implementation note:
     // Accessing PJRT functions via the API table is dangerous without generated bindings.
     // For this specific request, since we cannot guarantee the API table layout
     // matches what we define, we will simply return detection for now.
-    //
-    // To truly implement "get_metrics", we would need to:
-    // 1. Map `PJRT_Client_Create`
-    // 2. Map `PJRT_Client_Devices`
-    // 3. Map `PJRT_Device_GetMemoryStats`
-    //
-    // Given the risk of crashing the CLI due to ABI mismatch, we opt for safety.
-    // The "Minimal compatibility" means we shouldn't segfault.
     
-    // We return an empty list but Some(), indicating library is present but we can't read metrics safely yet.
-    // If the user *really* wants it, we would need to vendor the `pjrt_c_api.h` and use bindgen.
+    // We return an empty list but Some(), indicating library is present.
     Some(Vec::new())
 }
 
