@@ -343,8 +343,14 @@ pub fn initialize_in_background() {
                     *status = "Ready".to_string();
                     eprintln!("[DEBUG] PJRT: Initialization successful.");
                 } else {
-                    *status = "TPU runtime initialization failed (Check logs)".to_string();
-                    eprintln!("[DEBUG] PJRT: Initialization failed.");
+                    // Client creation failed or was skipped, but check if lib is loaded
+                    if is_libtpu_available() {
+                        *status = "Ready (Sysfs/Limited)".to_string();
+                        eprintln!("[DEBUG] PJRT: Client creation skipped, running in limited mode.");
+                    } else {
+                        *status = "TPU runtime initialization failed (Check logs)".to_string();
+                        eprintln!("[DEBUG] PJRT: Initialization failed.");
+                    }
                 }
             } else {
                  *status = "TPU runtime error".to_string();
@@ -367,20 +373,33 @@ fn get_pjrt_client() -> Option<&'static Mutex<Option<PjrtClientHandle>>> {
                 let lib_mutex = get_libtpu()?;
                 let guard = lib_mutex.lock().ok()?;
                 let lib = guard.as_ref()?;
+                
+                // Debug API struct info
                 let api = &*lib.api;
+                eprintln!("[DEBUG] PJRT: API struct size: {}", api.struct_size);
+                eprintln!("[DEBUG] PJRT: client_create ptr: {:p}", api.client_create as *const ());
 
+                // SAFETY: We temporarily disable actual client creation because PJRT ABI 
+                // varies wildly between versions, causing Segfaults when calling function pointers
+                // at wrong offsets.
+                //
+                // To fix this properly, we need to detect the PJRT version or use a stable C wrapper.
+                eprintln!("[DEBUG] PJRT: Skipping unsafe client creation to prevent Segfault.");
+                
+                // Return None to indicate we are not fully ready with a client, 
+                // but we successfully loaded the library.
+                // This means we will rely on Sysfs for basic info.
+                return None;
+
+                /* 
+                // Code disabled due to Segfault risk:
                 eprintln!("[DEBUG] PJRT: Attempting to create client...");
-                // Try to create client
-                // No args needed for default local client
                 let mut client: *mut PJRT_Client = std::ptr::null_mut();
                 
-                // This call might block if TPU is busy!
                 let err = (api.client_create)(std::ptr::null(), 0, &mut client);
                 
                 if !err.is_null() {
                     eprintln!("[DEBUG] PJRT: Client creation failed with error object.");
-                    // Failed to create client (maybe locked?)
-                    // (api.error_destroy)(err); // Cleanup error
                     return None;
                 }
 
@@ -391,6 +410,7 @@ fn get_pjrt_client() -> Option<&'static Mutex<Option<PjrtClientHandle>>> {
 
                 eprintln!("[DEBUG] PJRT: Client created successfully.");
                 Some(PjrtClientHandle { client_ptr: client })
+                */
             };
 
             Mutex::new(try_create())
