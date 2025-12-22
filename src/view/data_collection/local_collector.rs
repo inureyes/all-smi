@@ -32,6 +32,10 @@ use crate::device::{
 
 #[cfg(target_os = "linux")]
 use crate::device::get_tenstorrent_status_message;
+#[cfg(target_os = "linux")]
+use crate::device::get_tpu_status_message;
+#[cfg(target_os = "linux")]
+use crate::device::platform_detection::has_google_tpu;
 use crate::storage::info::StorageInfo;
 use crate::utils::{filter_docker_aware_disks, get_hostname};
 
@@ -394,6 +398,23 @@ impl LocalCollector {
                         eprintln!("Failed to show Tenstorrent notification: {e}");
                     }
                     state.tenstorrent_notification_shown = true;
+                }
+            }
+        }
+
+        // Google TPU status (Initializing / Failed)
+        #[cfg(target_os = "linux")]
+        if has_google_tpu() {
+            if let Some(msg) = get_tpu_status_message() {
+                // If initializing, allow repeated updates (it will be "Initializing...")
+                // If failed, show error once.
+                if msg.contains("Initializing") {
+                    let _ = state.notifications.status(msg);
+                } else if msg.contains("failed") || msg.contains("error") {
+                    if !state.tpu_notification_shown {
+                        let _ = state.notifications.error(msg);
+                        state.tpu_notification_shown = true;
+                    }
                 }
             }
         }

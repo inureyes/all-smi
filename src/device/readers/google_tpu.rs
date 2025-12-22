@@ -833,6 +833,16 @@ impl GpuReader for GoogleTpuReader {
 // Helper functions
 
 #[cfg(target_os = "linux")]
+pub fn get_tpu_status_message() -> Option<String> {
+    tpu_pjrt::get_status_message()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn get_tpu_status_message() -> Option<String> {
+    None
+}
+
+#[cfg(target_os = "linux")]
 fn format_memory_size(bytes: u64) -> String {
     const GB: u64 = 1024 * 1024 * 1024;
     const MB: u64 = 1024 * 1024;

@@ -197,6 +197,19 @@ unsafe impl Sync for PjrtClientHandle {}
 static PJRT_CLIENT: OnceCell<Mutex<Option<PjrtClientHandle>>> = OnceCell::new();
 
 #[cfg(target_os = "linux")]
+static STATUS_MESSAGE: Mutex<String> = Mutex::new(String::new());
+
+#[cfg(target_os = "linux")]
+pub fn get_status_message() -> Option<String> {
+    let msg = STATUS_MESSAGE.lock().unwrap().clone();
+    if msg.is_empty() || msg == "Ready" {
+        None
+    } else {
+        Some(msg)
+    }
+}
+
+#[cfg(target_os = "linux")]
 pub fn is_libtpu_available() -> bool {
     get_libtpu().map(|m| m.lock().map(|g| g.is_some()).unwrap_or(false)).unwrap_or(false)
 }
@@ -313,10 +326,33 @@ unsafe fn try_load_library(path: &str) -> Option<LibTpu> {
 
 #[cfg(target_os = "linux")]
 pub fn initialize_in_background() {
+    {
+        let mut status = STATUS_MESSAGE.lock().unwrap();
+        *status = "Initializing TPU runtime...".to_string();
+    }
+
     std::thread::spawn(|| {
         eprintln!("[DEBUG] PJRT: Starting background initialization...");
         // This triggers the heavy loading and client creation
-        let _ = get_pjrt_client();
+        let client_opt = get_pjrt_client();
+        
+        let mut status = STATUS_MESSAGE.lock().unwrap();
+        if let Some(mutex) = client_opt {
+            if let Ok(guard) = mutex.lock() {
+                if guard.is_some() {
+                    *status = "Ready".to_string();
+                    eprintln!("[DEBUG] PJRT: Initialization successful.");
+                } else {
+                    *status = "TPU runtime initialization failed (Check logs)".to_string();
+                    eprintln!("[DEBUG] PJRT: Initialization failed.");
+                }
+            } else {
+                 *status = "TPU runtime error".to_string();
+            }
+        } else {
+             // This case shouldn't happen with get_or_init unless panic
+             *status = "TPU runtime error".to_string();
+        }
         eprintln!("[DEBUG] PJRT: Background initialization complete.");
     });
 }
