@@ -418,8 +418,21 @@ impl GoogleTpuReader {
         let sysfs_devices = tpu_sysfs::scan_sysfs_tpus();
         
         // Method 2: Try libtpuinfo/PJRT for real metrics
-        // Currently relying on the existing libtpuinfo bridge if available
-        let mut metric_devices = Self::query_via_libtpuinfo();
+        // First try native PJRT bindings (Preferred if implemented)
+        let pjrt_metrics = tpu_pjrt::get_tpu_metrics();
+        
+        // Then try legacy libtpuinfo bridge
+        let mut metric_devices = if let Some(pjrt) = pjrt_metrics {
+             if !pjrt.is_empty() {
+                 // Convert PJRT metrics to TpuDeviceInfo
+                 // (Currently unimplemented, returns empty)
+                 Some(Vec::new()) 
+             } else {
+                 Self::query_via_libtpuinfo()
+             }
+        } else {
+             Self::query_via_libtpuinfo()
+        };
         
         // If we found sysfs devices, we can merge them with metrics
         if !sysfs_devices.is_empty() {
