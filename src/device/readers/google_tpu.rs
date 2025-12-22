@@ -508,21 +508,14 @@ impl GoogleTpuReader {
             return None;
         }
 
-        // Check if this is likely a TPU VM by checking environment
-        let has_tpu_env = std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").is_ok()
-            || std::env::var("TPU_HOST_BOUNDS").is_ok();
-
-        if !has_tpu_env {
-            return None;
-        }
-
-        // Count vfio devices (excluding "vfio" control device)
+        // Count vfio devices (excluding "vfio" control device and "devices" directory)
         let mut vfio_count = 0;
         if let Ok(entries) = std::fs::read_dir(vfio_path) {
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
                 // /dev/vfio/0, /dev/vfio/1, etc. are TPU devices
                 // /dev/vfio/vfio is the control device
+                // /dev/vfio/devices is a directory
                 if name.parse::<u32>().is_ok() {
                     vfio_count += 1;
                 }
@@ -533,10 +526,22 @@ impl GoogleTpuReader {
             return None;
         }
 
-        // Get accelerator type from tpu-info or environment
+        // Try to get accelerator type from tpu-info CLI first (most reliable)
+        // Then fall back to environment variable
         let chip_version = Self::get_accelerator_type_from_tpu_info()
             .or_else(|| std::env::var("TPU_ACCELERATOR_TYPE").ok())
             .unwrap_or_else(|| "unknown".to_string());
+
+        // If we can't identify the TPU type and there's no TPU env hint, skip
+        // This prevents false positives on non-TPU VMs with vfio devices
+        if chip_version == "unknown" {
+            let has_tpu_env = std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").is_ok()
+                || std::env::var("TPU_HOST_BOUNDS").is_ok()
+                || std::env::var("TPU_NAME").is_ok();
+            if !has_tpu_env {
+                return None;
+            }
+        }
 
         // Create device entries for each vfio device
         let devices: Vec<TpuDeviceInfo> = (0..vfio_count)
