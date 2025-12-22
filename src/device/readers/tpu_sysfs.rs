@@ -93,6 +93,33 @@ fn parse_pci_device(path: &Path, index: u32) -> Option<SysfsTpuInfo> {
         return None;
     }
 
+    // Check Class Code to distinguish TPU from gVNIC/NVMe
+    // Class code in sysfs is usually 0xCCSSPP (Class, Subclass, ProgIF)
+    // Accelerators are Class 0x12 (Processing accelerators)
+    let class_path = path.join("class");
+    if let Some(class_code) = read_sysfs_string(&class_path) {
+        let class_norm = class_code.trim().to_lowercase();
+        // Check if it starts with 0x12 (or just 12 if no prefix, though sysfs usually has 0x)
+        let is_accelerator = if class_norm.starts_with("0x") {
+            class_norm.starts_with("0x12")
+        } else {
+            class_norm.starts_with("12")
+        };
+        
+        if !is_accelerator {
+            return None;
+        }
+    } else {
+        // If we can't read class, fall back to known device ID allowlist
+        // or exclude known non-TPU devices if risky.
+        // For safety, let's require class read or known TPU ID.
+        let device_id_path = path.join("device");
+        let device_id = read_sysfs_string(&device_id_path).unwrap_or_default();
+        if !is_known_tpu_device_id(&device_id) {
+            return None;
+        }
+    }
+
     // Get Device ID
     let device_id_path = path.join("device");
     let device_id = read_sysfs_string(&device_id_path).unwrap_or_else(|| "unknown".to_string());
@@ -107,6 +134,20 @@ fn parse_pci_device(path: &Path, index: u32) -> Option<SysfsTpuInfo> {
         device_id,
         temperature,
     })
+}
+
+fn is_known_tpu_device_id(device_id: &str) -> bool {
+    let id = device_id.trim().to_lowercase().replace("0x", "");
+    match id.as_str() {
+        "0027" | "0028" | // v2/v3
+        "0050" | "0051" | // v4
+        "0060" | "0061" | "0062" | // v5e/lite
+        "006f" |          // v5e/v6 (VFIO)
+        "0070" | "0071" | // v5p
+        "0080" | "0081"   // v6
+        => true,
+        _ => false,
+    }
 }
 
 fn parse_accel_device(path: &Path, index: u32) -> Option<SysfsTpuInfo> {

@@ -77,23 +77,80 @@ fn get_libtpu() -> Option<&'static Mutex<Option<LibTpu>>> {
 
 #[cfg(target_os = "linux")]
 fn load_libtpu() -> Option<LibTpu> {
+    // 1. Try standard paths
     for path in LIBTPU_PATHS {
-        unsafe {
-            if let Ok(lib) = Library::new(path) {
-                // Try to find the PJRT entry point
-                // Usually `GetPjrtApi` or `PJRT_GetApi`
-                let get_api_sym: Option<Symbol<unsafe extern "C" fn() -> *const c_void>> = 
-                    lib.get(b"GetPjrtApi\0").ok()
-                    .or_else(|| lib.get(b"PJRT_GetApi\0").ok());
+        if let Some(lib) = unsafe { try_load_library(path) } {
+            return Some(lib);
+        }
+    }
 
-                if let Some(get_api) = get_api_sym {
-                    let api = get_api();
-                    return Some(LibTpu {
-                        _library: lib,
-                        pjrt_api_ptr: api,
-                    });
+    // 2. Try to find in user/system python site-packages
+    // Common pattern: ~/.local/lib/python3.*/site-packages/libtpu/libtpu.so
+    if let Some(home) = std::env::var_os("HOME") {
+        let local_lib = std::path::Path::new(&home).join(".local/lib");
+        if let Some(lib) = scan_python_dirs_for_libtpu(&local_lib) {
+            return Some(lib);
+        }
+    }
+
+    // Common pattern: /usr/local/lib/python3.*/dist-packages/libtpu/libtpu.so
+    if let Some(lib) = scan_python_dirs_for_libtpu(std::path::Path::new("/usr/local/lib")) {
+        return Some(lib);
+    }
+    
+    // Common pattern: /usr/lib/python3.*/site-packages/libtpu/libtpu.so
+    if let Some(lib) = scan_python_dirs_for_libtpu(std::path::Path::new("/usr/lib")) {
+        return Some(lib);
+    }
+
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn scan_python_dirs_for_libtpu(base_dir: &std::path::Path) -> Option<LibTpu> {
+    if !base_dir.exists() {
+        return None;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(base_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // Look for python3.x directories
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("python") {
+                    // Check site-packages and dist-packages
+                    let subdirs = ["site-packages", "dist-packages"];
+                    for subdir in subdirs {
+                        let libtpu_path = path.join(subdir).join("libtpu").join("libtpu.so");
+                        if libtpu_path.exists() {
+                            if let Some(str_path) = libtpu_path.to_str() {
+                                if let Some(lib) = unsafe { try_load_library(str_path) } {
+                                    return Some(lib);
+                                }
+                            }
+                        }
+                    }
                 }
             }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+unsafe fn try_load_library(path: &str) -> Option<LibTpu> {
+    if let Ok(lib) = Library::new(path) {
+        // Try to find the PJRT entry point
+        let get_api_sym: Option<Symbol<unsafe extern "C" fn() -> *const c_void>> = 
+            lib.get(b"GetPjrtApi\0").ok()
+            .or_else(|| lib.get(b"PJRT_GetApi\0").ok());
+
+        if let Some(get_api) = get_api_sym {
+            let api = get_api();
+            return Some(LibTpu {
+                _library: lib,
+                pjrt_api_ptr: api,
+            });
         }
     }
     None
