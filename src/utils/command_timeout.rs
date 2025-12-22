@@ -12,39 +12,73 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::io;
-use std::process::{Command, Output};
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
+use std::io::{self, Read};
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 /// Execute a command with a timeout.
 /// Returns Ok(Output) if the command completes within the timeout,
 /// Err if timeout occurs or command fails to start.
+///
+/// IMPORTANT: This function properly kills the child process on timeout
+/// to prevent process accumulation.
 pub fn run_command_with_timeout(
     command: &str,
     args: &[&str],
     timeout: Duration,
 ) -> io::Result<Output> {
-    let (tx, rx) = mpsc::channel();
+    // Spawn the child process
+    let mut child = Command::new(command)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
-    // Clone the command and args for the thread
-    let command = command.to_string();
-    let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+    let start = Instant::now();
+    let poll_interval = Duration::from_millis(10);
 
-    // Spawn a thread to run the command
-    thread::spawn(move || {
-        let output = Command::new(command).args(args).output();
-        let _ = tx.send(output);
-    });
+    // Poll for completion with timeout
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // Process completed - read output
+                let mut stdout = Vec::new();
+                let mut stderr = Vec::new();
 
-    // Wait for the result with timeout
-    match rx.recv_timeout(timeout) {
-        Ok(result) => result,
-        Err(_) => Err(io::Error::new(
-            io::ErrorKind::TimedOut,
-            format!("Command timed out after {timeout:?}"),
-        )),
+                if let Some(mut out) = child.stdout.take() {
+                    let _ = out.read_to_end(&mut stdout);
+                }
+                if let Some(mut err) = child.stderr.take() {
+                    let _ = err.read_to_end(&mut stderr);
+                }
+
+                return Ok(Output {
+                    status,
+                    stdout,
+                    stderr,
+                });
+            }
+            Ok(None) => {
+                // Process still running - check timeout
+                if start.elapsed() >= timeout {
+                    // Timeout! Kill the process
+                    let _ = child.kill();
+                    let _ = child.wait(); // Reap the zombie process
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!("Command '{}' timed out after {:?}", command, timeout),
+                    ));
+                }
+                // Sleep briefly before polling again
+                std::thread::sleep(poll_interval);
+            }
+            Err(e) => {
+                // Error checking process status
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e);
+            }
+        }
     }
 }
 
