@@ -1,3 +1,17 @@
+// Copyright 2025 Lablup Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
@@ -14,7 +28,8 @@ pub fn get_runner() -> &'static TpuInfoRunner {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TableType {
     None,
-    RuntimeUtilization,
+    DutyCycle,
+    HbmUsage,
     TensorCoreUtilization,
 }
 
@@ -66,17 +81,14 @@ impl TpuInfoRunner {
                     Ok(mut child) => {
                         // Keep "Initializing..." status until we actually get data
                         // This prevents the notification from flashing too quickly if the process starts fast but data takes time
-                        // {
-                        //    let mut s = status.lock().unwrap();
-                        //    *s = "tpu-info running".to_string();
-                        // }
-
+                        
                         if let Some(stdout) = child.stdout.take() {
                             let reader = BufReader::new(stdout);
                             for line_res in reader.lines() {
                                 if let Ok(line) = line_res {
+                                    // Debug raw output to diagnose parsing issues
                                     #[cfg(debug_assertions)]
-                                    eprintln!("[DEBUG] tpu-info raw: {}", line);
+                                    eprintln!("[DEBUG] tpu-info raw: '{}'", line);
 
                                     Self::parse_line(&line, &mut current_table, &metrics_store);
                                     
@@ -107,55 +119,83 @@ impl TpuInfoRunner {
         if line.is_empty() { return; }
 
         // 1. Detect table headers
-        if line.contains("TPU Runtime Utilization") {
-            *current_table = TableType::RuntimeUtilization;
+        // Based on actual logs provided by user
+        if line.contains("TPU Duty Cycle") {
+            *current_table = TableType::DutyCycle;
+            return;
+        } else if line.contains("TPU HBM Usage") {
+            *current_table = TableType::HbmUsage;
             return;
         } else if line.contains("TensorCore Utilization") {
             *current_table = TableType::TensorCoreUtilization;
             return;
-        } else if line.contains("TPU Chips") || line.contains("TPU Process Info") {
-            *current_table = TableType::None; // Skip these tables
+        } else if line.contains("Runtime Utilization Status") || line.contains("Supported Metrics") {
+            *current_table = TableType::None; // Skip warning boxes/menus
             return;
         }
 
         // 2. Parse table rows
-        // Rich tables use box characters like │, ┌, └, ├
-        if line.contains('│') {
-            let parts: Vec<&str> = line.split('│')
+        // Rich tables use box characters like │, ┌, └, ├, ┃, ┏, ┡
+        if line.contains('│') || line.contains('┃') {
+            // Normalize separators to '|' for easier splitting
+            let normalized_line = line.replace('│', "|").replace('┃', "|");
+            let parts: Vec<&str> = normalized_line.split('|')
                 .map(|s| s.trim())
                 .filter(|s| !s.is_empty())
                 .collect();
 
             match *current_table {
-                TableType::RuntimeUtilization => {
-                    // Header: ["Chip", "HBM Usage (GiB)", "Duty cycle"]
-                    // Row: "0", "1.23 GiB / 16.00 GiB", "45.67%"
-                    if parts.len() >= 3 {
+                TableType::DutyCycle => {
+                    // Header: ["Core ID", "Duty Cycle (%)"]
+                    // Row: "0", "N/A" or "10.5%"
+                    if parts.len() >= 2 {
                         if let Ok(idx) = parts[0].parse::<u32>() {
-                            let hbm_str = parts[1];
-                            let duty_str = parts[2];
-
-                            let (used_hbm, total_hbm) = Self::parse_hbm_usage(hbm_str);
-                            let duty = Self::parse_percent(duty_str);
-
-                            if let Ok(mut map_guard) = store.write() {
-                                let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
-                                dev_map.insert("hbm_usage".to_string(), used_hbm);
-                                dev_map.insert("memory_total".to_string(), total_hbm);
-                                dev_map.insert("duty_cycle_percent".to_string(), duty);
+                            let val_str = parts[1];
+                            if val_str != "N/A" {
+                                let val = Self::parse_percent(val_str);
+                                if let Ok(mut map_guard) = store.write() {
+                                    let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
+                                    dev_map.insert("duty_cycle_percent".to_string(), val);
+                                }
+                                #[cfg(debug_assertions)]
+                                eprintln!("[DEBUG] Parsed DutyCycle [Dev {}]: {}", idx, val);
+                            }
+                        }
+                    }
+                }
+                TableType::HbmUsage => {
+                    // Header: ["Device", "HBM Usage (GiB)"]
+                    // Row: "0", "N/A" or "1.23 GiB / 16.00 GiB"
+                    if parts.len() >= 2 {
+                        if let Ok(idx) = parts[0].parse::<u32>() {
+                            let val_str = parts[1];
+                            if val_str != "N/A" {
+                                let (used, total) = Self::parse_hbm_usage(val_str);
+                                if let Ok(mut map_guard) = store.write() {
+                                    let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
+                                    dev_map.insert("hbm_usage".to_string(), used);
+                                    dev_map.insert("memory_total".to_string(), total);
+                                }
+                                #[cfg(debug_assertions)]
+                                eprintln!("[DEBUG] Parsed HBM [Dev {}]: {} / {}", idx, used, total);
                             }
                         }
                     }
                 }
                 TableType::TensorCoreUtilization => {
                     // Header: ["Core ID", "TensorCore Utilization"]
-                    // Row: "0", "45.67%"
+                    // Row: "0", "0.00%"
                     if parts.len() >= 2 {
                         if let Ok(idx) = parts[0].parse::<u32>() {
-                            let util = Self::parse_percent(parts[1]);
-                            if let Ok(mut map_guard) = store.write() {
-                                let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
-                                dev_map.insert("tensorcore_utilization".to_string(), util);
+                            let val_str = parts[1];
+                            if val_str != "N/A" {
+                                let util = Self::parse_percent(val_str);
+                                if let Ok(mut map_guard) = store.write() {
+                                    let dev_map = map_guard.entry(idx).or_insert_with(HashMap::new);
+                                    dev_map.insert("tensorcore_utilization".to_string(), util);
+                                }
+                                #[cfg(debug_assertions)]
+                                eprintln!("[DEBUG] Parsed TensorCore [Dev {}]: {}", idx, util);
                             }
                         }
                     }
