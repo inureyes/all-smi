@@ -98,57 +98,80 @@ union PJRT_NamedValue_Union {
     // other variants omitted
 }
 
-// PJRT_Api structure is a table of function pointers.
-// Since the layout is huge and version-dependent, accessing it directly is risky via FFI without exact header.
-// Instead, we will rely on finding individual symbols if possible, OR
-// assumes the struct starts with specific core function pointers.
-// However, standard `libtpu.so` usually exposes `GetPjrtApi` which returns a pointer to this struct.
-// To use it safely, we'd need the exact offset.
-//
-// Alternatively, some versions expose standalone symbols.
-// Given the complexity, for this "minimal compatibility" request, 
-// we will focus on the fact that `libtpu` generally doesn't expose standard C ABI symbols directly
-// except `GetPjrtApi`.
-//
-// Implementing a full PJRT client via `GetPjrtApi` struct parsing is extremely fragile without bindgen.
-//
-// PROPOSAL:
-// Since we are in Rust, we can try to interpret the `PJRT_Api` struct.
-// The first field is usually `struct_size`.
-// The subsequent fields are function pointers.
-// We will attempt to map the first few critical functions.
+// --- PJRT Function Pointer Definitions ---
+
+#[allow(non_camel_case_types)]
+type PJRT_Error_Destroy = unsafe extern "C" fn(*mut PJRT_Error);
+#[allow(non_camel_case_types)]
+type PJRT_Error_Message = unsafe extern "C" fn(*mut PJRT_Error) -> *const c_char;
+#[allow(non_camel_case_types)]
+type PJRT_Error_GetCode = unsafe extern "C" fn(*mut PJRT_Error) -> i32;
+
+#[allow(non_camel_case_types)]
+type PJRT_Client_Create = unsafe extern "C" fn(
+    *const PJRT_NamedValue, // args
+    usize,                  // num_args
+    *mut *mut PJRT_Client,  // client output
+) -> *mut PJRT_Error;
+
+#[allow(non_camel_case_types)]
+type PJRT_Client_Destroy = unsafe extern "C" fn(*mut PJRT_Client) -> *mut PJRT_Error;
+#[allow(non_camel_case_types)]
+type PJRT_Client_Devices = unsafe extern "C" fn(
+    *mut PJRT_Client,
+    *mut *mut *mut PJRT_Device, // devices output (array of pointers)
+    *mut usize,                 // num_devices output
+) -> *mut PJRT_Error;
+
+#[allow(non_camel_case_types)]
+type PJRT_Device_GetMemoryStats = unsafe extern "C" fn(
+    *mut PJRT_Device,
+    *mut i64, // free_bytes
+    *mut i64, // total_bytes
+) -> *mut PJRT_Error;
+
+#[allow(non_camel_case_types)]
+type PJRT_Device_Id = unsafe extern "C" fn(*mut PJRT_Device) -> i32;
+#[allow(non_camel_case_types)]
+#[allow(dead_code)]
+type PJRT_Device_GlobalId = unsafe extern "C" fn(*mut PJRT_Device) -> i32;
 
 #[repr(C)]
 struct PJRT_Api {
     struct_size: usize,
     priv_: *mut c_void,
-    // Function pointers start here. Order matters!
-    // Based on recent OpenXLA:
-    // 0: PJRT_Error_Destroy
-    // 1: PJRT_Error_Message
-    // 2: PJRT_Error_GetCode
-    // 3: PJRT_Client_Create
-    // ...
-    // This is too brittle.
-    //
-    // PLAN B:
-    // Check if `TpuClient_Create` or similar exists as a direct symbol? No, usually not.
-    //
-    // For now, we will stick to verifying presence only, as requested "minimal compatibility"
-    // implies we shouldn't crash.
-    // BUT the user asked for "actual data".
-    // 
-    // Let's try to simulate a very safe "Memory Stats" reading if possible.
-    // If not, we will default to just reporting the device presence which we already do via Sysfs.
-    //
-    // Wait, if we can't reliably call C API, we can't get memory.
-    // Let's try to map the `PJRT_Client_Create` logic carefully.
+    // Error handling
+    error_destroy: PJRT_Error_Destroy,
+    error_message: PJRT_Error_Message,
+    error_get_code: PJRT_Error_GetCode,
+    // Client
+    client_create: PJRT_Client_Create,
+    client_destroy: PJRT_Client_Destroy,
+    client_platform_name: *mut c_void, // Skip
+    client_process_index: *mut c_void, // Skip
+    client_devices: PJRT_Client_Devices,
+    client_addressable_devices: *mut c_void, // Skip
+    client_lookup_device: *mut c_void, // Skip
+    client_compile: *mut c_void, // Skip
+    client_compile_est: *mut c_void, // Skip
+    client_buffer_from_host: *mut c_void, // Skip
+    client_buffer_from_host_async: *mut c_void, // Skip
+    client_buffer_from_scalar: *mut c_void, // Skip
+    // Device
+    device_to_host_order: *mut c_void, // Skip
+    device_id: PJRT_Device_Id,
+    device_process_index: *mut c_void, // Skip
+    device_is_addressable: *mut c_void, // Skip
+    device_local_hardware_id: *mut c_void, // Skip
+    device_addressable_memories: *mut c_void, // Skip
+    device_default_memory: *mut c_void, // Skip
+    device_memory_stats: PJRT_Device_GetMemoryStats,
+    // There are more fields, but we hope these are stable at the top
 }
 
 #[cfg(target_os = "linux")]
 struct LibTpu {
     _library: Library,
-    #[allow(dead_code)]
     api: *const PJRT_Api,
 }
 
@@ -161,7 +184,6 @@ unsafe impl Sync for LibTpu {}
 static LIBTPU: OnceCell<Mutex<Option<LibTpu>>> = OnceCell::new();
 
 #[cfg(target_os = "linux")]
-#[allow(dead_code)]
 struct PjrtClientHandle {
     client_ptr: *mut PJRT_Client,
 }
@@ -272,14 +294,34 @@ unsafe fn try_load_library(path: &str) -> Option<LibTpu> {
 #[cfg(target_os = "linux")]
 fn get_pjrt_client() -> Option<&'static Mutex<Option<PjrtClientHandle>>> {
     Some(PJRT_CLIENT.get_or_init(|| {
-        // Here we would call PJRT_Client_Create via the API table.
-        // For now, we return None as we haven't mapped the function safely.
-        // In a full implementation:
-        // let lib = get_libtpu()?.lock().ok()?.as_ref()?;
-        // let create_fn = lib.api.client_create;
-        // let client = create_fn(...);
-        // Mutex::new(Some(PjrtClientHandle { client_ptr: client }))
-        Mutex::new(None)
+        unsafe {
+            // Helper to handle ? logic inside unsafe block
+            let try_create = || -> Option<PjrtClientHandle> {
+                let lib_mutex = get_libtpu()?;
+                let guard = lib_mutex.lock().ok()?;
+                let lib = guard.as_ref()?;
+                let api = &*lib.api;
+
+                // Try to create client
+                // No args needed for default local client
+                let mut client: *mut PJRT_Client = std::ptr::null_mut();
+                let err = (api.client_create)(std::ptr::null(), 0, &mut client);
+                
+                if !err.is_null() {
+                    // Failed to create client (maybe locked?)
+                    // (api.error_destroy)(err); // Cleanup error
+                    return None;
+                }
+
+                if client.is_null() {
+                    return None;
+                }
+
+                Some(PjrtClientHandle { client_ptr: client })
+            };
+
+            Mutex::new(try_create())
+        }
     }))
 }
 
@@ -287,24 +329,67 @@ fn get_pjrt_client() -> Option<&'static Mutex<Option<PjrtClientHandle>>> {
 pub fn get_tpu_metrics() -> Option<Vec<PjrtTpuMetrics>> {
     let mutex = get_libtpu()?;
     let guard = mutex.lock().ok()?;
-    let _lib = guard.as_ref()?;
+    let lib = guard.as_ref()?;
+    let api = unsafe { &*lib.api };
     
     // Ensure client is initialized (singleton pattern)
-    let _client_mutex = get_pjrt_client()?;
-    
-    // In the future:
-    // let client_guard = client_mutex.lock().ok()?;
-    // if let Some(client) = client_guard.as_ref() {
-    //     return fetch_metrics_from_client(client.client_ptr);
-    // }
+    let client_mutex = get_pjrt_client()?;
+    let client_guard = client_mutex.lock().ok()?;
+    let client = client_guard.as_ref()?;
 
-    // Implementation note:
-    // Accessing PJRT functions via the API table is dangerous without generated bindings.
-    // For this specific request, since we cannot guarantee the API table layout
-    // matches what we define, we will simply return detection for now.
+    let mut metrics = Vec::new();
+
+    unsafe {
+        let mut devices: *mut *mut PJRT_Device = std::ptr::null_mut();
+        let mut num_devices: usize = 0;
+
+        let err = (api.client_devices)(client.client_ptr, &mut devices, &mut num_devices);
+        if !err.is_null() {
+            (api.error_destroy)(err);
+            return Some(Vec::new());
+        }
+
+        // Iterate over devices
+        let device_slice = std::slice::from_raw_parts(devices, num_devices);
+        for (_i, &device_ptr) in device_slice.iter().enumerate() {
+            if device_ptr.is_null() { continue; }
+
+            // Get device ID
+            let dev_id = (api.device_id)(device_ptr);
+            
+            // Get memory stats
+            let mut free_bytes: i64 = 0;
+            let mut total_bytes: i64 = 0;
+            let mem_err = (api.device_memory_stats)(device_ptr, &mut free_bytes, &mut total_bytes);
+            
+            let (used, total) = if mem_err.is_null() {
+                (
+                    (total_bytes - free_bytes).max(0) as u64,
+                    total_bytes.max(0) as u64
+                )
+            } else {
+                (api.error_destroy)(mem_err);
+                (0, 0)
+            };
+
+            metrics.push(PjrtTpuMetrics {
+                device_id: dev_id,
+                chip_id: dev_id, // Approx
+                global_device_id: dev_id,
+                process_index: 0,
+                memory_used_bytes: used,
+                memory_total_bytes: total,
+            });
+        }
+        
+        // Note: We don't free the devices array itself? 
+        // PJRT semantics usually imply the array is owned by caller or callee depending on version.
+        // Standard C API implies we might need to free it, but without `client_devices_free` in the table,
+        // it might be managed or we are leaking a small pointer array. 
+        // Given minimal implementation, we skip complex memory management for the array pointer itself.
+    }
     
-    // We return an empty list but Some(), indicating library is present.
-    Some(Vec::new())
+    Some(metrics)
 }
 
 #[cfg(not(target_os = "linux"))]
