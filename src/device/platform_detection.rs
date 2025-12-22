@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(target_os = "linux")]
+use crate::device::common::constants::google_tpu::LIBTPU_PATHS;
 use crate::device::common::execute_command_default;
 
 pub fn has_nvidia() -> bool {
@@ -277,13 +279,7 @@ pub fn has_google_tpu() -> bool {
         }
     }
 
-    // Check for libtpu.so library
-    const LIBTPU_PATHS: &[&str] = &[
-        "/usr/local/lib/libtpu.so",
-        "/usr/lib/libtpu.so",
-        "/opt/google/libtpu/libtpu.so",
-    ];
-
+    // Check for libtpu.so library (using centralized constant)
     for path in LIBTPU_PATHS {
         if std::path::Path::new(path).exists() {
             return true;
