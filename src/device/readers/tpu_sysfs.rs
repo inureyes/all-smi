@@ -13,14 +13,14 @@
 // limitations under the License.
 
 //! Sysfs-based TPU monitoring module.
-//! 
+//!
 //! This module reads TPU information directly from the Linux sysfs interface,
 //! providing a lightweight and dependency-free way to get basic TPU metrics
 //! like presence, temperature, and chip version.
 
+use crate::device::common::constants::google_tpu::GOOGLE_VENDOR_ID;
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::device::common::constants::google_tpu::GOOGLE_VENDOR_ID;
 
 /// Struct to hold raw sysfs data
 #[derive(Debug, Clone)]
@@ -31,22 +31,20 @@ pub struct SysfsTpuInfo {
     #[allow(dead_code)]
     pub vendor_id: String,
     pub device_id: String,
+    #[allow(dead_code)]
     pub temperature: Option<f64>,
 }
 
 /// Scans /sys/class/accel and /sys/bus/pci/devices for Google TPU devices
 pub fn scan_sysfs_tpus() -> Vec<SysfsTpuInfo> {
     let mut devices = Vec::new();
-    
+
     // 1. Try /sys/class/accel (Standard driver)
     let accel_path = Path::new("/sys/class/accel");
     if accel_path.exists() {
         if let Ok(entries) = fs::read_dir(accel_path) {
-            let mut accel_entries: Vec<_> = entries
-                .flatten()
-                .map(|e| e.path())
-                .collect();
-            
+            let mut accel_entries: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+
             accel_entries.sort();
 
             for (idx, path) in accel_entries.iter().enumerate() {
@@ -62,10 +60,7 @@ pub fn scan_sysfs_tpus() -> Vec<SysfsTpuInfo> {
         let pci_path = Path::new("/sys/bus/pci/devices");
         if pci_path.exists() {
             if let Ok(entries) = fs::read_dir(pci_path) {
-                let mut pci_entries: Vec<_> = entries
-                    .flatten()
-                    .map(|e| e.path())
-                    .collect();
+                let mut pci_entries: Vec<_> = entries.flatten().map(|e| e.path()).collect();
                 pci_entries.sort();
 
                 let mut index = 0;
@@ -86,10 +81,11 @@ fn parse_pci_device(path: &Path, index: u32) -> Option<SysfsTpuInfo> {
     // Check Vendor ID
     let vendor_path = path.join("vendor");
     let vendor = read_sysfs_string(&vendor_path)?;
-    
+
     // Normalize vendor string (handle 0x prefix)
     let vendor_norm = vendor.trim().to_lowercase();
-    if !vendor_norm.ends_with("1ae0") { // 0x1ae0 or 1ae0
+    if !vendor_norm.ends_with("1ae0") {
+        // 0x1ae0 or 1ae0
         return None;
     }
 
@@ -105,7 +101,7 @@ fn parse_pci_device(path: &Path, index: u32) -> Option<SysfsTpuInfo> {
         } else {
             class_norm.starts_with("12")
         };
-        
+
         if !is_accelerator {
             return None;
         }
@@ -152,11 +148,11 @@ fn is_known_tpu_device_id(device_id: &str) -> bool {
 
 fn parse_accel_device(path: &Path, index: u32) -> Option<SysfsTpuInfo> {
     let device_dir = path.join("device");
-    
+
     // Check Vendor ID
     let vendor_path = device_dir.join("vendor");
     let vendor = read_sysfs_string(&vendor_path)?;
-    
+
     if vendor != GOOGLE_VENDOR_ID {
         return None;
     }
@@ -190,16 +186,14 @@ fn read_temperature(device_dir: &Path) -> Option<f64> {
             }
         }
     }
-    
+
     // Sometimes TPUs might be registered in thermal zones
     // This is less common for PCIe TPUs but possible for some embedded/SoC variations
     None
 }
 
 fn read_sysfs_string(path: &Path) -> Option<String> {
-    fs::read_to_string(path)
-        .ok()
-        .map(|s| s.trim().to_string())
+    fs::read_to_string(path).ok().map(|s| s.trim().to_string())
 }
 
 fn read_sysfs_int(path: &Path) -> Option<i64> {

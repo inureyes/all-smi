@@ -27,9 +27,11 @@ use libloading::{Library, Symbol};
 #[cfg(target_os = "linux")]
 use once_cell::sync::OnceCell;
 #[cfg(target_os = "linux")]
-use std::ffi::{c_void, c_char};
+use std::ffi::{c_char, c_void};
 #[cfg(target_os = "linux")]
 use std::sync::Mutex;
+#[cfg(target_os = "linux")]
+use tracing::debug;
 
 #[cfg(target_os = "linux")]
 const LIBTPU_PATHS: &[&str] = &[
@@ -152,21 +154,21 @@ struct PJRT_Api {
     client_platform_name: *mut c_void, // Skip
     client_process_index: *mut c_void, // Skip
     client_devices: PJRT_Client_Devices,
-    client_addressable_devices: *mut c_void, // Skip
-    client_lookup_device: *mut c_void, // Skip
-    client_compile: *mut c_void, // Skip
-    client_compile_est: *mut c_void, // Skip
-    client_buffer_from_host: *mut c_void, // Skip
+    client_addressable_devices: *mut c_void,    // Skip
+    client_lookup_device: *mut c_void,          // Skip
+    client_compile: *mut c_void,                // Skip
+    client_compile_est: *mut c_void,            // Skip
+    client_buffer_from_host: *mut c_void,       // Skip
     client_buffer_from_host_async: *mut c_void, // Skip
-    client_buffer_from_scalar: *mut c_void, // Skip
+    client_buffer_from_scalar: *mut c_void,     // Skip
     // Device
     device_to_host_order: *mut c_void, // Skip
     device_id: PJRT_Device_Id,
-    device_process_index: *mut c_void, // Skip
-    device_is_addressable: *mut c_void, // Skip
-    device_local_hardware_id: *mut c_void, // Skip
+    device_process_index: *mut c_void,        // Skip
+    device_is_addressable: *mut c_void,       // Skip
+    device_local_hardware_id: *mut c_void,    // Skip
     device_addressable_memories: *mut c_void, // Skip
-    device_default_memory: *mut c_void, // Skip
+    device_default_memory: *mut c_void,       // Skip
     device_memory_stats: PJRT_Device_GetMemoryStats,
     // There are more fields, but we hope these are stable at the top
 }
@@ -213,49 +215,51 @@ pub fn get_status_message() -> Option<String> {
 
 #[cfg(target_os = "linux")]
 pub fn is_libtpu_available() -> bool {
-    get_libtpu().map(|m| m.lock().map(|g| g.is_some()).unwrap_or(false)).unwrap_or(false)
+    get_libtpu()
+        .map(|m| m.lock().map(|g| g.is_some()).unwrap_or(false))
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "linux")]
 fn get_libtpu() -> Option<&'static Mutex<Option<LibTpu>>> {
     Some(LIBTPU.get_or_init(|| {
-        eprintln!("[DEBUG] PJRT: Initializing LIBTPU singleton...");
+        debug!("PJRT: Initializing LIBTPU singleton...");
         Mutex::new(load_libtpu())
     }))
 }
 
 #[cfg(target_os = "linux")]
 fn load_libtpu() -> Option<LibTpu> {
-    eprintln!("[DEBUG] PJRT: Starting load_libtpu search...");
+    debug!("PJRT: Starting load_libtpu search...");
 
     // 1. Try to find in user python site-packages (Highest Priority)
     if let Some(home) = std::env::var_os("HOME") {
         let local_lib = std::path::Path::new(&home).join(".local/lib");
-        eprintln!("[DEBUG] PJRT: Scanning user local lib: {:?}", local_lib);
+        debug!("PJRT: Scanning user local lib: {:?}", local_lib);
         if let Some(lib) = scan_python_dirs_for_libtpu(&local_lib) {
             return Some(lib);
         }
     }
 
     // 2. Try system python paths
-    eprintln!("[DEBUG] PJRT: Scanning /usr/local/lib...");
+    debug!("PJRT: Scanning /usr/local/lib...");
     if let Some(lib) = scan_python_dirs_for_libtpu(std::path::Path::new("/usr/local/lib")) {
         return Some(lib);
     }
-    eprintln!("[DEBUG] PJRT: Scanning /usr/lib...");
+    debug!("PJRT: Scanning /usr/lib...");
     if let Some(lib) = scan_python_dirs_for_libtpu(std::path::Path::new("/usr/lib")) {
         return Some(lib);
     }
 
     // 3. Try standard system paths
-    eprintln!("[DEBUG] PJRT: Checking standard paths...");
+    debug!("PJRT: Checking standard paths...");
     for path in LIBTPU_PATHS {
         if let Some(lib) = unsafe { try_load_library(path) } {
             return Some(lib);
         }
     }
 
-    eprintln!("[DEBUG] PJRT: Library not found.");
+    debug!("PJRT: Library not found.");
     None
 }
 
@@ -290,21 +294,22 @@ fn scan_python_dirs_for_libtpu(base_dir: &std::path::Path) -> Option<LibTpu> {
 
 #[cfg(target_os = "linux")]
 unsafe fn try_load_library(path: &str) -> Option<LibTpu> {
-    eprintln!("[DEBUG] PJRT: Trying to load library at: {}", path);
+    debug!("PJRT: Trying to load library at: {}", path);
     let lib = match Library::new(path) {
         Ok(l) => {
-             eprintln!("[DEBUG] PJRT: Successfully loaded library: {}", path);
-             l
-        },
+            debug!("PJRT: Successfully loaded library: {}", path);
+            l
+        }
         Err(e) => {
-             eprintln!("[DEBUG] PJRT: Failed to load library: {} - Error: {}", path, e);
-             return None;
+            debug!("PJRT: Failed to load library: {} - Error: {}", path, e);
+            return None;
         }
     };
-    
+
     // Get the API table
-    let get_api_sym: Symbol<unsafe extern "C" fn() -> *const PJRT_Api> = 
-        lib.get(b"GetPjrtApi\0").ok()
+    let get_api_sym: Symbol<unsafe extern "C" fn() -> *const PJRT_Api> = lib
+        .get(b"GetPjrtApi\0")
+        .ok()
         .or_else(|| lib.get(b"PJRT_GetApi\0").ok())?;
 
     let api = get_api_sym();
@@ -314,14 +319,11 @@ unsafe fn try_load_library(path: &str) -> Option<LibTpu> {
 
     // Basic sanity check: struct_size should be reasonable
     let struct_size = (*api).struct_size;
-    if struct_size < 128 || struct_size > 10000 {
+    if !(128..=10000).contains(&struct_size) {
         return None;
     }
 
-    Some(LibTpu {
-        _library: lib,
-        api,
-    })
+    Some(LibTpu { _library: lib, api })
 }
 
 // --- Metrics Retrieval ---
@@ -334,34 +336,34 @@ pub fn initialize_in_background() {
     }
 
     std::thread::spawn(|| {
-        eprintln!("[DEBUG] PJRT: Starting background initialization...");
+        debug!("PJRT: Starting background initialization...");
         // This triggers the heavy loading and client creation
         let client_opt = get_pjrt_client();
-        
+
         let mut status = STATUS_MESSAGE.lock().unwrap();
         if let Some(mutex) = client_opt {
             if let Ok(guard) = mutex.lock() {
                 if guard.is_some() {
                     *status = "Ready".to_string();
-                    eprintln!("[DEBUG] PJRT: Initialization successful.");
+                    debug!("PJRT: Initialization successful.");
                 } else {
                     // Client creation failed or was skipped, but check if lib is loaded
                     if is_libtpu_available() {
                         *status = "Ready (Sysfs/Limited)".to_string();
-                        eprintln!("[DEBUG] PJRT: Client creation skipped, running in limited mode.");
+                        debug!("PJRT: Client creation skipped, running in limited mode.");
                     } else {
                         *status = "TPU runtime initialization failed (Check logs)".to_string();
-                        eprintln!("[DEBUG] PJRT: Initialization failed.");
+                        debug!("PJRT: Initialization failed.");
                     }
                 }
             } else {
-                 *status = "TPU runtime error".to_string();
+                *status = "TPU runtime error".to_string();
             }
         } else {
-             // This case shouldn't happen with get_or_init unless panic
-             *status = "TPU runtime error".to_string();
+            // This case shouldn't happen with get_or_init unless panic
+            *status = "TPU runtime error".to_string();
         }
-        eprintln!("[DEBUG] PJRT: Background initialization complete.");
+        debug!("PJRT: Background initialization complete.");
     });
 }
 
@@ -371,46 +373,49 @@ fn get_pjrt_client() -> Option<&'static Mutex<Option<PjrtClientHandle>>> {
         unsafe {
             // Helper to handle ? logic inside unsafe block
             let try_create = || -> Option<PjrtClientHandle> {
-                eprintln!("[DEBUG] PJRT: Loading libtpu...");
+                debug!("PJRT: Loading libtpu...");
                 let lib_mutex = get_libtpu()?;
                 let guard = lib_mutex.lock().ok()?;
                 let lib = guard.as_ref()?;
-                
+
                 // Debug API struct info
                 let api = &*lib.api;
-                eprintln!("[DEBUG] PJRT: API struct size: {}", api.struct_size);
-                eprintln!("[DEBUG] PJRT: client_create ptr: {:p}", api.client_create as *const ());
+                debug!("PJRT: API struct size: {}", api.struct_size);
+                debug!(
+                    "PJRT: client_create ptr: {:p}",
+                    api.client_create as *const ()
+                );
 
-                // SAFETY: We temporarily disable actual client creation because PJRT ABI 
+                // SAFETY: We temporarily disable actual client creation because PJRT ABI
                 // varies wildly between versions, causing Segfaults when calling function pointers
                 // at wrong offsets.
                 //
                 // To fix this properly, we need to detect the PJRT version or use a stable C wrapper.
-                eprintln!("[DEBUG] PJRT: Skipping unsafe client creation to prevent Segfault.");
-                
-                // Return None to indicate we are not fully ready with a client, 
+                debug!("PJRT: Skipping unsafe client creation to prevent Segfault.");
+
+                // Return None to indicate we are not fully ready with a client,
                 // but we successfully loaded the library.
                 // This means we will rely on Sysfs for basic info.
-                return None;
+                None
 
-                /* 
+                /*
                 // Code disabled due to Segfault risk:
-                eprintln!("[DEBUG] PJRT: Attempting to create client...");
+                debug!("PJRT: Attempting to create client...");
                 let mut client: *mut PJRT_Client = std::ptr::null_mut();
-                
+
                 let err = (api.client_create)(std::ptr::null(), 0, &mut client);
-                
+
                 if !err.is_null() {
-                    eprintln!("[DEBUG] PJRT: Client creation failed with error object.");
+                    debug!("PJRT: Client creation failed with error object.");
                     return None;
                 }
 
                 if client.is_null() {
-                    eprintln!("[DEBUG] PJRT: Client pointer is null.");
+                    debug!("PJRT: Client pointer is null.");
                     return None;
                 }
 
-                eprintln!("[DEBUG] PJRT: Client created successfully.");
+                debug!("PJRT: Client created successfully.");
                 Some(PjrtClientHandle { client_ptr: client })
                 */
             };
@@ -425,13 +430,13 @@ pub fn get_tpu_metrics() -> Option<Vec<PjrtTpuMetrics>> {
     // Non-blocking check: ONLY proceed if client is already initialized
     // If PJRT_CLIENT is not initialized yet (background thread working), returns None immediately.
     let client_mutex = PJRT_CLIENT.get()?;
-    
+
     // Check if library is loaded (should be if client is init)
     let lib_mutex = LIBTPU.get()?;
     let lib_guard = lib_mutex.lock().ok()?;
     let lib = lib_guard.as_ref()?;
     let api = unsafe { &*lib.api };
-    
+
     // Lock the client mutex
     let client_guard = client_mutex.lock().ok()?;
     let client = client_guard.as_ref()?;
@@ -450,21 +455,23 @@ pub fn get_tpu_metrics() -> Option<Vec<PjrtTpuMetrics>> {
 
         // Iterate over devices
         let device_slice = std::slice::from_raw_parts(devices, num_devices);
-        for (_i, &device_ptr) in device_slice.iter().enumerate() {
-            if device_ptr.is_null() { continue; }
+        for &device_ptr in device_slice.iter() {
+            if device_ptr.is_null() {
+                continue;
+            }
 
             // Get device ID
             let dev_id = (api.device_id)(device_ptr);
-            
+
             // Get memory stats
             let mut free_bytes: i64 = 0;
             let mut total_bytes: i64 = 0;
             let mem_err = (api.device_memory_stats)(device_ptr, &mut free_bytes, &mut total_bytes);
-            
+
             let (used, total) = if mem_err.is_null() {
                 (
                     (total_bytes - free_bytes).max(0) as u64,
-                    total_bytes.max(0) as u64
+                    total_bytes.max(0) as u64,
                 )
             } else {
                 (api.error_destroy)(mem_err);
@@ -481,7 +488,7 @@ pub fn get_tpu_metrics() -> Option<Vec<PjrtTpuMetrics>> {
             });
         }
     }
-    
+
     Some(metrics)
 }
 

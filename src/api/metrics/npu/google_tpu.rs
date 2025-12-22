@@ -63,20 +63,41 @@ impl NpuExporter for GoogleTpuExporter {
 
         // TPU Utilization (duty cycle or tensorcore utilization)
         builder
-            .help("all_smi_tpu_utilization_percent", "TPU utilization percentage")
+            .help(
+                "all_smi_tpu_utilization_percent",
+                "TPU utilization percentage",
+            )
             .type_("all_smi_tpu_utilization_percent", "gauge")
-            .metric("all_smi_tpu_utilization_percent", &base_labels, info.utilization);
+            .metric(
+                "all_smi_tpu_utilization_percent",
+                &base_labels,
+                info.utilization,
+            );
 
         // TPU HBM Memory Usage
         builder
-            .help("all_smi_tpu_memory_used_bytes", "TPU HBM memory used in bytes")
+            .help(
+                "all_smi_tpu_memory_used_bytes",
+                "TPU HBM memory used in bytes",
+            )
             .type_("all_smi_tpu_memory_used_bytes", "gauge")
-            .metric("all_smi_tpu_memory_used_bytes", &base_labels, info.used_memory as f64);
+            .metric(
+                "all_smi_tpu_memory_used_bytes",
+                &base_labels,
+                info.used_memory as f64,
+            );
 
         builder
-            .help("all_smi_tpu_memory_total_bytes", "TPU HBM memory total in bytes")
+            .help(
+                "all_smi_tpu_memory_total_bytes",
+                "TPU HBM memory total in bytes",
+            )
             .type_("all_smi_tpu_memory_total_bytes", "gauge")
-            .metric("all_smi_tpu_memory_total_bytes", &base_labels, info.total_memory as f64);
+            .metric(
+                "all_smi_tpu_memory_total_bytes",
+                &base_labels,
+                info.total_memory as f64,
+            );
 
         // Memory utilization percentage
         let memory_util = if info.total_memory > 0 {
@@ -85,9 +106,16 @@ impl NpuExporter for GoogleTpuExporter {
             0.0
         };
         builder
-            .help("all_smi_tpu_memory_utilization_percent", "TPU HBM memory utilization percentage")
+            .help(
+                "all_smi_tpu_memory_utilization_percent",
+                "TPU HBM memory utilization percentage",
+            )
             .type_("all_smi_tpu_memory_utilization_percent", "gauge")
-            .metric("all_smi_tpu_memory_utilization_percent", &base_labels, memory_util);
+            .metric(
+                "all_smi_tpu_memory_utilization_percent",
+                &base_labels,
+                memory_util,
+            );
 
         // 1. Chip Version / Accelerator Type
         if let Some(chip_version) = info.detail.get("Chip Version") {
@@ -99,7 +127,10 @@ impl NpuExporter for GoogleTpuExporter {
                 ("version", chip_version.as_str()),
             ];
             builder
-                .help("all_smi_tpu_chip_version_info", "TPU chip version information")
+                .help(
+                    "all_smi_tpu_chip_version_info",
+                    "TPU chip version information",
+                )
                 .type_("all_smi_tpu_chip_version_info", "gauge")
                 .metric("all_smi_tpu_chip_version_info", &labels, 1);
         }
@@ -113,7 +144,10 @@ impl NpuExporter for GoogleTpuExporter {
                 ("type", accel_type.as_str()),
             ];
             builder
-                .help("all_smi_tpu_accelerator_type_info", "TPU accelerator type information")
+                .help(
+                    "all_smi_tpu_accelerator_type_info",
+                    "TPU accelerator type information",
+                )
                 .type_("all_smi_tpu_accelerator_type_info", "gauge")
                 .metric("all_smi_tpu_accelerator_type_info", &labels, 1);
         }
@@ -131,7 +165,10 @@ impl NpuExporter for GoogleTpuExporter {
         if let Some(tc_count) = info.detail.get("TensorCore Count") {
             if let Ok(count) = tc_count.parse::<f64>() {
                 builder
-                    .help("all_smi_tpu_tensorcore_count", "Number of TensorCores per chip")
+                    .help(
+                        "all_smi_tpu_tensorcore_count",
+                        "Number of TensorCores per chip",
+                    )
                     .type_("all_smi_tpu_tensorcore_count", "gauge")
                     .metric("all_smi_tpu_tensorcore_count", &base_labels, count);
             }
@@ -139,7 +176,7 @@ impl NpuExporter for GoogleTpuExporter {
 
         // 3. Memory Type
         if let Some(mem_type) = info.detail.get("Memory Type") {
-             let labels = [
+            let labels = [
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
                 ("uuid", info.uuid.as_str()),
@@ -147,14 +184,17 @@ impl NpuExporter for GoogleTpuExporter {
                 ("type", mem_type.as_str()),
             ];
             builder
-                .help("all_smi_tpu_memory_type_info", "TPU memory type information")
+                .help(
+                    "all_smi_tpu_memory_type_info",
+                    "TPU memory type information",
+                )
                 .type_("all_smi_tpu_memory_type_info", "gauge")
                 .metric("all_smi_tpu_memory_type_info", &labels, 1);
         }
 
         // 4. Runtime / Library Version
         if let Some(lib_ver) = info.detail.get("lib_version") {
-             let labels = [
+            let labels = [
                 ("npu", info.name.as_str()),
                 ("instance", info.instance.as_str()),
                 ("uuid", info.uuid.as_str()),
@@ -162,7 +202,10 @@ impl NpuExporter for GoogleTpuExporter {
                 ("version", lib_ver.as_str()),
             ];
             builder
-                .help("all_smi_tpu_runtime_version_info", "TPU runtime/library version")
+                .help(
+                    "all_smi_tpu_runtime_version_info",
+                    "TPU runtime/library version",
+                )
                 .type_("all_smi_tpu_runtime_version_info", "gauge")
                 .metric("all_smi_tpu_runtime_version_info", &labels, 1);
         }
@@ -172,10 +215,68 @@ impl NpuExporter for GoogleTpuExporter {
             // Format is usually "XXX W"
             if let Some(val_str) = max_power_str.split_whitespace().next() {
                 if let Ok(val) = val_str.parse::<f64>() {
-                     builder
-                        .help("all_smi_tpu_power_max_watts", "TPU maximum power limit in watts")
+                    builder
+                        .help(
+                            "all_smi_tpu_power_max_watts",
+                            "TPU maximum power limit in watts",
+                        )
                         .type_("all_smi_tpu_power_max_watts", "gauge")
                         .metric("all_smi_tpu_power_max_watts", &base_labels, val);
+                }
+            }
+        }
+
+        // 6. HLO Metrics (Queue Size and Execution Timing)
+        if let Some(q_size_str) = info.detail.get("HLO Queue Size") {
+            if let Ok(val) = q_size_str.parse::<f64>() {
+                builder
+                    .help(
+                        "all_smi_tpu_hlo_queue_size",
+                        "Number of pending HLO programs in the queue",
+                    )
+                    .type_("all_smi_tpu_hlo_queue_size", "gauge")
+                    .metric("all_smi_tpu_hlo_queue_size", &base_labels, val);
+            }
+        }
+
+        let hlo_metrics = [
+            (
+                "HLO Exec Mean",
+                "all_smi_tpu_hlo_exec_mean_microseconds",
+                "HLO execution timing mean in microseconds",
+            ),
+            (
+                "HLO Exec P50",
+                "all_smi_tpu_hlo_exec_p50_microseconds",
+                "HLO execution timing 50th percentile in microseconds",
+            ),
+            (
+                "HLO Exec P90",
+                "all_smi_tpu_hlo_exec_p90_microseconds",
+                "HLO execution timing 90th percentile in microseconds",
+            ),
+            (
+                "HLO Exec P95",
+                "all_smi_tpu_hlo_exec_p95_microseconds",
+                "HLO execution timing 95th percentile in microseconds",
+            ),
+            (
+                "HLO Exec P99.9",
+                "all_smi_tpu_hlo_exec_p999_microseconds",
+                "HLO execution timing 99.9th percentile in microseconds",
+            ),
+        ];
+
+        for (detail_key, metric_name, help_text) in hlo_metrics {
+            if let Some(val_str) = info.detail.get(detail_key) {
+                // Format is "XXX.X µs"
+                if let Some(v_str) = val_str.split_whitespace().next() {
+                    if let Ok(val) = v_str.parse::<f64>() {
+                        builder
+                            .help(metric_name, help_text)
+                            .type_(metric_name, "gauge")
+                            .metric(metric_name, &base_labels, val);
+                    }
                 }
             }
         }

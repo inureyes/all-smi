@@ -191,6 +191,15 @@ pub trait MetricsExporter: Send + Sync {
 - Circular buffer for metrics storage (`src/device/hlsmi/store.rs`)
 - Follows the same design pattern as Apple Silicon's PowerMetrics integration
 
+#### Google TPU (`src/device/readers/google_tpu.rs`, `src/device/readers/tpu_grpc.rs`)
+- Multi-channel discovery: Sysfs, VFIO, and Environment Variables (for TPU VMs)
+- Dual-mode metrics collection:
+  - **Native gRPC**: Direct connection to libtpu metrics server (localhost:8431) when workload is running
+  - **CLI Fallback**: Background polling of `tpu-info` utility when gRPC is unavailable
+- Supports HLO metrics: Queue size and detailed execution timing (percentiles)
+- Integrated with standard NPU/GPU metrics for unified Prometheus export
+- Memory and duty cycle monitoring across TPU generations (v2-v7/Ironwood)
+
 ### CPU Reader Implementations
 
 #### Linux
@@ -933,7 +942,6 @@ macro_rules! parse_metric {
 1. **Additional Platforms**
    - Intel Arc GPU via oneAPI
    - Qualcomm NPU support
-   - Google TPU support
 
 2. **Extended Metrics**
    - Network bandwidth monitoring

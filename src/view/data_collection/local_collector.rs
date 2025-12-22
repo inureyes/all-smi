@@ -410,11 +410,11 @@ impl LocalCollector {
                 // If failed, show error once.
                 if msg.contains("Initializing") {
                     let _ = state.notifications.status(msg);
-                } else if msg.contains("failed") || msg.contains("error") {
-                    if !state.tpu_notification_shown {
-                        let _ = state.notifications.error(msg);
-                        state.tpu_notification_shown = true;
-                    }
+                } else if (msg.contains("failed") || msg.contains("error"))
+                    && !state.tpu_notification_shown
+                {
+                    let _ = state.notifications.error(msg);
+                    state.tpu_notification_shown = true;
                 }
             }
         }

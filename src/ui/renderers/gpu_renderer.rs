@@ -191,6 +191,23 @@ pub fn print_gpu_info<W: Write>(
         None,
     );
 
+    // Display HLO Queue Size for TPU devices (show 0 if not available)
+    if info.device_type == "TPU" {
+        let hlo_queue_size = info
+            .detail
+            .get("HLO Queue Size")
+            .map(|s| s.as_str())
+            .unwrap_or("0");
+        print_colored_text(stdout, " HLO Q:", Color::Cyan, None, None);
+        print_colored_text(
+            stdout,
+            &format!("{hlo_queue_size:>3}"),
+            Color::White,
+            None,
+            None,
+        );
+    }
+
     // Display driver version if available
     if let Some(driver_version) = info.detail.get("Driver Version") {
         print_colored_text(stdout, " Drv:", Color::Green, None, None);
@@ -221,7 +238,11 @@ pub fn print_gpu_info<W: Write>(
     let available_width = width.saturating_sub(10); // 5 padding each side
     let is_apple_silicon = info.name.contains("Apple") || info.name.contains("Metal");
     let has_tensorcore = info.device_type == "TPU" && info.tensorcore_utilization.is_some();
-    let num_gauges = if is_apple_silicon || has_tensorcore { 3 } else { 2 }; // Util, Mem, (ANE for Apple Silicon, TensorCore for TPU)
+    let num_gauges = if is_apple_silicon || has_tensorcore {
+        3
+    } else {
+        2
+    }; // Util, Mem, (ANE for Apple Silicon, TensorCore for TPU)
     let gauge_width = (available_width - (num_gauges - 1) * 2) / num_gauges; // 2 spaces between gauges
 
     // Calculate actual space used and dynamic right padding

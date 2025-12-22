@@ -22,10 +22,10 @@
 
 #![allow(unused)]
 
+use once_cell::sync::OnceCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use once_cell::sync::OnceCell;
 use tokio::sync::Mutex;
 use tonic::transport::{Channel, Endpoint};
 use tracing::{debug, warn};
@@ -60,6 +60,8 @@ pub mod metric_names {
     pub const TOTAL_MEMORY: &str = "tpu.runtime.hbm.memory.total.bytes";
     pub const MEMORY_USAGE: &str = "tpu.runtime.hbm.memory.usage.bytes";
     pub const DUTY_CYCLE_PCT: &str = "tpu.runtime.tensorcore.dutycycle.percent";
+    pub const HLO_QUEUE_SIZE: &str = "hlo.queue.size.gauge";
+    pub const HLO_EXEC_TIMING: &str = "hlo.execution.timing.distribution.microseconds";
 }
 
 /// TPU usage metrics from gRPC
@@ -73,6 +75,32 @@ pub struct TpuUsageMetrics {
     pub total_memory: u64,
     /// Duty cycle percentage (0-100)
     pub duty_cycle_pct: f64,
+}
+
+/// HLO Queue Size metric
+#[derive(Debug, Clone, Default)]
+pub struct HloQueueSize {
+    /// Device ID (chip index)
+    pub device_id: i64,
+    /// Queue size (number of pending HLO programs)
+    pub queue_size: i64,
+}
+
+/// HLO Execution Timing metric (microseconds)
+#[derive(Debug, Clone, Default)]
+pub struct HloExecutionTiming {
+    /// Device ID (chip index)
+    pub device_id: i64,
+    /// Mean execution time in microseconds
+    pub mean_us: f64,
+    /// 50th percentile (median) in microseconds
+    pub p50_us: f64,
+    /// 90th percentile in microseconds
+    pub p90_us: f64,
+    /// 95th percentile in microseconds
+    pub p95_us: f64,
+    /// 99.9th percentile in microseconds
+    pub p999_us: f64,
 }
 
 /// Cached gRPC channel
@@ -135,7 +163,8 @@ async fn fetch_metric(
 
             for m in metric.metrics {
                 // Extract device ID from attribute
-                let device_id = m.attribute
+                let device_id = m
+                    .attribute
                     .as_ref()
                     .and_then(|attr| attr.value.as_ref())
                     .and_then(|v| match v.attr.as_ref()? {
@@ -191,8 +220,7 @@ impl MetricValue {
 
 /// Update gRPC availability status and notify tpu_info_runner
 fn update_grpc_status(available: bool) {
-    let was_available = GRPC_WAS_AVAILABLE
-        .get_or_init(|| AtomicBool::new(false));
+    let was_available = GRPC_WAS_AVAILABLE.get_or_init(|| AtomicBool::new(false));
 
     let prev = was_available.swap(available, Ordering::Relaxed);
 
@@ -304,6 +332,251 @@ pub fn get_tpu_metrics_grpc_sync() -> Option<Vec<TpuUsageMetrics>> {
             .build()
             .ok()?;
         rt.block_on(get_tpu_metrics_grpc())
+    }
+}
+
+/// Extract device_ordinal from kvlist_attr attributes
+fn extract_device_ordinal(attr: &tpu_proto::Attribute) -> Option<i64> {
+    let value = attr.value.as_ref()?;
+    let kvlist = match value.attr.as_ref()? {
+        tpu_proto::attr_value::Attr::KvlistAttr(kv) => kv,
+        _ => return None,
+    };
+
+    for kv_attr in &kvlist.attributes {
+        if kv_attr.key == "device_ordinal" {
+            if let Some(ref val) = kv_attr.value {
+                match &val.attr {
+                    Some(tpu_proto::attr_value::Attr::StringAttr(s)) => {
+                        return s.parse().ok();
+                    }
+                    Some(tpu_proto::attr_value::Attr::IntAttr(i)) => {
+                        return Some(*i);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Calculate percentile from exponential bucket distribution
+fn calculate_percentile(
+    target_count: i64,
+    total_count: i64,
+    bucket_counts: &[i64],
+    scale: f64,
+    growth_factor: f64,
+) -> f64 {
+    if total_count == 0 || bucket_counts.is_empty() {
+        return 0.0;
+    }
+
+    let mut cumulative = 0i64;
+    for (i, &count) in bucket_counts.iter().enumerate() {
+        cumulative += count;
+        if cumulative >= target_count {
+            // Estimate value at this bucket
+            // Bucket boundaries: scale * growth_factor^i
+            let lower = if i == 0 {
+                0.0
+            } else {
+                scale * growth_factor.powi(i as i32 - 1)
+            };
+            let upper = scale * growth_factor.powi(i as i32);
+            // Linear interpolation within bucket
+            return (lower + upper) / 2.0;
+        }
+    }
+
+    // If we didn't find it, return the last bucket upper bound
+    scale * growth_factor.powi(bucket_counts.len() as i32 - 1)
+}
+
+/// Fetch HLO Queue Size metrics via gRPC
+pub async fn get_hlo_queue_size() -> Option<Vec<HloQueueSize>> {
+    let channel = get_channel().await?;
+    let mut client = RuntimeMetricServiceClient::new(channel);
+
+    let request = tonic::Request::new(MetricRequest {
+        metric_name: metric_names::HLO_QUEUE_SIZE.to_string(),
+        skip_node_aggregation: false,
+    });
+
+    let response = match client.get_runtime_metric(request).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            debug!("Failed to fetch HLO queue size: {}", e);
+            return None;
+        }
+    };
+
+    let metric = response.into_inner().metric?;
+    let mut results = Vec::new();
+
+    for m in metric.metrics {
+        // Extract device_ordinal from kvlist_attr
+        let device_id = m
+            .attribute
+            .as_ref()
+            .and_then(extract_device_ordinal)
+            .unwrap_or(-1);
+
+        // If extraction failed, try to get device_id from index 0
+        let device_id = if device_id < 0 {
+            // Fallback: use metric index as device_id for single-device setups
+            results.len() as i64
+        } else {
+            device_id
+        };
+
+        // Extract gauge value
+        if let Some(tpu_proto::metric::Measure::Gauge(gauge)) = m.measure {
+            let queue_size = match gauge.value {
+                Some(tpu_proto::gauge::Value::AsInt(i)) => i,
+                Some(tpu_proto::gauge::Value::AsDouble(d)) => d as i64,
+                _ => continue,
+            };
+            results.push(HloQueueSize {
+                device_id,
+                queue_size,
+            });
+        }
+    }
+
+    results.sort_by_key(|r| r.device_id);
+    if results.is_empty() {
+        None
+    } else {
+        Some(results)
+    }
+}
+
+/// Fetch HLO Execution Timing metrics via gRPC
+pub async fn get_hlo_execution_timing() -> Option<Vec<HloExecutionTiming>> {
+    let channel = get_channel().await?;
+    let mut client = RuntimeMetricServiceClient::new(channel);
+
+    let request = tonic::Request::new(MetricRequest {
+        metric_name: metric_names::HLO_EXEC_TIMING.to_string(),
+        skip_node_aggregation: false,
+    });
+
+    let response = match client.get_runtime_metric(request).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            debug!("Failed to fetch HLO execution timing: {}", e);
+            return None;
+        }
+    };
+
+    let metric = response.into_inner().metric?;
+    let mut results = Vec::new();
+
+    for m in metric.metrics {
+        // Extract device_ordinal from kvlist_attr
+        let device_id = m
+            .attribute
+            .as_ref()
+            .and_then(extract_device_ordinal)
+            .unwrap_or(-1);
+
+        if device_id < 0 {
+            continue;
+        }
+
+        // Extract distribution
+        if let Some(tpu_proto::metric::Measure::Distribution(dist)) = m.measure {
+            let count = dist.count;
+            let mean = dist.mean;
+            let bucket_counts = &dist.bucket_counts;
+
+            // Get exponential bucket options
+            let (scale, growth_factor) = dist
+                .bucket_options
+                .as_ref()
+                .and_then(|opts| opts.options.as_ref())
+                .and_then(|o| match o {
+                    tpu_proto::distribution::bucket_options::Options::ExponentialBuckets(exp) => {
+                        Some((exp.scale, exp.growth_factor))
+                    }
+                    _ => None,
+                })
+                .unwrap_or((1.0, 2.0));
+
+            // Calculate percentiles
+            let p50 = calculate_percentile(
+                (count as f64 * 0.5) as i64,
+                count,
+                bucket_counts,
+                scale,
+                growth_factor,
+            );
+            let p90 = calculate_percentile(
+                (count as f64 * 0.9) as i64,
+                count,
+                bucket_counts,
+                scale,
+                growth_factor,
+            );
+            let p95 = calculate_percentile(
+                (count as f64 * 0.95) as i64,
+                count,
+                bucket_counts,
+                scale,
+                growth_factor,
+            );
+            let p999 = calculate_percentile(
+                (count as f64 * 0.999) as i64,
+                count,
+                bucket_counts,
+                scale,
+                growth_factor,
+            );
+
+            results.push(HloExecutionTiming {
+                device_id,
+                mean_us: mean,
+                p50_us: p50,
+                p90_us: p90,
+                p95_us: p95,
+                p999_us: p999,
+            });
+        }
+    }
+
+    results.sort_by_key(|r| r.device_id);
+    if results.is_empty() {
+        None
+    } else {
+        Some(results)
+    }
+}
+
+/// Synchronous wrapper for get_hlo_queue_size
+pub fn get_hlo_queue_size_sync() -> Option<Vec<HloQueueSize>> {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        tokio::task::block_in_place(|| handle.block_on(get_hlo_queue_size()))
+    } else {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok()?;
+        rt.block_on(get_hlo_queue_size())
+    }
+}
+
+/// Synchronous wrapper for get_hlo_execution_timing
+pub fn get_hlo_execution_timing_sync() -> Option<Vec<HloExecutionTiming>> {
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        tokio::task::block_in_place(|| handle.block_on(get_hlo_execution_timing()))
+    } else {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok()?;
+        rt.block_on(get_hlo_execution_timing())
     }
 }
 

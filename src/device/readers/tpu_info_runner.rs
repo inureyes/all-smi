@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use regex::Regex;
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
-use regex::Regex;
+use tracing::debug;
 
 static RUNNER: OnceLock<TpuInfoRunner> = OnceLock::new();
 static ANSI_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -32,6 +33,7 @@ const POLL_INTERVAL_IDLE_SECS: u64 = 30;
 const POLL_INTERVAL_ACTIVE_SECS: u64 = 5;
 
 /// Minimum time between CLI executions to prevent hammering
+#[allow(dead_code)]
 const MIN_CLI_INTERVAL_SECS: u64 = 5;
 
 pub fn get_runner() -> &'static TpuInfoRunner {
@@ -60,6 +62,12 @@ pub struct TpuInfoRunner {
     last_cli_run: Arc<AtomicU64>,
 }
 
+impl Default for TpuInfoRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TpuInfoRunner {
     pub fn new() -> Self {
         let runner = Self {
@@ -78,11 +86,13 @@ impl TpuInfoRunner {
     }
 
     /// Check if gRPC is currently available
+    #[allow(dead_code)]
     pub fn is_grpc_available(&self) -> bool {
         self.grpc_available.load(Ordering::Relaxed)
     }
 
     /// Force an immediate CLI refresh (within rate limits)
+    #[allow(dead_code)]
     pub fn request_refresh(&self) {
         let now = Instant::now().elapsed().as_secs();
         let last = self.last_cli_run.load(Ordering::Relaxed);
@@ -176,31 +186,36 @@ impl TpuInfoRunner {
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     let mut s = status.lock().unwrap();
-                    *s = format!("tpu-info error: {}", stderr.lines().next().unwrap_or("unknown error"));
+                    *s = format!(
+                        "tpu-info error: {}",
+                        stderr.lines().next().unwrap_or("unknown error")
+                    );
                 }
             }
             Err(e) => {
                 let mut s = status.lock().unwrap();
-                *s = format!("Failed to run tpu-info: {}", e);
+                *s = format!("Failed to run tpu-info: {e}");
             }
         }
     }
 
-    fn parse_line(line: &str, current_table: &mut TableType, store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>) -> bool {
-        let ansi_regex = ANSI_REGEX.get_or_init(|| Regex::new(r"[\u001b\u009b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]").unwrap());
+    fn parse_line(
+        line: &str,
+        current_table: &mut TableType,
+        store: &Arc<RwLock<HashMap<u32, HashMap<String, f64>>>>,
+    ) -> bool {
+        let ansi_regex = ANSI_REGEX.get_or_init(|| {
+            Regex::new(
+                r"[\u001b\u009b][\[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]",
+            )
+            .unwrap()
+        });
         let line_no_ansi = ansi_regex.replace_all(line, "");
         let line = line_no_ansi.trim();
-        
-        // Debug logging to file
-        #[cfg(debug_assertions)]
-        {
-            use std::io::Write;
-            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/all-smi-tpu.log") {
-                let _ = writeln!(file, "[Table: {:?}] Raw: '{}' | Clean: '{}'", current_table, line.escape_debug(), line);
-            }
-        }
 
-        if line.is_empty() { return false; }
+        if line.is_empty() {
+            return false;
+        }
 
         // 1. Detect table headers
         if line.contains("TPU Runtime Utilization") {
@@ -215,15 +230,20 @@ impl TpuInfoRunner {
         } else if line.contains("TensorCore Utilization") {
             *current_table = TableType::TensorCoreUtilization;
             return false;
-        } else if line.contains("Runtime Utilization Status") || line.contains("Supported Metrics") || line.contains("TPU Chips") || line.contains("TPU Process Info") {
+        } else if line.contains("Runtime Utilization Status")
+            || line.contains("Supported Metrics")
+            || line.contains("TPU Chips")
+            || line.contains("TPU Process Info")
+        {
             *current_table = TableType::None; // Skip other tables/warnings
             return false;
         }
 
         // 2. Parse table rows
         if line.contains('│') || line.contains('┃') || line.contains('|') {
-            let normalized_line = line.replace('│', "|").replace('┃', "|");
-            let parts: Vec<&str> = normalized_line.split('|')
+            let normalized_line = line.replace(['│', '┃'], "|");
+            let parts: Vec<&str> = normalized_line
+                .split('|')
                 .map(|s| s.trim())
                 .filter(|s| !s.is_empty())
                 .collect();
@@ -246,10 +266,12 @@ impl TpuInfoRunner {
                                     dev_map.insert("memory_total".to_string(), total);
                                     updated = true;
                                 }
-                                #[cfg(debug_assertions)]
-                                eprintln!("[DEBUG] Parsed RuntimeUtil HBM [Dev {}]: {} / {}", idx, used, total);
+                                debug!(
+                                    "Parsed RuntimeUtil HBM [Dev {}]: {} / {}",
+                                    idx, used, total
+                                );
                             }
-                            
+
                             if duty_str != "N/A" && !duty_str.is_empty() {
                                 let duty = Self::parse_percent(duty_str);
                                 if let Ok(mut map_guard) = store.write() {
@@ -257,8 +279,7 @@ impl TpuInfoRunner {
                                     dev_map.insert("duty_cycle_percent".to_string(), duty);
                                     updated = true;
                                 }
-                                #[cfg(debug_assertions)]
-                                eprintln!("[DEBUG] Parsed RuntimeUtil Duty [Dev {}]: {}", idx, duty);
+                                debug!("Parsed RuntimeUtil Duty [Dev {}]: {}", idx, duty);
                             }
                         }
                     }
@@ -276,8 +297,7 @@ impl TpuInfoRunner {
                                     dev_map.insert("duty_cycle_percent".to_string(), val);
                                     updated = true;
                                 }
-                                #[cfg(debug_assertions)]
-                                eprintln!("[DEBUG] Parsed DutyCycle [Dev {}]: {}", idx, val);
+                                debug!("Parsed DutyCycle [Dev {}]: {}", idx, val);
                             }
                         }
                     }
@@ -296,8 +316,7 @@ impl TpuInfoRunner {
                                     dev_map.insert("memory_total".to_string(), total);
                                     updated = true;
                                 }
-                                #[cfg(debug_assertions)]
-                                eprintln!("[DEBUG] Parsed HBM [Dev {}]: {} / {}", idx, used, total);
+                                debug!("Parsed HBM [Dev {}]: {} / {}", idx, used, total);
                             }
                         }
                     }
@@ -315,8 +334,7 @@ impl TpuInfoRunner {
                                     dev_map.insert("tensorcore_utilization".to_string(), util);
                                     updated = true;
                                 }
-                                #[cfg(debug_assertions)]
-                                eprintln!("[DEBUG] Parsed TensorCore [Dev {}]: {}", idx, util);
+                                debug!("Parsed TensorCore [Dev {}]: {}", idx, util);
                             }
                         }
                     }
@@ -340,13 +358,19 @@ impl TpuInfoRunner {
 
     fn parse_bytes(s: &str) -> f64 {
         let parts: Vec<&str> = s.split_whitespace().collect();
-        if parts.is_empty() { return 0.0; }
+        if parts.is_empty() {
+            return 0.0;
+        }
         if let Ok(mut val) = parts[0].parse::<f64>() {
             if parts.len() >= 2 {
                 let unit = parts[1].to_lowercase();
-                if unit.contains("gi") || unit == "gb" { val *= 1024.0 * 1024.0 * 1024.0; }
-                else if unit.contains("mi") || unit == "mb" { val *= 1024.0 * 1024.0; }
-                else if unit.contains("ki") || unit == "kb" { val *= 1024.0; }
+                if unit.contains("gi") || unit == "gb" {
+                    val *= 1024.0 * 1024.0 * 1024.0;
+                } else if unit.contains("mi") || unit == "mb" {
+                    val *= 1024.0 * 1024.0;
+                } else if unit.contains("ki") || unit == "kb" {
+                    val *= 1024.0;
+                }
             }
             val
         } else {
@@ -361,11 +385,17 @@ impl TpuInfoRunner {
 
     pub fn get_status(&self) -> Option<String> {
         let s = self.status.lock().unwrap().clone();
-        if s == "Ready" { None } else { Some(s) }
+        if s == "Ready" {
+            None
+        } else {
+            Some(s)
+        }
     }
-    
+
     pub fn get_metric(&self, device_idx: u32, key: &str) -> Option<f64> {
-        self.device_metrics.read().unwrap()
+        self.device_metrics
+            .read()
+            .unwrap()
             .get(&device_idx)
             .and_then(|m| m.get(key).copied())
     }

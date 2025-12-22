@@ -271,7 +271,7 @@ pub fn has_google_tpu() -> bool {
             if let Some(name) = entry.file_name().to_str() {
                 if name.starts_with("accel") {
                     // Check sysfs for Google vendor ID (0x1ae0)
-                    let sysfs_path = format!("/sys/class/accel/{}/device/vendor", name);
+                    let sysfs_path = format!("/sys/class/accel/{name}/device/vendor");
                     if let Ok(vendor) = std::fs::read_to_string(&sysfs_path) {
                         if vendor.trim() == "0x1ae0" {
                             return true;

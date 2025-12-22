@@ -207,6 +207,24 @@ struct TpuDeviceInfo {
     /// Accelerator type string
     #[serde(default)]
     accelerator_type: String,
+    /// HLO Queue Size (number of pending programs)
+    #[serde(default)]
+    hlo_queue_size: Option<i64>,
+    /// HLO Execution Timing - mean (microseconds)
+    #[serde(default)]
+    hlo_exec_mean_us: Option<f64>,
+    /// HLO Execution Timing - p50 (microseconds)
+    #[serde(default)]
+    hlo_exec_p50_us: Option<f64>,
+    /// HLO Execution Timing - p90 (microseconds)
+    #[serde(default)]
+    hlo_exec_p90_us: Option<f64>,
+    /// HLO Execution Timing - p95 (microseconds)
+    #[serde(default)]
+    hlo_exec_p95_us: Option<f64>,
+    /// HLO Execution Timing - p99.9 (microseconds)
+    #[serde(default)]
+    hlo_exec_p999_us: Option<f64>,
 }
 
 /// JSON structure for TPU process information
@@ -255,11 +273,6 @@ pub struct GoogleTpuReader {
     #[cfg(target_os = "linux")]
     device_metadata: OnceLock<Vec<TpuDeviceMetadata>>,
 }
-
-/// Status message for TPU reader (e.g. "Install tpu-info")
-// Deprecated: using tpu_info_runner status
-// #[cfg(target_os = "linux")]
-// static TPU_STATUS: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
 impl Default for GoogleTpuReader {
     fn default() -> Self {
@@ -351,44 +364,11 @@ impl GoogleTpuReader {
         self.device_static_info.get().and_then(|map| map.get(uuid))
     }
 
-    /// Check if TPU integration is available
-    #[cfg(target_os = "linux")]
-    fn is_tpu_script_available() -> bool {
-        // Always return true if we detect hardware via Sysfs/PCI
-        // We will handle the "missing tool" case by showing a notification
-        Self::check_tpu_availability()
-    }
-
-    /// Check TPU availability using non-blocking methods
-    ///
-    /// Priority:
-    /// 1. Sysfs (/sys/class/accel) - Fastest, reliable
-    /// 2. libtpu.so / libtpuinfo.so - Runtime library check
-    /// 3. Environment variables - Cloud TPU VM check
-    #[cfg(target_os = "linux")]
-    fn check_tpu_availability() -> bool {
-        // 1. Check Sysfs/PCI presence (Primary detection)
-        if !tpu_sysfs::scan_sysfs_tpus().is_empty() {
-            return true;
-        }
-
-        // 3. Check for TPU VM environment variables (Fallback)
-        if std::env::var("TPU_NAME").is_ok()
-            || std::env::var("TPU_CHIPS_PER_HOST_BOUNDS").is_ok()
-            || std::env::var("TPU_ACCELERATOR_TYPE").is_ok()
-            || std::env::var("TPU_WORKER_ID").is_ok()
-        {
-            return true;
-        }
-
-        false
-    }
-
     /// Get TPU info using gRPC (primary) or CLI fallback
     #[cfg(target_os = "linux")]
     fn get_tpu_info_internal(&self) -> Vec<GpuInfo> {
         // Perform device discovery once and cache the result
-        let metadata_list = self.device_metadata.get_or_init(|| Self::discover_tpu_devices());
+        let metadata_list = self.device_metadata.get_or_init(Self::discover_tpu_devices);
 
         if metadata_list.is_empty() {
             return Vec::new();
@@ -397,74 +377,116 @@ impl GoogleTpuReader {
         // Try gRPC first (native, faster when TPU workload is running)
         let grpc_metrics = tpu_grpc::get_tpu_metrics_grpc_sync();
 
+        // Fetch HLO metrics via gRPC
+        let hlo_queue_sizes = tpu_grpc::get_hlo_queue_size_sync();
+        let hlo_exec_timings = tpu_grpc::get_hlo_execution_timing_sync();
+
         // Construct current device info by combining static metadata with dynamic metrics
         let runner = tpu_info_runner::get_runner();
-        let devices: Vec<TpuDeviceInfo> = metadata_list.iter().map(|meta| {
-            let mut utilization = 0.0;
-            let mut tensorcore_utilization = 0.0;
-            let mut memory_used = 0;
-            let mut total_memory = meta.memory_total;
-            let mut power_draw = 0.0;
+        let devices: Vec<TpuDeviceInfo> = metadata_list
+            .iter()
+            .map(|meta| {
+                let mut utilization = 0.0;
+                let mut tensorcore_utilization = 0.0;
+                let mut memory_used = 0;
+                let mut total_memory = meta.memory_total;
+                let mut power_draw = 0.0;
 
-            // Try gRPC metrics first for memory and duty cycle
-            if let Some(ref metrics) = grpc_metrics {
-                if let Some(grpc_data) = metrics.iter().find(|m| m.device_id == meta.index as i64) {
-                    // gRPC provides duty_cycle which we use as main utilization
-                    utilization = grpc_data.duty_cycle_pct;
-                    memory_used = grpc_data.memory_usage;
-                    if grpc_data.total_memory > 0 {
-                        total_memory = grpc_data.total_memory;
+                // Try gRPC metrics first for memory and duty cycle
+                if let Some(ref metrics) = grpc_metrics {
+                    if let Some(grpc_data) =
+                        metrics.iter().find(|m| m.device_id == meta.index as i64)
+                    {
+                        // gRPC provides duty_cycle which we use as main utilization
+                        utilization = grpc_data.duty_cycle_pct;
+                        memory_used = grpc_data.memory_usage;
+                        if grpc_data.total_memory > 0 {
+                            total_memory = grpc_data.total_memory;
+                        }
+                    }
+                } else {
+                    // Fallback to CLI-based metrics for memory when gRPC not available
+                    if let Some(val) = runner.get_metric(meta.index, "duty_cycle_percent") {
+                        utilization = val;
+                    }
+
+                    if let Some(val) = runner.get_metric(meta.index, "hbm_usage") {
+                        memory_used = val as u64;
+                    }
+
+                    if let Some(val) = runner.get_metric(meta.index, "memory_total") {
+                        if val > 0.0 {
+                            total_memory = val as u64;
+                        }
                     }
                 }
-            } else {
-                // Fallback to CLI-based metrics for memory when gRPC not available
-                if let Some(val) = runner.get_metric(meta.index, "duty_cycle_percent") {
-                    utilization = val;
+
+                // TensorCore utilization comes from CLI (libtpu SDK monitoring module)
+                // This is a separate metric from duty_cycle, retrieved via tpu-info CLI
+                if let Some(val) = runner.get_metric(meta.index, "tensorcore_utilization") {
+                    tensorcore_utilization = val;
                 }
 
-                if let Some(val) = runner.get_metric(meta.index, "hbm_usage") {
-                    memory_used = val as u64;
+                // If no duty cycle but we have tensorcore, use it as main utilization
+                if utilization == 0.0 && tensorcore_utilization > 0.0 {
+                    utilization = tensorcore_utilization;
                 }
 
-                if let Some(val) = runner.get_metric(meta.index, "memory_total") {
-                    if val > 0.0 {
-                        total_memory = val as u64;
-                    }
+                // Power metrics (only available via CLI for now)
+                if let Some(val) = runner.get_metric(meta.index, "power_usage") {
+                    power_draw = val;
                 }
-            }
 
-            // TensorCore utilization comes from CLI (libtpu SDK monitoring module)
-            // This is a separate metric from duty_cycle, retrieved via tpu-info CLI
-            if let Some(val) = runner.get_metric(meta.index, "tensorcore_utilization") {
-                tensorcore_utilization = val;
-            }
+                // HLO Queue Size
+                let hlo_queue_size = hlo_queue_sizes
+                    .as_ref()
+                    .and_then(|sizes| sizes.iter().find(|s| s.device_id == meta.index as i64))
+                    .map(|s| s.queue_size);
 
-            // If no duty cycle but we have tensorcore, use it as main utilization
-            if utilization == 0.0 && tensorcore_utilization > 0.0 {
-                utilization = tensorcore_utilization;
-            }
+                // HLO Execution Timing
+                let (
+                    hlo_exec_mean_us,
+                    hlo_exec_p50_us,
+                    hlo_exec_p90_us,
+                    hlo_exec_p95_us,
+                    hlo_exec_p999_us,
+                ) = hlo_exec_timings
+                    .as_ref()
+                    .and_then(|timings| timings.iter().find(|t| t.device_id == meta.index as i64))
+                    .map(|t| {
+                        (
+                            Some(t.mean_us),
+                            Some(t.p50_us),
+                            Some(t.p90_us),
+                            Some(t.p95_us),
+                            Some(t.p999_us),
+                        )
+                    })
+                    .unwrap_or((None, None, None, None, None));
 
-            // Power metrics (only available via CLI for now)
-            if let Some(val) = runner.get_metric(meta.index, "power_usage") {
-                power_draw = val;
-            }
-
-            TpuDeviceInfo {
-                index: meta.index,
-                chip_version: meta.chip_version.clone(),
-                uuid: meta.uuid.clone(),
-                core_count: meta.core_count,
-                utilization,
-                tensorcore_utilization,
-                memory_used,
-                memory_total: total_memory,
-                temperature: 0,
-                power_draw,
-                power_max: 0.0,
-                tpu_runtime_version: String::new(),
-                accelerator_type: meta.accelerator_type.clone(),
-            }
-        }).collect();
+                TpuDeviceInfo {
+                    index: meta.index,
+                    chip_version: meta.chip_version.clone(),
+                    uuid: meta.uuid.clone(),
+                    core_count: meta.core_count,
+                    utilization,
+                    tensorcore_utilization,
+                    memory_used,
+                    memory_total: total_memory,
+                    temperature: 0,
+                    power_draw,
+                    power_max: 0.0,
+                    tpu_runtime_version: String::new(),
+                    accelerator_type: meta.accelerator_type.clone(),
+                    hlo_queue_size,
+                    hlo_exec_mean_us,
+                    hlo_exec_p50_us,
+                    hlo_exec_p90_us,
+                    hlo_exec_p95_us,
+                    hlo_exec_p999_us,
+                }
+            })
+            .collect();
 
         // Initialize static cache on first call
         self.ensure_static_cache_initialized(&devices);
@@ -498,7 +520,7 @@ impl GoogleTpuReader {
                 let chip_version = Self::detect_tpu_version_from_device_id(&sys_dev.device_id);
                 let accel_type = format!("TPU {}", &chip_version);
                 let generation = TpuGeneration::from_chip_version(&chip_version);
-                
+
                 metadata.push(TpuDeviceMetadata {
                     index: sys_dev.index,
                     chip_version,
@@ -526,12 +548,6 @@ impl GoogleTpuReader {
         }
 
         metadata
-    }
-
-    // Deprecated: kept for compatibility if needed, or remove
-    #[cfg(target_os = "linux")]
-    fn query_tpu_devices() -> Option<Vec<TpuDeviceInfo>> {
-        None
     }
 
     /// Detect TPU devices via /dev/vfio/* (used by v6e and newer)
@@ -585,7 +601,7 @@ impl GoogleTpuReader {
         let chip_version = chip_version_from_cli
             .or(chip_version_from_env)
             .unwrap_or_else(|| "unknown".to_string());
-            
+
         let generation = TpuGeneration::from_chip_version(&chip_version);
 
         // Create device entries for each vfio device
@@ -595,7 +611,7 @@ impl GoogleTpuReader {
                 TpuDeviceMetadata {
                     index: i,
                     chip_version: chip_version.clone(),
-                    uuid: format!("TPU-{}", i),
+                    uuid: format!("TPU-{i}"),
                     core_count: 1,
                     memory_total: generation.hbm_size_bytes(),
                     accelerator_type: accel_type,
@@ -605,11 +621,6 @@ impl GoogleTpuReader {
             .collect();
 
         Some(devices)
-    }
-    
-    #[cfg(target_os = "linux")]
-    fn detect_tpu_from_vfio() -> Option<Vec<TpuDeviceInfo>> {
-        None
     }
 
     /// Detect TPU version from PCI device ID
@@ -639,28 +650,30 @@ impl GoogleTpuReader {
         use std::process::Command;
         static ACCELERATOR_TYPE_CACHE: OnceLock<Option<String>> = OnceLock::new();
 
-        ACCELERATOR_TYPE_CACHE.get_or_init(|| {
-            // tpu-info -v is fast and outputs:
-            // - tpu-info version: 0.8.0
-            // - libtpu version: 0.0.17
-            // - accelerator type: v6e
-            let output = Command::new("tpu-info").arg("-v").output().ok()?;
+        ACCELERATOR_TYPE_CACHE
+            .get_or_init(|| {
+                // tpu-info -v is fast and outputs:
+                // - tpu-info version: 0.8.0
+                // - libtpu version: 0.0.17
+                // - accelerator type: v6e
+                let output = Command::new("tpu-info").arg("-v").output().ok()?;
 
-            if !output.status.success() {
-                return None;
-            }
+                if !output.status.success() {
+                    return None;
+                }
 
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if line.contains("accelerator type:") {
-                    // Extract the type after the colon
-                    if let Some(type_str) = line.split(':').nth(1) {
-                        return Some(type_str.trim().to_string());
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if line.contains("accelerator type:") {
+                        // Extract the type after the colon
+                        if let Some(type_str) = line.split(':').nth(1) {
+                            return Some(type_str.trim().to_string());
+                        }
                     }
                 }
-            }
-            None
-        }).clone()
+                None
+            })
+            .clone()
     }
 
     /// Detect TPU info from TPU VM environment variables
@@ -684,20 +697,24 @@ impl GoogleTpuReader {
         // Parse accelerator type to determine TPU version
         // Priority: 1) tpu-info CLI, 2) TPU_ACCELERATOR_TYPE env var
         let chip_version = Self::get_accelerator_type_from_tpu_info()
-            .or_else(|| accelerator_type.as_ref().map(|t| Self::parse_accelerator_type(t)))
+            .or_else(|| {
+                accelerator_type
+                    .as_ref()
+                    .map(|t| Self::parse_accelerator_type(t))
+            })
             .unwrap_or_else(|| "unknown".to_string());
-            
+
         let generation = TpuGeneration::from_chip_version(&chip_version);
 
         // Parse number of chips from TPU_CHIPS_PER_HOST_BOUNDS (format: "x,y,z")
         let chip_count = chips_per_host
             .as_ref()
-            .and_then(|s| {
+            .map(|s| {
                 let parts: Vec<u32> = s.split(',').filter_map(|p| p.trim().parse().ok()).collect();
                 if parts.len() == 3 {
-                    Some(parts[0] * parts[1] * parts[2])
+                    parts[0] * parts[1] * parts[2]
                 } else {
-                    Some(1)
+                    1
                 }
             })
             .unwrap_or(1);
@@ -716,11 +733,6 @@ impl GoogleTpuReader {
         };
 
         Some(device)
-    }
-    
-    #[cfg(target_os = "linux")]
-    fn detect_tpu_from_environment() -> Option<TpuDeviceInfo> {
-        None
     }
 
     /// Parse TPU accelerator type string (e.g., "v6e-16", "v5litepod-4")
@@ -837,11 +849,13 @@ fn format_memory_size(bytes: u64) -> String {
     const MB: u64 = 1024 * 1024;
 
     if bytes >= GB {
-        format!("{} GB", bytes / GB)
+        let gb = bytes / GB;
+        format!("{gb} GB")
     } else if bytes >= MB {
-        format!("{} MB", bytes / MB)
+        let mb = bytes / MB;
+        format!("{mb} MB")
     } else {
-        format!("{} B", bytes)
+        format!("{bytes} B")
     }
 }
 
@@ -905,6 +919,26 @@ fn create_gpu_info_from_device(
         "Used Memory".to_string(),
         format_memory_size(device.memory_used),
     );
+
+    // HLO metrics (from gRPC)
+    if let Some(queue_size) = device.hlo_queue_size {
+        detail.insert("HLO Queue Size".to_string(), queue_size.to_string());
+    }
+    if let Some(mean_us) = device.hlo_exec_mean_us {
+        detail.insert("HLO Exec Mean".to_string(), format!("{mean_us:.1} µs"));
+    }
+    if let Some(p50_us) = device.hlo_exec_p50_us {
+        detail.insert("HLO Exec P50".to_string(), format!("{p50_us:.1} µs"));
+    }
+    if let Some(p90_us) = device.hlo_exec_p90_us {
+        detail.insert("HLO Exec P90".to_string(), format!("{p90_us:.1} µs"));
+    }
+    if let Some(p95_us) = device.hlo_exec_p95_us {
+        detail.insert("HLO Exec P95".to_string(), format!("{p95_us:.1} µs"));
+    }
+    if let Some(p999_us) = device.hlo_exec_p999_us {
+        detail.insert("HLO Exec P99.9".to_string(), format!("{p999_us:.1} µs"));
+    }
 
     // Get memory total - use device reported if available, otherwise use generation default
     let total_memory = if device.memory_total > 0 {
@@ -1061,6 +1095,12 @@ mod tests {
             power_max: 200.0,
             tpu_runtime_version: "2.13.0".to_string(),
             accelerator_type: "TPU v4".to_string(),
+            hlo_queue_size: Some(3),
+            hlo_exec_mean_us: Some(125.5),
+            hlo_exec_p50_us: Some(100.0),
+            hlo_exec_p90_us: Some(200.0),
+            hlo_exec_p95_us: Some(250.0),
+            hlo_exec_p999_us: Some(500.0),
         };
 
         let time = "2025-01-01 00:00:00";
@@ -1085,6 +1125,17 @@ mod tests {
         // Check detail fields
         assert_eq!(info.detail.get("lib_name"), Some(&"libtpu".to_string()));
         assert_eq!(info.detail.get("lib_version"), Some(&"2.13.0".to_string()));
+
+        // Check HLO metrics in detail
+        assert_eq!(info.detail.get("HLO Queue Size"), Some(&"3".to_string()));
+        assert_eq!(
+            info.detail.get("HLO Exec Mean"),
+            Some(&"125.5 µs".to_string())
+        );
+        assert_eq!(
+            info.detail.get("HLO Exec P50"),
+            Some(&"100.0 µs".to_string())
+        );
     }
 
     #[test]
@@ -1103,6 +1154,12 @@ mod tests {
             power_max: 400.0,
             tpu_runtime_version: "".to_string(),
             accelerator_type: "TPU v7 Ironwood".to_string(),
+            hlo_queue_size: None,
+            hlo_exec_mean_us: None,
+            hlo_exec_p50_us: None,
+            hlo_exec_p90_us: None,
+            hlo_exec_p95_us: None,
+            hlo_exec_p999_us: None,
         };
 
         let gpu_info = create_gpu_info_from_device(device, None, "2025-01-01 00:00:00", "host");

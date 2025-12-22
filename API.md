@@ -300,12 +300,23 @@ Note: Intel Gaudi NPUs (Gaudi 1/2/3) are monitored via the `hl-smi` command-line
 #### TPU-Specific Metrics
 | Metric                                     | Description                          | Unit  | Labels                                                   |
 |--------------------------------------------|--------------------------------------|-------|----------------------------------------------------------|
+| `all_smi_tpu_utilization_percent`          | TPU duty cycle utilization           | percent| `npu`, `instance`, `uuid`, `index`                      |
+| `all_smi_tpu_memory_used_bytes`            | TPU HBM memory used                  | bytes | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_memory_total_bytes`           | TPU HBM memory total                 | bytes | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_memory_utilization_percent`   | TPU HBM memory utilization percentage| percent| `npu`, `instance`, `uuid`, `index`                      |
 | `all_smi_tpu_chip_version_info`            | TPU chip version information         | info  | `npu`, `instance`, `uuid`, `index`, `version`            |
 | `all_smi_tpu_accelerator_type_info`        | TPU accelerator type information     | info  | `npu`, `instance`, `uuid`, `index`, `type`               |
 | `all_smi_tpu_core_count`                   | Number of TPU cores                  | gauge | `npu`, `instance`, `uuid`, `index`                       |
 | `all_smi_tpu_tensorcore_count`             | Number of TensorCores per chip       | gauge | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_memory_type_info`             | TPU memory type (HBM2/HBM2e/HBM3e)    | info  | `npu`, `instance`, `uuid`, `index`, `type`               |
 | `all_smi_tpu_runtime_version_info`         | TPU runtime/library version          | info  | `npu`, `instance`, `uuid`, `index`, `version`            |
 | `all_smi_tpu_power_max_watts`              | TPU maximum power limit              | watts | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_hlo_queue_size`               | Number of pending HLO programs       | gauge | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_hlo_exec_mean_microseconds`   | HLO execution timing (mean)          | µs    | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_hlo_exec_p50_microseconds`    | HLO execution timing (P50)           | µs    | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_hlo_exec_p90_microseconds`    | HLO execution timing (P90)           | µs    | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_hlo_exec_p95_microseconds`    | HLO execution timing (P95)           | µs    | `npu`, `instance`, `uuid`, `index`                       |
+| `all_smi_tpu_hlo_exec_p999_microseconds`   | HLO execution timing (P99.9)         | µs    | `npu`, `instance`, `uuid`, `index`                       |
 
 Note: Google Cloud TPUs (v2-v7/Ironwood) are monitored via the `tpu-info` command-line tool running in streaming mode. Metrics include duty cycle utilization, HBM memory tracking, and chip configuration details.
 
@@ -540,16 +551,19 @@ count by (version) (all_smi_gaudi_driver_info) > 1
 ### Google TPU Specific
 ```promql
 # TPU utilization across all chips
-avg(all_smi_gpu_utilization{gpu_name=~".*TPU.*"})
+avg(all_smi_tpu_utilization_percent)
 
 # HBM memory utilization percentage
-(all_smi_gpu_memory_used_bytes / all_smi_gpu_memory_total_bytes) * 100
+all_smi_tpu_memory_utilization_percent
 
 # Count TPUs by accelerator type
 count by (type) (all_smi_tpu_accelerator_type_info)
 
-# TPU chips with high duty cycle (> 90%)
-all_smi_gpu_utilization{gpu_name=~".*TPU.*"} > 90
+# Monitor HLO queue size
+all_smi_tpu_hlo_queue_size > 5
+
+# Alert on high HLO execution latency
+all_smi_tpu_hlo_exec_p90_microseconds > 1000000
 ```
 
 ### Process Monitoring
