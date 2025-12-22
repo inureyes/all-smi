@@ -50,7 +50,7 @@ impl TpuInfoRunner {
                 let child_res = Command::new("tpu-info")
                     .arg("--streaming")
                     .arg("--rate")
-                    .arg("1")
+                    .arg("2") // 2Hz update rate (optimized for balance)
                     .env("TERM", "dumb")
                     .env("NO_COLOR", "1")
                     .stdout(Stdio::piped())
