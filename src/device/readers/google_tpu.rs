@@ -180,9 +180,12 @@ struct TpuDeviceInfo {
     /// Core count per chip
     #[serde(default)]
     core_count: u32,
-    /// Current utilization percentage (0-100)
+    /// Current utilization percentage (0-100) - duty cycle
     #[serde(default)]
     utilization: f64,
+    /// TensorCore utilization percentage (0-100)
+    #[serde(default)]
+    tensorcore_utilization: f64,
     /// HBM memory used in bytes
     #[serde(default)]
     memory_used: u64,
@@ -398,13 +401,15 @@ impl GoogleTpuReader {
         let runner = tpu_info_runner::get_runner();
         let devices: Vec<TpuDeviceInfo> = metadata_list.iter().map(|meta| {
             let mut utilization = 0.0;
+            let mut tensorcore_utilization = 0.0;
             let mut memory_used = 0;
             let mut total_memory = meta.memory_total;
             let mut power_draw = 0.0;
 
-            // Try gRPC metrics first (more accurate when available)
+            // Try gRPC metrics first for memory and duty cycle
             if let Some(ref metrics) = grpc_metrics {
                 if let Some(grpc_data) = metrics.iter().find(|m| m.device_id == meta.index as i64) {
+                    // gRPC provides duty_cycle which we use as main utilization
                     utilization = grpc_data.duty_cycle_pct;
                     memory_used = grpc_data.memory_usage;
                     if grpc_data.total_memory > 0 {
@@ -412,10 +417,8 @@ impl GoogleTpuReader {
                     }
                 }
             } else {
-                // Fallback to CLI-based metrics (tpu-info polling)
+                // Fallback to CLI-based metrics for memory when gRPC not available
                 if let Some(val) = runner.get_metric(meta.index, "duty_cycle_percent") {
-                    utilization = val;
-                } else if let Some(val) = runner.get_metric(meta.index, "tensorcore_utilization") {
                     utilization = val;
                 }
 
@@ -430,6 +433,17 @@ impl GoogleTpuReader {
                 }
             }
 
+            // TensorCore utilization comes from CLI (libtpu SDK monitoring module)
+            // This is a separate metric from duty_cycle, retrieved via tpu-info CLI
+            if let Some(val) = runner.get_metric(meta.index, "tensorcore_utilization") {
+                tensorcore_utilization = val;
+            }
+
+            // If no duty cycle but we have tensorcore, use it as main utilization
+            if utilization == 0.0 && tensorcore_utilization > 0.0 {
+                utilization = tensorcore_utilization;
+            }
+
             // Power metrics (only available via CLI for now)
             if let Some(val) = runner.get_metric(meta.index, "power_usage") {
                 power_draw = val;
@@ -441,6 +455,7 @@ impl GoogleTpuReader {
                 uuid: meta.uuid.clone(),
                 core_count: meta.core_count,
                 utilization,
+                tensorcore_utilization,
                 memory_used,
                 memory_total: total_memory,
                 temperature: 0,
@@ -898,6 +913,13 @@ fn create_gpu_info_from_device(
         generation.hbm_size_bytes()
     };
 
+    // Include TensorCore utilization if non-zero
+    let tensorcore_util = if device.tensorcore_utilization > 0.0 {
+        Some(device.tensorcore_utilization)
+    } else {
+        None
+    };
+
     Some(GpuInfo {
         uuid,
         time: time.to_string(),
@@ -909,6 +931,7 @@ fn create_gpu_info_from_device(
         utilization: device.utilization,
         ane_utilization: 0.0,
         dla_utilization: None,
+        tensorcore_utilization: tensorcore_util,
         temperature: device.temperature,
         used_memory: device.memory_used,
         total_memory,
@@ -1030,6 +1053,7 @@ mod tests {
             uuid: "TPU-0-test".to_string(),
             core_count: 2,
             utilization: 75.5,
+            tensorcore_utilization: 50.0,
             memory_used: 16 * 1024 * 1024 * 1024,  // 16 GB
             memory_total: 32 * 1024 * 1024 * 1024, // 32 GB
             temperature: 65,
@@ -1071,6 +1095,7 @@ mod tests {
             uuid: "".to_string(), // Empty UUID should be auto-generated
             core_count: 2,
             utilization: 0.0,
+            tensorcore_utilization: 0.0,
             memory_used: 0,
             memory_total: 0, // Should default to generation size
             temperature: 45,

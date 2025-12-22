@@ -43,6 +43,7 @@ pub struct GpuInfo {
     pub utilization: f64,
     pub ane_utilization: f64,
     pub dla_utilization: Option<f64>,
+    pub tensorcore_utilization: Option<f64>, // TPU TensorCore utilization
     pub temperature: u32,
     pub used_memory: u64,
     pub total_memory: u64,

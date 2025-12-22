@@ -133,6 +133,7 @@ impl NvidiaGpuReader {
                             .unwrap_or(0.0),
                         ane_utilization: 0.0,
                         dla_utilization: None,
+                        tensorcore_utilization: None,
                         temperature: device
                             .temperature(
                                 nvml_wrapper::enum_wrappers::device::TemperatureSensor::Gpu,
@@ -485,6 +486,7 @@ fn get_gpu_info_nvidia_smi() -> Vec<GpuInfo> {
                     utilization: parts[3].parse().unwrap_or(0.0),
                     ane_utilization: 0.0,
                     dla_utilization: None,
+                    tensorcore_utilization: None,
                     temperature: parts[4].parse().unwrap_or(0),
                     used_memory: parse_memory_value(&parts[5]),
                     total_memory: parse_memory_value(&parts[6]),

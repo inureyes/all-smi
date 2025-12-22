@@ -206,6 +206,7 @@ impl MetricsParser {
                 utilization: 0.0,
                 ane_utilization: 0.0,
                 dla_utilization: None,
+                tensorcore_utilization: None,
                 temperature: 0,
                 used_memory: 0,
                 total_memory: 0,

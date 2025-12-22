@@ -376,6 +376,7 @@ fn create_gpu_info_from_device(
         utilization,
         ane_utilization: 0.0,
         dla_utilization: None,
+        tensorcore_utilization: None,
         temperature,
         used_memory,
         total_memory,

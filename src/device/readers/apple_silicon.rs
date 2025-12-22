@@ -224,6 +224,7 @@ impl GpuReader for AppleSiliconGpuReader {
             utilization: metrics.utilization.unwrap_or(0.0),
             ane_utilization: metrics.ane_utilization.unwrap_or(0.0),
             dla_utilization: None,
+            tensorcore_utilization: None,
             temperature: 0, // Apple Silicon reports pressure level as text, not numeric temp
             used_memory: get_used_memory(), // Get system memory usage (unified memory)
             total_memory: get_total_memory(), // Get total system memory (unified memory)

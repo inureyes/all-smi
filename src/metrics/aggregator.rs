@@ -289,6 +289,7 @@ mod tests {
             utilization: 75.0,
             ane_utilization: 0.0,
             dla_utilization: None,
+            tensorcore_utilization: None,
             temperature: 80,
             used_memory: 8 * 1024 * 1024 * 1024,   // 8GB
             total_memory: 16 * 1024 * 1024 * 1024, // 16GB

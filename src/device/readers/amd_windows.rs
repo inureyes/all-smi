@@ -173,6 +173,7 @@ impl AmdWindowsGpuReader {
                     utilization: 0.0, // Not available via WMI
                     ane_utilization: 0.0,
                     dla_utilization: None,
+                    tensorcore_utilization: None,
                     temperature: 0, // Not available via WMI
                     used_memory: 0, // Not available via WMI
                     total_memory,
