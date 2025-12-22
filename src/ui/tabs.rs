@@ -223,6 +223,8 @@ mod tests {
             nvml_notification_shown: false,
             #[cfg(target_os = "linux")]
             tenstorrent_notification_shown: false,
+            #[cfg(target_os = "linux")]
+            tpu_notification_shown: false,
             connection_status: HashMap::new(),
             known_hosts: Vec::new(),
             hostname_to_host_id: HashMap::new(),
