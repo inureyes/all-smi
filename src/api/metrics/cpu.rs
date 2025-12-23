@@ -102,6 +102,14 @@ impl<'a> CpuMetricExporter<'a> {
                 .type_("all_smi_cpu_power_consumption_watts", "gauge")
                 .metric("all_smi_cpu_power_consumption_watts", &base_labels, power);
         }
+
+        // CPU power in watts (alternative metric name for consistency)
+        if let Some(power) = info.power_consumption {
+            builder
+                .help("all_smi_cpu_power_watts", "CPU power consumption in watts")
+                .type_("all_smi_cpu_power_watts", "gauge")
+                .metric("all_smi_cpu_power_watts", &base_labels, power);
+        }
     }
 
     fn export_socket_metrics(&self, builder: &mut MetricBuilder, info: &CpuInfo, index: usize) {

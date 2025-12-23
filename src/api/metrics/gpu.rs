@@ -153,6 +153,24 @@ impl<'a> GpuMetricExporter<'a> {
                 .type_("all_smi_thermal_pressure_info", "gauge")
                 .metric("all_smi_thermal_pressure_info", &thermal_labels, 1);
         }
+
+        // Combined power (CPU + GPU + ANE) for Apple Silicon
+        if let Some(combined_power_str) = info.detail.get("combined_power_mw") {
+            if let Ok(combined_power_mw) = combined_power_str.parse::<f64>() {
+                let combined_power_watts = combined_power_mw / 1000.0;
+                builder
+                    .help(
+                        "all_smi_combined_power_watts",
+                        "Combined power consumption (CPU + GPU + ANE) in watts",
+                    )
+                    .type_("all_smi_combined_power_watts", "gauge")
+                    .metric(
+                        "all_smi_combined_power_watts",
+                        &base_labels,
+                        combined_power_watts,
+                    );
+            }
+        }
     }
 
     fn export_device_info(&self, builder: &mut MetricBuilder, info: &GpuInfo, index: usize) {

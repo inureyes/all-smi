@@ -146,6 +146,20 @@ impl AppleSiliconMockGenerator {
                 "all_smi_ane_power_watts{{{labels}}} {{{{ANE_WATTS_{i}}}}}\n"
             ));
         }
+
+        // Combined power (CPU + GPU + ANE) in watts
+        template.push_str("# HELP all_smi_combined_power_watts Combined power consumption (CPU + GPU + ANE) in watts\n");
+        template.push_str("# TYPE all_smi_combined_power_watts gauge\n");
+
+        for (i, gpu) in gpus.iter().enumerate() {
+            let labels = format!(
+                "gpu=\"{}\", instance=\"{}\", uuid=\"{}\", index=\"{i}\"",
+                self.gpu_name, self.instance_name, gpu.uuid
+            );
+            template.push_str(&format!(
+                "all_smi_combined_power_watts{{{labels}}} {{{{COMBINED_POWER_{i}}}}}\n"
+            ));
+        }
     }
 
     fn add_thermal_metrics(&self, template: &mut String, gpus: &[GpuMetrics]) {
@@ -184,6 +198,14 @@ impl AppleSiliconMockGenerator {
         template.push_str(&format!(
             "all_smi_cpu_utilization{{instance=\"{}\"}} {{{{CPU_UTIL}}}}\n",
             self.instance_name
+        ));
+
+        // CPU power consumption
+        template.push_str("# HELP all_smi_cpu_power_watts CPU power consumption in watts\n");
+        template.push_str("# TYPE all_smi_cpu_power_watts gauge\n");
+        template.push_str(&format!(
+            "all_smi_cpu_power_watts{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\"}} {{{{CPU_POWER}}}}\n",
+            self.gpu_name, self.instance_name, self.instance_name
         ));
 
         // CPU core counts
@@ -277,6 +299,15 @@ impl AppleSiliconMockGenerator {
                     &format!("{:.3}", gpu.ane_utilization_watts),
                 );
 
+            // Combined power (CPU + GPU + ANE)
+            let cpu_power = cpu.power_consumption_watts.unwrap_or(0.0);
+            let combined_power_watts =
+                cpu_power + gpu.power_consumption_watts + gpu.ane_utilization_watts;
+            response = response.replace(
+                &format!("{{{{COMBINED_POWER_{i}}}}}"),
+                &format!("{combined_power_watts:.3}"),
+            );
+
             // Thermal pressure
             let (thermal_level, thermal_value) = match gpu.temperature_celsius {
                 t if t < 50 => ("nominal", 0),
@@ -300,6 +331,10 @@ impl AppleSiliconMockGenerator {
             .replace("{{CPU_E_UTIL}}", &format!("{e_util:.2}"))
             .replace("{{CPU_P_UTIL}}", &format!("{p_util:.2}"))
             .replace("{{CPU_UTIL}}", &format!("{:.2}", cpu.utilization))
+            .replace(
+                "{{CPU_POWER}}",
+                &format!("{:.3}", cpu.power_consumption_watts.unwrap_or(0.0)),
+            )
             .replace("{{MEM_USED}}", &memory.used_bytes.to_string());
 
         // Memory pressure (based on usage percentage)

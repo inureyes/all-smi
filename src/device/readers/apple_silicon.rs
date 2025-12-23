@@ -162,22 +162,26 @@ impl GpuReader for AppleSiliconGpuReader {
         self.ensure_initialized();
 
         let manager = get_powermetrics_manager();
-        let metrics = if let Some(mgr) = &manager {
+        let (metrics, combined_power_mw) = if let Some(mgr) = &manager {
             // Get the latest powermetrics data
             if let Ok(data) = mgr.get_latest_data_result() {
-                GpuMetrics {
-                    utilization: Some(data.gpu_active_residency),
-                    ane_utilization: Some(data.ane_power_mw),
-                    frequency: Some(data.gpu_frequency),
-                    power_consumption: Some(data.gpu_power_mw / 1000.0), // Convert mW to W
-                    thermal_pressure_level: data.thermal_pressure_level,
-                }
+                let combined_power = data.combined_power_mw;
+                (
+                    GpuMetrics {
+                        utilization: Some(data.gpu_active_residency),
+                        ane_utilization: Some(data.ane_power_mw),
+                        frequency: Some(data.gpu_frequency),
+                        power_consumption: Some(data.gpu_power_mw / 1000.0), // Convert mW to W
+                        thermal_pressure_level: data.thermal_pressure_level,
+                    },
+                    Some(combined_power),
+                )
             } else {
-                get_gpu_metrics_fallback()
+                (get_gpu_metrics_fallback(), None)
             }
         } else {
             // Fallback to creating temporary powermetrics reader
-            get_gpu_metrics_fallback()
+            (get_gpu_metrics_fallback(), None)
         };
 
         // Get cached static info
@@ -194,6 +198,11 @@ impl GpuReader for AppleSiliconGpuReader {
         detail.insert("architecture".to_string(), "Apple Silicon".to_string());
         if let Some(ref thermal_level) = metrics.thermal_pressure_level {
             detail.insert("thermal_pressure".to_string(), thermal_level.clone());
+        }
+
+        // Add combined power (CPU + GPU + ANE) for metrics export
+        if let Some(combined_power) = combined_power_mw {
+            detail.insert("combined_power_mw".to_string(), combined_power.to_string());
         }
 
         // Add unified AI acceleration library labels

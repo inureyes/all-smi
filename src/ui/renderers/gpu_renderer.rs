@@ -191,6 +191,23 @@ pub fn print_gpu_info<W: Write>(
         None,
     );
 
+    // Display combined power (CPU + GPU + ANE) for Apple Silicon
+    if is_apple_silicon {
+        if let Some(combined_power_str) = info.detail.get("combined_power_mw") {
+            if let Ok(combined_power_mw) = combined_power_str.parse::<f64>() {
+                let combined_power_w = combined_power_mw / 1000.0;
+                print_colored_text(stdout, " Total:", Color::Red, None, None);
+                print_colored_text(
+                    stdout,
+                    &format!("{combined_power_w:5.2}W"),
+                    Color::White,
+                    None,
+                    None,
+                );
+            }
+        }
+    }
+
     // Display HLO Queue Size for TPU devices (show 0 if not available)
     if info.device_type == "TPU" {
         let hlo_queue_size = info
