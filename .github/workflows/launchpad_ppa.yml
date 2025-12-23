@@ -119,8 +119,7 @@ jobs:
           libssl-dev \
           protobuf-compiler \
           cmake \
-          libdrm-dev \
-          libdrm-amdgpu1
+          libdrm-dev
 
     # ───────────────────────────────────────────────────────────────────
     # Step 6: Prepare package version
