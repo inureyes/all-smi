@@ -3,12 +3,12 @@ Section: utils
 Priority: optional
 Maintainer: Jeongkyu Shin <inureyes@gmail.com>
 Build-Depends: debhelper-compat (= 13),
-               cargo,
-               rustc (>= 1.70),
+               rust-1.85-all,
                libssl-dev,
                pkg-config,
                protobuf-compiler,
                cmake,
+               libdrm-dev,
                build-essential
 Standards-Version: 4.6.2
 Homepage: https://github.com/lablup/all-smi

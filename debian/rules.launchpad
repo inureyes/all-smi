@@ -3,7 +3,7 @@
 # Enable all hardening options
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
-# Rust/Cargo specific settings
+# Rust/Cargo specific settings for Launchpad builds
 export CARGO_HOME = $(CURDIR)/debian/cargo
 export CARGO_TARGET_DIR = $(CURDIR)/target
 
@@ -11,38 +11,27 @@ export CARGO_TARGET_DIR = $(CURDIR)/target
 	dh $@
 
 override_dh_auto_configure:
-	# Install Rust if not present (Launchpad builders may not have it)
-	if ! command -v rustc >/dev/null 2>&1; then \
-		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal; \
-		. $(HOME)/.cargo/env; \
-	fi
-	# Ensure we have the stable toolchain
-	$(HOME)/.cargo/bin/rustup default stable || rustup default stable
+	# Create cargo home directory
+	mkdir -p $(CARGO_HOME)
+	# Verify Rust 1.85 toolchain is available (from rust-1.85-all package)
+	rustc-1.85 --version && cargo-1.85 --version
 
 override_dh_auto_build:
-	# Build the project
-	# If Cargo.lock is lockfile v4, regenerate with Cargo 1.75 (produces v3)
-	if grep -q '^version = 4' Cargo.lock 2>/dev/null; then \
-		rm -f Cargo.lock; \
-		cargo generate-lockfile; \
-	fi
-	# Build the project with cargo
-	cargo build --release --locked
-
-	#PATH="$(HOME)/.cargo/bin:$(PATH)" cargo build --release --locked
+	# Build with vendored dependencies using Rust 1.85 (supports Cargo.lock v4)
+	# Uses --frozen to ensure offline build with vendored crates
+	cargo-1.85 build --release --frozen
 
 override_dh_auto_install:
 	# Install the compiled binary
 	install -D -m 0755 target/release/all-smi debian/all-smi/usr/bin/all-smi
 
 override_dh_auto_test:
-	# Run tests
-	PATH="$(HOME)/.cargo/bin:$(PATH)" cargo test --release --locked || true
+	# Skip tests for PPA build
+	@echo "Skipping tests for PPA build"
 
 override_dh_auto_clean:
 	# Clean cargo build artifacts
 	rm -rf $(CARGO_TARGET_DIR) $(CARGO_HOME)
-	dh_auto_clean
 
 override_dh_builddeb:
 	dh_builddeb --destdir=../

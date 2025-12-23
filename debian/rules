@@ -3,22 +3,23 @@
 # Enable all hardening options
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
-# Set HOME for cargo (Launchpad builds need this)
-export HOME = /tmp/build-home
-export CARGO_HOME = $(HOME)/.cargo
+# Rust/Cargo specific settings for Launchpad builds
+export CARGO_HOME = $(CURDIR)/debian/cargo
+export CARGO_TARGET_DIR = $(CURDIR)/target
 
 %:
 	dh $@
 
 override_dh_auto_configure:
-	# Create temporary home directory for cargo
+	# Create cargo home directory
 	mkdir -p $(CARGO_HOME)
 	# Verify Rust 1.85 toolchain is available (from rust-1.85-all package)
 	rustc-1.85 --version && cargo-1.85 --version
 
 override_dh_auto_build:
-	# Build the project with Ubuntu's Rust 1.85 (supports Cargo.lock v4)
-	cargo-1.85 build --release --locked
+	# Build with vendored dependencies using Rust 1.85 (supports Cargo.lock v4)
+	# Uses --frozen to ensure offline build with vendored crates
+	cargo-1.85 build --release --frozen
 
 override_dh_auto_install:
 	# Install the compiled binary
@@ -29,8 +30,8 @@ override_dh_auto_test:
 	@echo "Skipping tests for PPA build"
 
 override_dh_auto_clean:
-	# Clean build artifacts
-	rm -rf target/
+	# Clean cargo build artifacts
+	rm -rf $(CARGO_TARGET_DIR) $(CARGO_HOME)
 
 override_dh_builddeb:
 	dh_builddeb --destdir=../
