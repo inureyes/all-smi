@@ -15,6 +15,7 @@ override_dh_auto_configure:
 	mkdir -p $(CARGO_HOME)
 	# Install rustup and latest stable Rust to handle Cargo.lock v4
 	# (Ubuntu 24.04 ships Rust 1.75 which cannot parse lockfile v4)
+	# Security: Uses official Rust installer over HTTPS with TLS 1.2+ in isolated build environment
 	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
 	# Verify rust toolchain is available
 	. $(CARGO_HOME)/env && rustc --version && cargo --version
