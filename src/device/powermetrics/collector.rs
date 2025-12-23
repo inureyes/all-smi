@@ -53,6 +53,7 @@ impl DataCollector {
     }
 
     /// Get process information
+    #[allow(dead_code)]
     pub fn get_process_info(&self) -> Vec<(String, u32, f64)> {
         self.store.get_process_info()
     }

@@ -68,6 +68,7 @@ impl PowerMetricsManager {
     }
 
     /// Get process information from the latest powermetrics data
+    #[allow(dead_code)]
     pub fn get_process_info(&self) -> Vec<(String, u32, f64)> {
         let collector = self.collector.lock().unwrap();
         collector.get_process_info()

@@ -30,8 +30,14 @@
 //! - macmon project by vladkens
 //! - stats project by exelban
 //! - osx-cpu-temp project
+//! - mactop project for dynamic key discovery
 
 use std::ffi::c_void;
+use std::sync::OnceLock;
+
+/// Cached temperature keys discovered via dynamic enumeration
+static DISCOVERED_CPU_KEYS: OnceLock<Vec<String>> = OnceLock::new();
+static DISCOVERED_GPU_KEYS: OnceLock<Vec<String>> = OnceLock::new();
 
 // IOKit framework linkage
 #[link(name = "IOKit", kind = "framework")]
@@ -71,6 +77,7 @@ const SMC_TYPE_FPE2: u32 = u32::from_be_bytes(*b"fpe2");
 /// SMC command selectors
 const SMC_CMD_READ_KEY: u8 = 5;
 const SMC_CMD_READ_KEY_INFO: u8 = 9;
+const SMC_CMD_READ_INDEX: u8 = 8;
 
 /// SMC kernel selector
 const KERNEL_INDEX_SMC: u32 = 2;
@@ -199,6 +206,116 @@ impl SMC {
         Ok(output.key_info)
     }
 
+    /// Get the total number of SMC keys
+    ///
+    /// Based on mactop's SMCGetKeyCount implementation
+    pub fn get_key_count(&self) -> Result<u32, &'static str> {
+        let key_code = str_to_fourcc("#KEY");
+
+        let input = KeyData {
+            key: key_code,
+            data8: SMC_CMD_READ_KEY_INFO,
+            ..Default::default()
+        };
+
+        let info_output = self.read(&input)?;
+
+        let input = KeyData {
+            key: key_code,
+            key_info: KeyInfo {
+                data_size: info_output.key_info.data_size,
+                ..Default::default()
+            },
+            data8: SMC_CMD_READ_KEY,
+            ..Default::default()
+        };
+
+        let output = self.read(&input)?;
+
+        // Key count is stored as big-endian u32 in first 4 bytes
+        let count = u32::from_be_bytes([
+            output.bytes[0],
+            output.bytes[1],
+            output.bytes[2],
+            output.bytes[3],
+        ]);
+
+        Ok(count)
+    }
+
+    /// Get key name by index
+    ///
+    /// Based on mactop's SMCGetKeyFromIndex implementation
+    pub fn get_key_from_index(&self, index: u32) -> Result<String, &'static str> {
+        let input = KeyData {
+            data8: SMC_CMD_READ_INDEX,
+            data32: index,
+            ..Default::default()
+        };
+
+        let output = self.read(&input)?;
+
+        // Key is stored as u32 in big-endian format
+        let key = output.key;
+        let key_bytes = key.to_be_bytes();
+
+        // Convert to string (4-character FourCC code)
+        let key_str = String::from_utf8_lossy(&key_bytes).to_string();
+
+        Ok(key_str)
+    }
+
+    /// Discover all temperature keys dynamically
+    ///
+    /// Based on mactop's loadSMCTempKeys implementation:
+    /// - Iterates through all SMC keys
+    /// - Filters for 'flt ' type (float, dataType == 1718383648)
+    /// - CPU keys: Tp* or Te* prefix
+    /// - GPU keys: Tg* prefix
+    pub fn discover_temperature_keys(&self) -> (Vec<String>, Vec<String>) {
+        let mut cpu_keys = Vec::new();
+        let mut gpu_keys = Vec::new();
+
+        let key_count = match self.get_key_count() {
+            Ok(count) => count,
+            Err(_) => return (cpu_keys, gpu_keys),
+        };
+
+        for i in 0..key_count {
+            let key = match self.get_key_from_index(i) {
+                Ok(k) => k,
+                Err(_) => continue,
+            };
+
+            // Get key info to check data type
+            let key_info = match self.read_key_info(&key) {
+                Ok(info) => info,
+                Err(_) => continue,
+            };
+
+            // Filter for 'flt ' type (1718383648 == b"flt " as u32)
+            if key_info.data_type != SMC_TYPE_FLT {
+                continue;
+            }
+
+            let key_bytes = key.as_bytes();
+            if key_bytes.len() < 2 {
+                continue;
+            }
+
+            // CPU temperature keys: Tp* or Te*
+            if key_bytes[0] == b'T' && (key_bytes[1] == b'p' || key_bytes[1] == b'e') {
+                cpu_keys.push(key);
+            }
+            // GPU temperature keys: Tg*
+            else if key_bytes[0] == b'T' && key_bytes[1] == b'g' {
+                gpu_keys.push(key);
+            }
+        }
+
+        (cpu_keys, gpu_keys)
+    }
+
     /// Read a value from the SMC
     pub fn read_value(&mut self, key: &str) -> Result<f64, &'static str> {
         let key_info = self.read_key_info(key)?;
@@ -305,18 +422,37 @@ impl SMC {
     }
 
     /// Get average CPU temperature
+    ///
+    /// First tries common static keys, then falls back to dynamically
+    /// discovered keys if no readings are obtained.
     pub fn get_cpu_temperature(&mut self) -> Option<f64> {
         let mut temps: Vec<f64> = Vec::new();
 
-        // Try various CPU temperature keys
-        let cpu_keys = [
+        // Try common CPU temperature keys first
+        let static_keys = [
             "Tp01", "Tp02", "Tp05", "Tp06", "Tp09", "Tp0A", "TC0P", "TC0D",
         ];
 
-        for key in cpu_keys {
+        for key in static_keys {
             if let Ok(value) = self.read_value(key) {
                 if (10.0..=120.0).contains(&value) {
                     temps.push(value);
+                }
+            }
+        }
+
+        // If static keys didn't work, try dynamically discovered keys
+        if temps.is_empty() {
+            let discovered = DISCOVERED_CPU_KEYS.get_or_init(|| {
+                let (cpu_keys, _) = self.discover_temperature_keys();
+                cpu_keys
+            });
+
+            for key in discovered {
+                if let Ok(value) = self.read_value(key) {
+                    if (10.0..=120.0).contains(&value) {
+                        temps.push(value);
+                    }
                 }
             }
         }
@@ -329,16 +465,35 @@ impl SMC {
     }
 
     /// Get average GPU temperature
+    ///
+    /// First tries common static keys, then falls back to dynamically
+    /// discovered keys if no readings are obtained.
     pub fn get_gpu_temperature(&mut self) -> Option<f64> {
         let mut temps: Vec<f64> = Vec::new();
 
-        // Try various GPU temperature keys
-        let gpu_keys = ["Tg0f", "Tg0j", "TG0P", "TG0D"];
+        // Try common GPU temperature keys first
+        let static_keys = ["Tg0f", "Tg0j", "TG0P", "TG0D"];
 
-        for key in gpu_keys {
+        for key in static_keys {
             if let Ok(value) = self.read_value(key) {
                 if (10.0..=120.0).contains(&value) {
                     temps.push(value);
+                }
+            }
+        }
+
+        // If static keys didn't work, try dynamically discovered keys
+        if temps.is_empty() {
+            let discovered = DISCOVERED_GPU_KEYS.get_or_init(|| {
+                let (_, gpu_keys) = self.discover_temperature_keys();
+                gpu_keys
+            });
+
+            for key in discovered {
+                if let Ok(value) = self.read_value(key) {
+                    if (10.0..=120.0).contains(&value) {
+                        temps.push(value);
+                    }
                 }
             }
         }
@@ -426,5 +581,18 @@ mod tests {
     fn test_invalid_fourcc() {
         assert_eq!(str_to_fourcc("ABC"), 0); // Too short
         assert_eq!(str_to_fourcc("ABCDE"), 0); // Too long
+    }
+
+    #[test]
+    fn test_smc_type_flt_constant() {
+        // Verify SMC_TYPE_FLT matches the expected value from mactop (1718383648)
+        assert_eq!(SMC_TYPE_FLT, 1718383648);
+        assert_eq!(SMC_TYPE_FLT, u32::from_be_bytes(*b"flt "));
+    }
+
+    #[test]
+    fn test_hash_key_fourcc() {
+        // Test the #KEY special key used for key count
+        assert_eq!(str_to_fourcc("#KEY"), u32::from_be_bytes(*b"#KEY"));
     }
 }

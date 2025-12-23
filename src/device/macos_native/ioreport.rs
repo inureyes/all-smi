@@ -28,11 +28,13 @@
 //! - OSXPrivateSDK IOReport.h
 
 use core_foundation::base::{CFRelease, CFType, CFTypeRef, TCFType};
+use core_foundation::data::CFData;
 use core_foundation::dictionary::{CFDictionary, CFDictionaryRef, CFMutableDictionaryRef};
 use core_foundation::string::{CFString, CFStringRef};
 use std::ffi::c_void;
 use std::marker::{PhantomData, PhantomPinned};
 use std::ptr;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 /// Opaque IOReport subscription reference
@@ -89,6 +91,202 @@ unsafe extern "C" {
     fn IOReportStateGetCount(channel: CFDictionaryRef) -> i32;
     fn IOReportStateGetNameForIndex(channel: CFDictionaryRef, index: i32) -> CFStringRef;
     fn IOReportStateGetResidency(channel: CFDictionaryRef, index: i32) -> i64;
+}
+
+// IOKit FFI declarations for GPU frequency discovery
+#[link(name = "IOKit", kind = "framework")]
+unsafe extern "C" {
+    fn IOServiceMatching(name: *const i8) -> *mut c_void;
+    fn IOServiceGetMatchingServices(
+        master_port: u32,
+        matching: *mut c_void,
+        existing: *mut u32,
+    ) -> i32;
+    fn IOIteratorNext(iterator: u32) -> u32;
+    fn IORegistryEntryGetName(entry: u32, name: *mut i8) -> i32;
+    fn IORegistryEntryCreateCFProperties(
+        entry: u32,
+        properties: *mut CFMutableDictionaryRef,
+        allocator: *const c_void,
+        options: u32,
+    ) -> i32;
+    fn IOObjectRelease(object: u32) -> i32;
+}
+
+/// GPU frequency table loaded from IOKit pmgr device
+///
+/// This is loaded once at startup and cached for use when calculating
+/// weighted average GPU frequency from GPUPH residencies.
+static GPU_FREQUENCIES: OnceLock<Vec<u32>> = OnceLock::new();
+
+/// Load GPU frequencies from IOKit pmgr/clpc device
+///
+/// Based on mactop's loadGpuFrequencies implementation:
+/// - Matches AppleARMIODevice service
+/// - Looks for pmgr or clpc device
+/// - Reads voltage-states9-sram or voltage-states9 property
+/// - Parses frequency values (first 4 bytes of each 8-byte entry in Hz)
+fn load_gpu_frequencies() -> Vec<u32> {
+    unsafe {
+        let matching = IOServiceMatching(c"AppleARMIODevice".as_ptr());
+        if matching.is_null() {
+            return vec![];
+        }
+
+        let mut iterator: u32 = 0;
+        // kIOMainPortDefault is 0
+        if IOServiceGetMatchingServices(0, matching, &mut iterator) != 0 {
+            return vec![];
+        }
+
+        let mut frequencies: Vec<u32> = vec![];
+        let mut entry = IOIteratorNext(iterator);
+
+        while entry != 0 {
+            let mut name_buf = [0i8; 128];
+            IORegistryEntryGetName(entry, name_buf.as_mut_ptr());
+
+            let name = std::ffi::CStr::from_ptr(name_buf.as_ptr())
+                .to_str()
+                .unwrap_or("");
+
+            // Look for pmgr or clpc device
+            if name == "pmgr" || name == "clpc" {
+                let mut properties: CFMutableDictionaryRef = ptr::null_mut();
+                if IORegistryEntryCreateCFProperties(entry, &mut properties, ptr::null(), 0) == 0
+                    && !properties.is_null()
+                {
+                    frequencies = extract_gpu_frequencies_from_properties(properties);
+                    CFRelease(properties as *const c_void);
+                }
+            }
+
+            IOObjectRelease(entry);
+            if !frequencies.is_empty() {
+                break; // Found frequencies, stop searching
+            }
+            entry = IOIteratorNext(iterator);
+        }
+
+        IOObjectRelease(iterator);
+        frequencies
+    }
+}
+
+/// Extract GPU frequencies from pmgr device properties
+fn extract_gpu_frequencies_from_properties(properties: CFMutableDictionaryRef) -> Vec<u32> {
+    unsafe {
+        let cf_dict = CFDictionary::<CFType, CFType>::wrap_under_get_rule(properties);
+
+        // First try voltage-states9-sram or voltage-states9 (preferred keys)
+        let preferred_keys = ["voltage-states9-sram", "voltage-states9"];
+        for key_name in preferred_keys {
+            let key = CFString::new(key_name);
+            if let Some(value) = cf_dict.find(key.as_CFType().as_CFTypeRef()) {
+                let data_ref = value.as_CFTypeRef() as core_foundation::data::CFDataRef;
+                if !data_ref.is_null() {
+                    let frequencies = parse_voltage_states_data(data_ref);
+                    if !frequencies.is_empty() {
+                        return frequencies;
+                    }
+                }
+            }
+        }
+
+        // Fallback: search for any voltage-states* key with reasonable frequency range
+        // Look for the one with the lowest max frequency (GPU frequencies are lower than CPU)
+        let mut best_frequencies: Vec<u32> = vec![];
+        let mut best_max_freq: u32 = u32::MAX;
+
+        let count = core_foundation::dictionary::CFDictionaryGetCount(properties) as usize;
+        if count == 0 {
+            return vec![];
+        }
+
+        let mut keys: Vec<*const c_void> = vec![ptr::null(); count];
+        let mut values: Vec<*const c_void> = vec![ptr::null(); count];
+        core_foundation::dictionary::CFDictionaryGetKeysAndValues(
+            properties,
+            keys.as_mut_ptr(),
+            values.as_mut_ptr(),
+        );
+
+        for i in 0..count {
+            let key_ref = keys[i] as CFStringRef;
+            if key_ref.is_null() {
+                continue;
+            }
+
+            let key_str = cfstr_to_string(key_ref).unwrap_or_default();
+            if !key_str.starts_with("voltage-states") {
+                continue;
+            }
+
+            let data_ref = values[i] as core_foundation::data::CFDataRef;
+            if data_ref.is_null() {
+                continue;
+            }
+
+            let frequencies = parse_voltage_states_data(data_ref);
+            if frequencies.is_empty() {
+                continue;
+            }
+
+            // Find max frequency in this set
+            let max_freq = frequencies.iter().max().copied().unwrap_or(0);
+
+            // GPU frequencies are typically lower than CPU frequencies
+            // Select the set with the lowest maximum as GPU frequencies
+            if max_freq > 0 && max_freq < best_max_freq {
+                best_max_freq = max_freq;
+                best_frequencies = frequencies;
+            }
+        }
+
+        best_frequencies
+    }
+}
+
+/// Parse voltage-states data to extract frequencies in MHz
+fn parse_voltage_states_data(data_ref: core_foundation::data::CFDataRef) -> Vec<u32> {
+    unsafe {
+        let data = CFData::wrap_under_get_rule(data_ref);
+        let bytes = data.bytes();
+        let len = bytes.len();
+
+        // Each entry is 8 bytes: first 4 bytes are frequency in Hz
+        let total_entries = len / 8;
+        let mut frequencies: Vec<u32> = Vec::with_capacity(total_entries.min(64));
+
+        for i in 0..total_entries.min(64) {
+            let offset = i * 8;
+            if offset + 4 > len {
+                break;
+            }
+
+            // Read 4-byte little-endian frequency value in Hz
+            let freq_hz = u32::from_le_bytes([
+                bytes[offset],
+                bytes[offset + 1],
+                bytes[offset + 2],
+                bytes[offset + 3],
+            ]);
+
+            // Convert to MHz and filter out invalid values
+            // Valid GPU frequencies are typically > 100 MHz
+            let freq_mhz = freq_hz / 1_000_000;
+            if freq_mhz > 0 {
+                frequencies.push(freq_mhz);
+            }
+        }
+
+        frequencies
+    }
+}
+
+/// Get cached GPU frequencies, loading them if necessary
+pub fn get_gpu_frequencies() -> &'static [u32] {
+    GPU_FREQUENCIES.get_or_init(load_gpu_frequencies)
 }
 
 // Core Foundation helper functions
@@ -509,8 +707,59 @@ impl IOReportMetrics {
             return;
         }
 
-        let (freq, residency) = Self::calc_freq_from_residencies(&residencies);
+        // Get pre-loaded GPU frequencies from IOKit pmgr device
+        let gpu_freq_table = get_gpu_frequencies();
+
+        // Use IOKit frequencies if available, otherwise fall back to parsing state names
+        let (freq, residency) = if !gpu_freq_table.is_empty() {
+            Self::calc_gpu_freq_with_table(&residencies, gpu_freq_table)
+        } else {
+            Self::calc_freq_from_residencies(&residencies)
+        };
         gpu_freqs.push((freq, residency));
+    }
+
+    /// Calculate GPU frequency using pre-loaded frequency table from IOKit
+    ///
+    /// Based on mactop's approach:
+    /// - Active states (non-OFF/IDLE/DOWN) are mapped to frequencies in order
+    /// - The frequency table from pmgr device provides accurate MHz values
+    fn calc_gpu_freq_with_table(residencies: &[(String, i64)], freq_table: &[u32]) -> (u32, f64) {
+        let mut total_residency: i64 = 0;
+        let mut active_residency: i64 = 0;
+        let mut weighted_freq: f64 = 0.0;
+        let mut active_state_idx: usize = 0;
+
+        for (name, residency) in residencies {
+            total_residency += residency;
+
+            // Skip idle/off states
+            if name.contains("IDLE") || name.contains("OFF") || name.contains("DOWN") {
+                continue;
+            }
+
+            active_residency += residency;
+
+            // Map active state index to frequency from table
+            if active_state_idx < freq_table.len() {
+                weighted_freq += freq_table[active_state_idx] as f64 * *residency as f64;
+            }
+            active_state_idx += 1;
+        }
+
+        if total_residency == 0 {
+            return (0, 0.0);
+        }
+
+        let avg_freq = if active_residency > 0 {
+            (weighted_freq / active_residency as f64) as u32
+        } else {
+            0
+        };
+
+        let residency_pct = (active_residency as f64 / total_residency as f64) * 100.0;
+
+        (avg_freq, residency_pct)
     }
 
     /// Calculate frequency and residency from state residencies
@@ -601,5 +850,48 @@ mod tests {
     fn test_calculate_cluster_average_empty() {
         let result = IOReportMetrics::calculate_cluster_average(&[]);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_calc_gpu_freq_with_table() {
+        // Simulate GPUPH residencies: OFF, IDLE, then active states
+        let residencies = vec![
+            ("OFF".to_string(), 100),
+            ("IDLE".to_string(), 400),
+            ("state0".to_string(), 200), // Maps to freq_table[0]
+            ("state1".to_string(), 200), // Maps to freq_table[1]
+            ("state2".to_string(), 100), // Maps to freq_table[2]
+        ];
+
+        // GPU frequency table from IOKit (in MHz)
+        let freq_table = [396, 720, 1398];
+
+        let (freq, residency) =
+            IOReportMetrics::calc_gpu_freq_with_table(&residencies, &freq_table);
+
+        // Active residency: 200 + 200 + 100 = 500 out of 1000 total = 50%
+        assert!((residency - 50.0).abs() < 0.1);
+
+        // Weighted freq: (396*200 + 720*200 + 1398*100) / 500 = 725.2
+        // (79200 + 144000 + 139800) / 500 = 726
+        assert_eq!(freq, 726);
+    }
+
+    #[test]
+    fn test_calc_gpu_freq_with_empty_table() {
+        // When freq_table is empty, calc_gpu_freq_with_table should return 0 frequency
+        // but still calculate residency correctly
+        let residencies = vec![("OFF".to_string(), 100), ("state0".to_string(), 200)];
+
+        let freq_table: [u32; 0] = [];
+
+        let (freq, residency) =
+            IOReportMetrics::calc_gpu_freq_with_table(&residencies, &freq_table);
+
+        // Active residency: 200 out of 300 total = 66.67%
+        assert!((residency - 66.67).abs() < 0.1);
+
+        // No frequency data available
+        assert_eq!(freq, 0);
     }
 }
