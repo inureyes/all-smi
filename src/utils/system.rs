@@ -88,7 +88,7 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
         #[cfg(all(target_os = "macos", feature = "native-macos"))]
         {
             // Native macOS APIs (IOReport, SMC) don't require sudo
-            return true;
+            true
         }
 
         #[cfg(not(all(target_os = "macos", feature = "native-macos")))]

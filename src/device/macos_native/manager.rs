@@ -282,9 +282,20 @@ impl NativeMetricsManager {
         // Create a new IOReport for this collection
         let mut ioreport = IOReport::new()?;
 
+        // For first collection, use fewer samples for faster startup
+        // Subsequent calls can use full sample count for accuracy
+        static FIRST_COLLECTION: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(true);
+
+        let sample_count = if FIRST_COLLECTION.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            1 // First call: single sample for fast startup (~100ms)
+        } else {
+            self.config.sample_count // Subsequent calls: full averaging
+        };
+
         // Collect samples
         let mut samples: Vec<IOReportMetrics> = Vec::new();
-        for _ in 0..self.config.sample_count {
+        for _ in 0..sample_count {
             let (iterator, duration_ns) = ioreport.get_sample(self.config.sample_interval_ms)?;
             samples.push(IOReportMetrics::from_sample(iterator, duration_ns));
         }
