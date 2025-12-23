@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod chassis_renderer;
 pub mod cpu_renderer;
 pub mod gpu_renderer;
 pub mod memory_renderer;
@@ -19,12 +20,15 @@ pub mod storage_renderer;
 pub mod widgets;
 
 // Re-export the main rendering functions for backward compatibility
+pub use chassis_renderer::print_chassis_info;
 pub use cpu_renderer::print_cpu_info;
 pub use gpu_renderer::print_gpu_info;
 pub use memory_renderer::print_memory_info;
 pub use storage_renderer::print_storage_info;
 
 // Re-export renderer structs if needed in the future
+#[allow(unused_imports)]
+pub use chassis_renderer::ChassisRenderer;
 #[allow(unused_imports)]
 pub use cpu_renderer::CpuRenderer;
 #[allow(unused_imports)]

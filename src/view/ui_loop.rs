@@ -34,8 +34,8 @@ use crate::ui::buffer::{BufferWriter, DifferentialRenderer};
 use crate::ui::dashboard::{draw_dashboard_items, draw_system_view};
 use crate::ui::layout::LayoutCalculator;
 use crate::ui::renderer::{
-    print_cpu_info, print_function_keys, print_gpu_info, print_loading_indicator,
-    print_memory_info, print_process_info, print_storage_info,
+    print_chassis_info, print_cpu_info, print_function_keys, print_gpu_info,
+    print_loading_indicator, print_memory_info, print_process_info, print_storage_info,
 };
 use crate::ui::tabs::draw_tabs;
 use crate::ui::text::print_colored_text;
@@ -501,6 +501,9 @@ impl UiLoop {
 
         let is_remote = args.hosts.is_some() || args.hostfile.is_some();
 
+        // Render chassis information (node-level metrics)
+        self.render_chassis_section(&mut buffer, state, width);
+
         // Render GPU information
         self.render_gpu_section(&mut buffer, state, args, cols, rows);
 
@@ -579,6 +582,42 @@ impl UiLoop {
                 device_name_scroll_offset,
                 hostname_scroll_offset,
             );
+        }
+    }
+
+    fn render_chassis_section(&self, buffer: &mut BufferWriter, state: &AppState, width: usize) {
+        if state.chassis_info.is_empty() {
+            return;
+        }
+
+        // Filter chassis info based on mode and current tab
+        let chassis_to_display: Vec<_> = if state.is_local_mode {
+            // Local mode: show all chassis info (should be just one)
+            state.chassis_info.iter().collect()
+        } else if state.current_tab == 0 {
+            // Remote mode, "All" tab - don't show individual chassis, skip
+            return;
+        } else if state.current_tab < state.tabs.len() {
+            // Remote mode, specific node tab
+            let current_host = &state.tabs[state.current_tab];
+            state
+                .chassis_info
+                .iter()
+                .filter(|c| c.host_id == *current_host || c.hostname == *current_host)
+                .collect()
+        } else {
+            // Fallback - show all (shouldn't happen normally)
+            state.chassis_info.iter().collect()
+        };
+
+        for (i, chassis) in chassis_to_display.iter().enumerate() {
+            let hostname_scroll_offset = state
+                .host_id_scroll_offsets
+                .get(&chassis.host_id)
+                .copied()
+                .unwrap_or(0);
+
+            print_chassis_info(buffer, i, chassis, width, hostname_scroll_offset);
         }
     }
 
