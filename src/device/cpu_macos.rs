@@ -693,10 +693,11 @@ impl MacOsCpuReader {
     }
 
     fn get_apple_silicon_core_utilization(&self) -> Result<(f64, f64), Box<dyn std::error::Error>> {
-        // Get actual CPU utilization from sysinfo first
-        let total_cpu_util = self.get_cpu_utilization_sysinfo().unwrap_or(0.0);
+        // OPTIMIZATION: This is a fallback method only called when per_core_utilization is empty
+        // Don't refresh CPU here since caller (get_apple_silicon_cpu_info) already did via ensure_cpu_refreshed()
+        let total_cpu_util = self.system.read().unwrap().global_cpu_usage() as f64;
 
-        // Use native metrics manager for cluster residency
+        // Use native metrics manager for cluster residency (cached, no extra collection)
         if let Some(manager) = get_native_metrics_manager() {
             if let Ok(data) = manager.collect_once() {
                 // Use cluster residency from native metrics

@@ -522,7 +522,6 @@ impl GpuReader for AmdGpuReader {
 
     fn get_process_info(&self) -> Vec<ProcessInfo> {
         use std::collections::{HashMap, HashSet};
-        use sysinfo::System;
 
         let mut process_info_list = Vec::new();
 
@@ -579,9 +578,18 @@ impl GpuReader for AmdGpuReader {
         }
 
         // Get system process information once for all GPU processes
-        let mut system = System::new_all();
-        system.refresh_all();
-        let system_processes = crate::device::process_list::get_all_processes(&system, &gpu_pids);
+        // OPTIMIZATION: Use minimal refresh instead of refresh_all() which is extremely expensive
+        // We only need CPU, memory, and basic process info for GPU processes
+        use crate::utils::with_global_system;
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+        let system_processes = with_global_system(|system| {
+            let refresh_kind = ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .with_user(UpdateKind::OnlyIfNotSet);
+            system.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh_kind);
+            crate::device::process_list::get_all_processes(system, &gpu_pids)
+        });
         let process_map: HashMap<u32, _> = system_processes.iter().map(|p| (p.pid, p)).collect();
 
         // Build final ProcessInfo list efficiently

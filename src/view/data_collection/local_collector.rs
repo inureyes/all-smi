@@ -275,10 +275,19 @@ impl LocalCollector {
                     let all_processes = tokio::task::spawn_blocking(|| {
                         with_global_system(|system| {
                             use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+                            // OPTIMIZATION: Only refresh fields we actually need
+                            // - CPU usage for cpu_percent
+                            // - Memory for memory_percent/memory_rss/memory_vms
+                            // - User only if not already set (avoid repeated lookups)
+                            // This is much cheaper than everything() which includes disk I/O, etc.
+                            let refresh_kind = ProcessRefreshKind::nothing()
+                                .with_cpu()
+                                .with_memory()
+                                .with_user(UpdateKind::OnlyIfNotSet);
                             system.refresh_processes_specifics(
                                 ProcessesToUpdate::All,
                                 true,
-                                ProcessRefreshKind::everything().with_user(UpdateKind::Always),
+                                refresh_kind,
                             );
                             system.refresh_memory();
                             let gpu_pids: HashSet<u32> = HashSet::new();
@@ -359,11 +368,15 @@ impl LocalCollector {
         let gpu_pids: HashSet<u32> = gpu_processes.iter().map(|p| p.pid).collect();
         let mut all_processes = with_global_system(|system| {
             use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
-            system.refresh_processes_specifics(
-                ProcessesToUpdate::All,
-                true,
-                ProcessRefreshKind::everything().with_user(UpdateKind::Always),
-            );
+            // OPTIMIZATION: Only refresh fields we actually need
+            // - CPU usage for cpu_percent
+            // - Memory for memory_percent/memory_rss/memory_vms
+            // - User only if not already set (avoid repeated lookups)
+            let refresh_kind = ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .with_user(UpdateKind::OnlyIfNotSet);
+            system.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh_kind);
             system.refresh_memory();
             get_all_processes(system, &gpu_pids)
         });
