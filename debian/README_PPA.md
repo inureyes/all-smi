@@ -108,34 +108,52 @@ The PPA build process uses Ubuntu's **rust-1.85-all** package instead of the def
 
 ### How It Works
 
-The build process in `debian/rules`:
+The build process has two phases:
 
-1. **Build-Depends**: The `debian/control` file specifies:
-   ```
-   Build-Depends: ..., rust-1.85-all, ...
-   ```
+#### 1. Prepare Source Package (before upload)
 
-2. **Build**: During `override_dh_auto_build`:
-   ```bash
-   cargo-1.85 build --release --locked
-   ```
+Run `prepare-source-package.sh` to vendor all Rust dependencies:
 
-3. **Version-specific binaries**: Ubuntu's versioned Rust packages provide
-   version-suffixed binaries (`rustc-1.85`, `cargo-1.85`) to allow multiple
-   Rust versions to coexist.
+```bash
+./debian/prepare-source-package.sh
+```
+
+This script:
+- Runs `cargo vendor debian/vendor` to download all crates
+- Creates `.cargo/config.toml` to use vendored sources
+- Copies source-based packaging files (`control.source`, `rules.source`)
+
+#### 2. Build on Launchpad (offline)
+
+The `debian/rules` file specifies:
+
+```makefile
+# Build-Depends in debian/control
+Build-Depends: ..., rust-1.85-all, ...
+
+# Build command uses --frozen for offline builds
+cargo-1.85 build --release --frozen
+```
+
+Ubuntu's versioned Rust packages provide version-suffixed binaries
+(`rustc-1.85`, `cargo-1.85`) to allow multiple Rust versions to coexist.
 
 ### Benefits
 
 - **Full Cargo.lock v4 Support**: Rust 1.85 can parse modern lockfile formats
-- **Reproducible Builds**: Using `--locked` ensures exact dependency versions
-- **No Network Required**: Uses official Ubuntu packages (Launchpad has no network access)
+- **Reproducible Builds**: Using `--frozen` ensures exact dependency versions
+- **Offline Builds**: Vendored crates work without network access
 - **No External Dependencies**: All build tools come from Ubuntu repositories
 
 ### Why Not rustup?
 
 Launchpad PPA build environments have **no network access** for security reasons.
-This means rustup cannot download toolchains during the build. Using Ubuntu's
-official versioned Rust packages is the correct approach for PPA builds.
+This means:
+- rustup cannot download toolchains during the build
+- cargo cannot download crates from crates.io
+
+Using Ubuntu's official versioned Rust packages + vendored dependencies is the
+correct approach for PPA builds.
 
 ## Troubleshooting
 
