@@ -83,6 +83,8 @@ pub struct NativeMetricsManager {
     ioreport: Mutex<Option<IOReport>>,
     latest_data: RwLock<Option<NativeMetricsData>>,
     last_collection_time: RwLock<Option<std::time::Instant>>,
+    /// Mutex to prevent concurrent collections (only one collection at a time)
+    collection_lock: Mutex<()>,
     is_running: AtomicBool,
     collector_handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
@@ -105,6 +107,7 @@ impl NativeMetricsManager {
             ioreport: Mutex::new(Some(ioreport)),
             latest_data: RwLock::new(None),
             last_collection_time: RwLock::new(None),
+            collection_lock: Mutex::new(()),
             is_running: AtomicBool::new(false),
             collector_handle: Mutex::new(None),
         })
@@ -285,10 +288,28 @@ impl NativeMetricsManager {
     ///
     /// This method implements caching: if called within 500ms of a previous collection,
     /// it returns the cached data instead of collecting new samples.
+    /// Uses double-checked locking to prevent concurrent collections.
     pub fn collect_once(&self) -> Result<NativeMetricsData, Box<dyn std::error::Error>> {
         const CACHE_DURATION_MS: u128 = 500;
 
-        // Check if we have valid cached data
+        // First check: quick read-only cache check (no lock)
+        if let (Ok(time_guard), Ok(data_guard)) =
+            (self.last_collection_time.read(), self.latest_data.read())
+        {
+            if let (Some(last_time), Some(data)) = (*time_guard, data_guard.clone()) {
+                if last_time.elapsed().as_millis() < CACHE_DURATION_MS {
+                    return Ok(data);
+                }
+            }
+        }
+
+        // Acquire collection lock to prevent concurrent collections
+        let _lock = self
+            .collection_lock
+            .lock()
+            .map_err(|_| "Collection lock poisoned")?;
+
+        // Second check: re-check cache after acquiring lock (another thread may have collected)
         if let (Ok(time_guard), Ok(data_guard)) =
             (self.last_collection_time.read(), self.latest_data.read())
         {
