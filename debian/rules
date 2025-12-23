@@ -13,19 +13,15 @@ export CARGO_HOME = $(HOME)/.cargo
 override_dh_auto_configure:
 	# Create temporary home directory for cargo
 	mkdir -p $(CARGO_HOME)
+	# Install rustup and latest stable Rust to handle Cargo.lock v4
+	# (Ubuntu 24.04 ships Rust 1.75 which cannot parse lockfile v4)
+	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
 	# Verify rust toolchain is available
-	rustc --version
-	cargo --version
+	. $(CARGO_HOME)/env && rustc --version && cargo --version
 
 override_dh_auto_build:
-	# Build the project
-	# If Cargo.lock is lockfile v4, regenerate with Cargo 1.75 (produces v3)
-	if grep -q '^version = 4' Cargo.lock 2>/dev/null; then \
-		rm -f Cargo.lock; \
-		cargo generate-lockfile; \
-	fi
-	# Build the project with cargo
-	cargo build --release --locked
+	# Build the project with rustup-installed Rust
+	. $(CARGO_HOME)/env && cargo build --release --locked
 
 override_dh_auto_install:
 	# Install the compiled binary

@@ -95,6 +95,50 @@ This will fetch all releases from GitHub and format them for the Debian changelo
 - **Multi-Architecture**: Supports amd64 and arm64
 - **Multi-Distribution**: Builds for Ubuntu 22.04, 24.04, and 24.10
 
+## Rust Toolchain and Cargo.lock Compatibility
+
+### Why rustup is Required
+
+The PPA build process uses **rustup** to install the latest stable Rust toolchain instead of relying on Ubuntu's system-provided Rust packages. This is necessary due to Cargo.lock format compatibility:
+
+- **Ubuntu 24.04 (Noble)** ships with **Rust 1.75.0**
+- **Cargo.lock version 4** requires **Rust 1.78+** to parse
+- The repository uses lockfile v4 (generated with newer Rust versions)
+- Rust 1.75's cargo cannot parse v4 lockfiles, even to regenerate them
+
+### How It Works
+
+The build process in `debian/rules`:
+
+1. **Installation**: During `override_dh_auto_configure`:
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+     sh -s -- -y --default-toolchain stable --profile minimal
+   ```
+
+2. **Build**: During `override_dh_auto_build`:
+   ```bash
+   . $(CARGO_HOME)/env && cargo build --release --locked
+   ```
+
+3. **Requirements**:
+   - Network access during build (Launchpad provides this)
+   - `curl` and `ca-certificates` in Build-Depends
+   - `HOME` and `CARGO_HOME` environment variables set
+
+### Benefits
+
+- **Full Cargo.lock v4 Support**: Latest stable Rust can parse modern lockfile formats
+- **Reproducible Builds**: Using `--locked` ensures exact dependency versions
+- **No Lockfile Version Maintenance**: No need to downgrade or regenerate lockfiles
+- **Future-Proof**: Automatically gets Rust updates that support new lockfile formats
+
+### Build Time Impact
+
+- First build downloads rustup (~20-30 seconds)
+- Subsequent builds use cached toolchain
+- Minimal overhead compared to compilation time
+
 ## Troubleshooting
 
 ### GPG Key Issues
