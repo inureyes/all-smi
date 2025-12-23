@@ -114,7 +114,13 @@ jobs:
           dput \
           gpg \
           dpkg-dev \
-          build-essential
+          build-essential \
+          pkg-config \
+          libssl-dev \
+          protobuf-compiler \
+          cmake \
+          libdrm-dev \
+          libdrm-amdgpu1
 
     # ───────────────────────────────────────────────────────────────────
     # Step 6: Prepare package version

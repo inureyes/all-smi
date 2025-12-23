@@ -9,7 +9,9 @@ Build-Depends: debhelper-compat (= 13),
                pkg-config,
                libssl-dev,
                protobuf-compiler,
-               cmake
+               cmake,
+               libdrm-dev,
+               libdrm-amdgpu1
 Standards-Version: 4.6.2
 Homepage: https://github.com/lablup/all-smi
 Vcs-Browser: https://github.com/lablup/all-smi
