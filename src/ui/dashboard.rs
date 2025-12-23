@@ -87,11 +87,36 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
             / (1024.0 * 1024.0 * 1024.0)
     };
 
-    let total_power_watts = state
-        .gpu_info
-        .iter()
-        .map(|gpu| gpu.power_consumption)
-        .sum::<f64>();
+    // Calculate total power
+    // For Apple Silicon: use combined power (CPU + GPU + ANE) from powermetrics
+    // For other platforms: sum GPU power consumption
+    let total_power_watts = if is_apple_silicon {
+        // Try to get combined power from GPU detail (set by powermetrics)
+        state
+            .gpu_info
+            .iter()
+            .filter_map(|gpu| {
+                gpu.detail
+                    .get("combined_power_mw")
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .map(|mw| mw / 1000.0) // Convert mW to W
+            })
+            .next() // Only one GPU entry for Apple Silicon
+            .unwrap_or_else(|| {
+                // Fallback to GPU power if combined power not available
+                state
+                    .gpu_info
+                    .iter()
+                    .map(|gpu| gpu.power_consumption)
+                    .sum::<f64>()
+            })
+    } else {
+        state
+            .gpu_info
+            .iter()
+            .map(|gpu| gpu.power_consumption)
+            .sum::<f64>()
+    };
 
     // Calculate total CPU cores
     let total_cpu_cores = state
