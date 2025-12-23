@@ -201,10 +201,12 @@ impl AppleSiliconMockGenerator {
         ));
 
         // CPU power consumption
-        template.push_str("# HELP all_smi_cpu_power_watts CPU power consumption in watts\n");
-        template.push_str("# TYPE all_smi_cpu_power_watts gauge\n");
+        template.push_str(
+            "# HELP all_smi_cpu_power_consumption_watts CPU power consumption in watts\n",
+        );
+        template.push_str("# TYPE all_smi_cpu_power_consumption_watts gauge\n");
         template.push_str(&format!(
-            "all_smi_cpu_power_watts{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\"}} {{{{CPU_POWER}}}}\n",
+            "all_smi_cpu_power_consumption_watts{{cpu_model=\"{}\", instance=\"{}\", hostname=\"{}\"}} {{{{CPU_POWER}}}}\n",
             self.gpu_name, self.instance_name, self.instance_name
         ));
 
@@ -299,10 +301,12 @@ impl AppleSiliconMockGenerator {
                     &format!("{:.3}", gpu.ane_utilization_watts),
                 );
 
-            // Combined power (CPU + GPU + ANE)
+            // Combined power (CPU + GPU + ANE) with bounds checking
+            // Apple Silicon max power is around 200W for Ultra models, clamp to 500W for safety
             let cpu_power = cpu.power_consumption_watts.unwrap_or(0.0);
             let combined_power_watts =
-                cpu_power + gpu.power_consumption_watts + gpu.ane_utilization_watts;
+                (cpu_power + gpu.power_consumption_watts + gpu.ane_utilization_watts)
+                    .clamp(0.0, 500.0);
             response = response.replace(
                 &format!("{{{{COMBINED_POWER_{i}}}}}"),
                 &format!("{combined_power_watts:.3}"),
