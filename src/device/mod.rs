@@ -45,6 +45,10 @@ pub mod powermetrics;
 #[cfg(target_os = "macos")]
 pub mod powermetrics_parser;
 
+// Native macOS APIs for Apple Silicon (no sudo required)
+#[cfg(target_os = "macos")]
+pub mod macos_native;
+
 // hl-smi manager for Intel Gaudi
 #[cfg(target_os = "linux")]
 pub mod hlsmi;

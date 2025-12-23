@@ -23,6 +23,10 @@ pub mod common_cache;
 #[cfg(target_os = "macos")]
 pub mod apple_silicon;
 
+// Native Apple Silicon reader using IOReport/SMC (no sudo required)
+#[cfg(all(target_os = "macos", feature = "native-macos"))]
+pub mod apple_silicon_native;
+
 pub mod furiosa;
 pub mod gaudi;
 #[cfg(target_os = "linux")]

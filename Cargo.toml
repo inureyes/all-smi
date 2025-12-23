@@ -69,6 +69,10 @@ openssl = { version = "0.10.75", features = ["vendored"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 wmi = "0.18"
 
+# macOS-specific dependencies
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+
 [dev-dependencies]
 tempfile = "3.23"
 
@@ -77,6 +81,8 @@ tonic-prost-build = "0.14"
 
 [features]
 mock = ["anyhow"]
+# Use native macOS APIs instead of powermetrics (no sudo required)
+native-macos = []
 
 [lib]
 name = "all_smi"

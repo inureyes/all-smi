@@ -139,8 +139,13 @@ http://gpu-node3:9090
 ## Platform-Specific Requirements
 
 ### macOS (Apple Silicon)
-- **Sudo Access Required:** Apple Silicon GPU monitoring requires `sudo` privileges to run `powermetrics`
-- Run with: `sudo all-smi local`
+- **Recommended (Native APIs):** Build with `--features native-macos` for sudo-free operation
+  - Uses IOReport API and Apple SMC directly
+  - Provides actual temperature readings
+  - Lower latency than powermetrics
+  - Run with: `all-smi local`
+- **Legacy Mode:** Without `native-macos` feature, requires `sudo` privileges for `powermetrics`
+  - Run with: `sudo all-smi local`
 
 ### Linux with AMD GPUs
 - **Sudo Access Required:** AMD GPU monitoring requires `sudo` to access `/dev/dri` devices
@@ -257,9 +262,12 @@ http://gpu-node3:9090
   - Tenstorrent NPUs (Grayskull, Wormhole, Blackhole) via luwen library
   - Rebellions NPUs (ATOM, ATOM+, ATOM Max) via rbln-stat
   - Furiosa NPUs (RNGD) via furiosa-smi
-- **macOS:** 
-  - Apple Silicon (M1/M2/M3/M4) GPUs via powermetrics and Metal framework
+- **macOS:**
+  - Apple Silicon (M1/M2/M3/M4) GPUs monitoring
+  - Native APIs (with `native-macos` feature): IOReport, SMC for no-sudo operation
+  - Legacy mode: powermetrics command (requires sudo)
   - ANE (Apple Neural Engine) power tracking
+  - Actual CPU/GPU temperature readings (native mode)
   - Thermal pressure monitoring
   - P/E core architecture support
 - **NVIDIA Jetson:** 
