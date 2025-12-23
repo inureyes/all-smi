@@ -79,10 +79,12 @@ impl ChassisReader for GenericChassisReader {
 
         // Only return chassis info if we have some data
         // For now, we always return at least the hostname info
+        // Clone hostname once and use for all identifier fields
+        let hostname = self.hostname.clone();
         Some(ChassisInfo {
-            host_id: self.hostname.clone(),
-            hostname: self.hostname.clone(),
-            instance: self.hostname.clone(),
+            host_id: hostname.clone(),
+            hostname: hostname.clone(),
+            instance: hostname,
             total_power_watts,
             inlet_temperature: None,  // Future: IPMI integration
             outlet_temperature: None, // Future: IPMI integration

@@ -54,10 +54,13 @@ impl ChassisReader for AppleSiliconChassisReader {
         let mut detail = HashMap::new();
         detail.insert("platform".to_string(), "Apple Silicon".to_string());
 
-        // Add individual power components to detail
-        let cpu_power_watts = data.cpu_power_mw / 1000.0;
-        let gpu_power_watts = data.gpu_power_mw / 1000.0;
-        let ane_power_watts = data.ane_power_mw / 1000.0;
+        // Add individual power components to detail with bounds validation
+        // Power values must be non-negative and within reasonable bounds (0-10000W)
+        let validate_power = |mw: f64| -> f64 { (mw / 1000.0).clamp(0.0, 10000.0) };
+
+        let cpu_power_watts = validate_power(data.cpu_power_mw);
+        let gpu_power_watts = validate_power(data.gpu_power_mw);
+        let ane_power_watts = validate_power(data.ane_power_mw);
 
         detail.insert(
             "cpu_power_watts".to_string(),
@@ -88,7 +91,7 @@ impl ChassisReader for AppleSiliconChassisReader {
 
         // Calculate total power (combined_power_mw includes CPU+GPU+ANE)
         let total_power_watts = if data.combined_power_mw > 0.0 {
-            Some(data.combined_power_mw / 1000.0)
+            Some(validate_power(data.combined_power_mw))
         } else {
             // Fallback: sum individual components if combined is not available
             let sum = cpu_power_watts + gpu_power_watts + ane_power_watts;
@@ -99,10 +102,12 @@ impl ChassisReader for AppleSiliconChassisReader {
             }
         };
 
+        // Clone hostname once and use for all identifier fields
+        let hostname = self.hostname.clone();
         Some(ChassisInfo {
-            host_id: self.hostname.clone(),
-            hostname: self.hostname.clone(),
-            instance: self.hostname.clone(),
+            host_id: hostname.clone(),
+            hostname: hostname.clone(),
+            instance: hostname,
             total_power_watts,
             inlet_temperature: None,  // Not available on Apple Silicon
             outlet_temperature: None, // Not available on Apple Silicon

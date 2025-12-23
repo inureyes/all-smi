@@ -33,6 +33,63 @@ impl<'a> ChassisMetricExporter<'a> {
     }
 }
 
+/// Flags for which metric types are present across chassis info
+struct MetricPresenceFlags {
+    has_power: bool,
+    has_thermal_pressure: bool,
+    has_cpu_power: bool,
+    has_gpu_power: bool,
+    has_ane_power: bool,
+    has_inlet_temp: bool,
+    has_outlet_temp: bool,
+    has_fan_speeds: bool,
+}
+
+impl MetricPresenceFlags {
+    /// Scan chassis info once to determine which metrics are present
+    fn from_chassis_info(chassis_info: &[ChassisInfo]) -> Self {
+        let mut flags = Self {
+            has_power: false,
+            has_thermal_pressure: false,
+            has_cpu_power: false,
+            has_gpu_power: false,
+            has_ane_power: false,
+            has_inlet_temp: false,
+            has_outlet_temp: false,
+            has_fan_speeds: false,
+        };
+
+        for chassis in chassis_info {
+            flags.has_power |= chassis.total_power_watts.is_some();
+            flags.has_thermal_pressure |= chassis.thermal_pressure.is_some();
+            flags.has_cpu_power |= chassis.detail.contains_key("cpu_power_watts");
+            flags.has_gpu_power |= chassis.detail.contains_key("gpu_power_watts");
+            flags.has_ane_power |= chassis.detail.contains_key("ane_power_watts");
+            flags.has_inlet_temp |= chassis.inlet_temperature.is_some();
+            flags.has_outlet_temp |= chassis.outlet_temperature.is_some();
+            flags.has_fan_speeds |= !chassis.fan_speeds.is_empty();
+
+            // Early exit if all flags are set
+            if flags.all_present() {
+                break;
+            }
+        }
+
+        flags
+    }
+
+    fn all_present(&self) -> bool {
+        self.has_power
+            && self.has_thermal_pressure
+            && self.has_cpu_power
+            && self.has_gpu_power
+            && self.has_ane_power
+            && self.has_inlet_temp
+            && self.has_outlet_temp
+            && self.has_fan_speeds
+    }
+}
+
 impl<'a> MetricExporter for ChassisMetricExporter<'a> {
     fn export_metrics(&self) -> String {
         let mut builder = MetricBuilder::new();
@@ -41,33 +98,34 @@ impl<'a> MetricExporter for ChassisMetricExporter<'a> {
             return builder.build();
         }
 
-        // Export chassis power metrics
-        builder
-            .help(
-                "all_smi_chassis_power_watts",
-                "Total chassis power consumption in watts (CPU+GPU+ANE)",
-            )
-            .type_("all_smi_chassis_power_watts", "gauge");
+        // Single pass to determine which metrics are present
+        let flags = MetricPresenceFlags::from_chassis_info(self.chassis_info);
 
-        for chassis in self.chassis_info {
-            if let Some(power) = chassis.total_power_watts {
-                builder.metric(
+        // Export chassis power metrics
+        if flags.has_power {
+            builder
+                .help(
                     "all_smi_chassis_power_watts",
-                    &[
-                        ("hostname", &chassis.hostname),
-                        ("instance", &chassis.instance),
-                    ],
-                    format!("{power:.2}"),
-                );
+                    "Total chassis power consumption in watts (CPU+GPU+ANE)",
+                )
+                .type_("all_smi_chassis_power_watts", "gauge");
+
+            for chassis in self.chassis_info {
+                if let Some(power) = chassis.total_power_watts {
+                    builder.metric(
+                        "all_smi_chassis_power_watts",
+                        &[
+                            ("hostname", &chassis.hostname),
+                            ("instance", &chassis.instance),
+                        ],
+                        format!("{power:.2}"),
+                    );
+                }
             }
         }
 
         // Export thermal pressure metric (Apple Silicon)
-        let has_thermal_pressure = self
-            .chassis_info
-            .iter()
-            .any(|c| c.thermal_pressure.is_some());
-        if has_thermal_pressure {
+        if flags.has_thermal_pressure {
             builder
                 .help(
                     "all_smi_chassis_thermal_pressure_info",
@@ -91,11 +149,7 @@ impl<'a> MetricExporter for ChassisMetricExporter<'a> {
         }
 
         // Export individual power components if available
-        let has_cpu_power = self
-            .chassis_info
-            .iter()
-            .any(|c| c.detail.contains_key("cpu_power_watts"));
-        if has_cpu_power {
+        if flags.has_cpu_power {
             builder
                 .help(
                     "all_smi_chassis_cpu_power_watts",
@@ -119,11 +173,7 @@ impl<'a> MetricExporter for ChassisMetricExporter<'a> {
             }
         }
 
-        let has_gpu_power = self
-            .chassis_info
-            .iter()
-            .any(|c| c.detail.contains_key("gpu_power_watts"));
-        if has_gpu_power {
+        if flags.has_gpu_power {
             builder
                 .help(
                     "all_smi_chassis_gpu_power_watts",
@@ -147,11 +197,7 @@ impl<'a> MetricExporter for ChassisMetricExporter<'a> {
             }
         }
 
-        let has_ane_power = self
-            .chassis_info
-            .iter()
-            .any(|c| c.detail.contains_key("ane_power_watts"));
-        if has_ane_power {
+        if flags.has_ane_power {
             builder
                 .help(
                     "all_smi_chassis_ane_power_watts",
@@ -176,11 +222,7 @@ impl<'a> MetricExporter for ChassisMetricExporter<'a> {
         }
 
         // Export inlet/outlet temperature if available
-        let has_inlet_temp = self
-            .chassis_info
-            .iter()
-            .any(|c| c.inlet_temperature.is_some());
-        if has_inlet_temp {
+        if flags.has_inlet_temp {
             builder
                 .help(
                     "all_smi_chassis_inlet_temperature_celsius",
@@ -202,11 +244,7 @@ impl<'a> MetricExporter for ChassisMetricExporter<'a> {
             }
         }
 
-        let has_outlet_temp = self
-            .chassis_info
-            .iter()
-            .any(|c| c.outlet_temperature.is_some());
-        if has_outlet_temp {
+        if flags.has_outlet_temp {
             builder
                 .help(
                     "all_smi_chassis_outlet_temperature_celsius",
@@ -229,7 +267,7 @@ impl<'a> MetricExporter for ChassisMetricExporter<'a> {
         }
 
         // Export fan speed metrics if available
-        if self.chassis_info.iter().any(|c| !c.fan_speeds.is_empty()) {
+        if flags.has_fan_speeds {
             builder
                 .help("all_smi_chassis_fan_speed_rpm", "Fan speed in RPM")
                 .type_("all_smi_chassis_fan_speed_rpm", "gauge");
