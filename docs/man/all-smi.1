@@ -15,9 +15,11 @@ all-smi \- Command-line utility for monitoring GPU hardware
 \fBhelp\fR [\fICOMMAND\fR]
 .SH DESCRIPTION
 .B all-smi
-is a comprehensive hardware monitoring tool that provides real-time information about GPU/NPU utilization, 
-memory usage, temperature, power consumption, and other metrics. It supports various hardware platforms 
+is a comprehensive hardware monitoring tool that provides real-time information about GPU/NPU utilization,
+memory usage, temperature, power consumption, chassis-level metrics, and other system information. It supports various hardware platforms
 including NVIDIA GPUs, AMD GPUs, Apple Silicon, NVIDIA Jetson, Google Cloud TPUs, Tenstorrent NPUs, Rebellions NPUs, and Furiosa NPUs.
+Chassis monitoring provides node-level power consumption tracking (CPU+GPU+ANE), thermal pressure monitoring (Apple Silicon),
+and BMC sensor integration for inlet/outlet temperatures and fan speeds on server systems.
 
 The tool can run in three primary modes:
 .TP
@@ -94,7 +96,7 @@ Include the process list in the API output
 .SH INTERACTIVE CONTROLS (LOCAL/VIEW MODE)
 .TP
 .B Tab / Shift+Tab
-Navigate between different tabs (GPU, CPU, Memory, Network, Disk)
+Navigate between different tabs (GPU, CPU, Memory, Chassis, Network, Disk)
 .TP
 .B Up/Down Arrow Keys, j/k
 Navigate through items in the current tab

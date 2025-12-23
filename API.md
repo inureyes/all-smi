@@ -374,6 +374,35 @@ Note: Google Cloud TPUs (v2-v7/Ironwood) are monitored via the `tpu-info` comman
 
 Note: Storage metrics exclude Docker bind mounts and are filtered to show only relevant filesystems.
 
+### Chassis/Node-Level Metrics
+
+Chassis metrics provide visibility into system-wide power consumption, thermal conditions, and cooling status at the node level. These metrics aggregate information from CPU, GPU, ANE, and BMC sensors.
+
+#### Common Chassis Metrics (All Platforms)
+
+| Metric                              | Description                                    | Unit    | Labels                  |
+|-------------------------------------|------------------------------------------------|---------|-------------------------|
+| `all_smi_chassis_power_watts`       | Total chassis power consumption (CPU+GPU+ANE)  | watts   | `hostname`, `instance`  |
+
+#### Apple Silicon Chassis Metrics
+
+| Metric                                   | Description                               | Unit    | Labels                           |
+|------------------------------------------|-------------------------------------------|---------|----------------------------------|
+| `all_smi_chassis_thermal_pressure_info`  | Thermal pressure level                    | info    | `hostname`, `instance`, `level`  |
+| `all_smi_chassis_cpu_power_watts`        | CPU power consumption                     | watts   | `hostname`, `instance`           |
+| `all_smi_chassis_gpu_power_watts`        | GPU power consumption                     | watts   | `hostname`, `instance`           |
+| `all_smi_chassis_ane_power_watts`        | ANE (Apple Neural Engine) power           | watts   | `hostname`, `instance`           |
+
+#### Server Chassis Metrics (BMC-enabled Systems)
+
+| Metric                                      | Description                      | Unit    | Labels                                     |
+|---------------------------------------------|----------------------------------|---------|-------------------------------------------|
+| `all_smi_chassis_inlet_temperature_celsius` | Chassis inlet temperature        | celsius | `hostname`, `instance`                    |
+| `all_smi_chassis_outlet_temperature_celsius`| Chassis outlet temperature       | celsius | `hostname`, `instance`                    |
+| `all_smi_chassis_fan_speed_rpm`             | Fan speed                        | RPM     | `hostname`, `instance`, `fan_id`, `fan_name` |
+
+Note: Chassis metrics provide a unified view of node-level power consumption and thermal conditions, useful for cluster-wide capacity planning and power monitoring.
+
 ### Runtime Environment Metrics
 
 | Metric                              | Description                                      | Unit  | Labels                                           |
@@ -575,6 +604,35 @@ topk(5, all_smi_gpu_process_memory_bytes)
 all_smi_gpu_process_memory_bytes > 1073741824
 ```
 
+### Chassis/Node-Level Monitoring
+```promql
+# Total power consumption across all nodes
+sum(all_smi_chassis_power_watts)
+
+# Nodes with high power consumption (> 3000W)
+all_smi_chassis_power_watts > 3000
+
+# Power breakdown by component (Apple Silicon)
+sum by (hostname) (all_smi_chassis_cpu_power_watts)
+sum by (hostname) (all_smi_chassis_gpu_power_watts)
+sum by (hostname) (all_smi_chassis_ane_power_watts)
+
+# Nodes with non-nominal thermal pressure
+all_smi_chassis_thermal_pressure_info{level!="Nominal"}
+
+# Average chassis power per node
+avg(all_smi_chassis_power_watts)
+
+# Nodes with high inlet temperature
+all_smi_chassis_inlet_temperature_celsius > 35
+
+# Delta between inlet and outlet temperature (thermal dissipation)
+all_smi_chassis_outlet_temperature_celsius - all_smi_chassis_inlet_temperature_celsius
+
+# Fan speed monitoring
+avg by (hostname) (all_smi_chassis_fan_speed_rpm)
+```
+
 ### Runtime Environment Monitoring
 ```promql
 # All containers running in Kubernetes
@@ -682,6 +740,30 @@ groups:
           severity: critical
         annotations:
           summary: "Intel Gaudi NPU {{ $labels.instance }} HBM memory nearly exhausted"
+
+      - alert: ChassisHighPowerConsumption
+        expr: all_smi_chassis_power_watts > 3500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Chassis {{ $labels.hostname }} power consumption is high at {{ $value }}W"
+
+      - alert: ChassisThermalPressureElevated
+        expr: all_smi_chassis_thermal_pressure_info{level!="Nominal"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Chassis {{ $labels.hostname }} thermal pressure elevated to {{ $labels.level }}"
+
+      - alert: ChassisHighInletTemperature
+        expr: all_smi_chassis_inlet_temperature_celsius > 40
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Chassis {{ $labels.hostname }} inlet temperature is high at {{ $value }}°C"
 ```
 
 ## Update Intervals
@@ -725,3 +807,9 @@ Higher update rates provide more real-time data but increase system load. For pr
     - Automatic device name mapping (HL-325L → Intel Gaudi 3 PCIe LP)
     - Support for Gaudi 1/2/3 across PCIe, OAM, UBB, and HLS form factors
     - Background process monitoring via hl-smi with circular buffer
+11. Chassis/Node-level metrics include:
+    - Total chassis power consumption aggregating CPU, GPU, and ANE power
+    - Thermal pressure monitoring (Apple Silicon)
+    - Individual power component breakdown (CPU, GPU, ANE)
+    - Inlet/outlet temperature monitoring (BMC-enabled servers)
+    - Fan speed monitoring with per-fan granularity

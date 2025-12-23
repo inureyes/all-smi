@@ -214,6 +214,19 @@ http://gpu-node3:9090
   - Per-column color coding for better visibility
   - Full process tree integration
 
+### Chassis/Node-Level Monitoring
+- **System-Wide Power Tracking:**
+  - Total chassis power consumption (CPU+GPU+ANE combined)
+  - Individual power component breakdown
+  - Real-time power efficiency monitoring
+- **Thermal Monitoring:**
+  - Thermal pressure levels (Apple Silicon)
+  - Inlet/outlet temperature tracking (BMC-enabled servers)
+  - Fan speed monitoring with per-fan granularity
+- **Platform-Specific Features:**
+  - Apple Silicon: CPU, GPU, ANE power breakdown with thermal pressure
+  - Server systems: BMC sensor integration for comprehensive thermal monitoring
+
 ### Cluster Management
 - **Cluster Overview Dashboard:** Real-time statistics showing:
   - Total nodes and GPUs across the cluster
@@ -309,6 +322,7 @@ Metrics are available at `http://localhost:9090/metrics` and include comprehensi
 - **CPUs:** Utilization, frequency, temperature, power (with P/E core metrics for Apple Silicon)
 - **Memory:** System and swap memory statistics
 - **Storage:** Disk usage information
+- **Chassis:** Node-level power consumption, thermal pressure, inlet/outlet temperatures, fan speeds
 - **Processes:** GPU process metrics including AMD fdinfo-based tracking (with --processes flag)
 
 For a complete list of all available metrics, see [API.md](API.md).
