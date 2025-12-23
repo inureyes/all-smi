@@ -82,6 +82,7 @@ pub struct NativeMetricsManager {
     #[allow(dead_code)]
     ioreport: Mutex<Option<IOReport>>,
     latest_data: RwLock<Option<NativeMetricsData>>,
+    last_collection_time: RwLock<Option<std::time::Instant>>,
     is_running: AtomicBool,
     collector_handle: Mutex<Option<thread::JoinHandle<()>>>,
 }
@@ -103,6 +104,7 @@ impl NativeMetricsManager {
             config,
             ioreport: Mutex::new(Some(ioreport)),
             latest_data: RwLock::new(None),
+            last_collection_time: RwLock::new(None),
             is_running: AtomicBool::new(false),
             collector_handle: Mutex::new(None),
         })
@@ -280,7 +282,23 @@ impl NativeMetricsManager {
     }
 
     /// Collect a single sample synchronously (for testing or one-shot use)
+    ///
+    /// This method implements caching: if called within 500ms of a previous collection,
+    /// it returns the cached data instead of collecting new samples.
     pub fn collect_once(&self) -> Result<NativeMetricsData, Box<dyn std::error::Error>> {
+        const CACHE_DURATION_MS: u128 = 500;
+
+        // Check if we have valid cached data
+        if let (Ok(time_guard), Ok(data_guard)) =
+            (self.last_collection_time.read(), self.latest_data.read())
+        {
+            if let (Some(last_time), Some(data)) = (*time_guard, data_guard.clone()) {
+                if last_time.elapsed().as_millis() < CACHE_DURATION_MS {
+                    return Ok(data);
+                }
+            }
+        }
+
         // Create a new IOReport for this collection
         let mut ioreport = IOReport::new()?;
 
@@ -314,10 +332,13 @@ impl NativeMetricsManager {
         // Combine
         let data = NativeMetricsData::from_components(avg_metrics, smc_metrics, thermal_state);
 
-        // Update latest data
+        // Update latest data and timestamp
         if let Ok(mut guard) = self.latest_data.write() {
             *guard = Some(data.clone());
             FIRST_DATA_RECEIVED.store(true, Ordering::Relaxed);
+        }
+        if let Ok(mut guard) = self.last_collection_time.write() {
+            *guard = Some(std::time::Instant::now());
         }
 
         Ok(data)
