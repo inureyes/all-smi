@@ -14,6 +14,7 @@
 
 use async_trait::async_trait;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::Disks;
@@ -51,6 +52,10 @@ use super::strategy::{
 /// to reduce CPU overhead from tracking thousands of processes.
 const MAX_DISPLAY_PROCESSES: usize = 500;
 
+/// How often to do a full process refresh to discover new high-CPU processes.
+/// Every N cycles, we refresh all processes; otherwise, we only refresh tracked PIDs.
+const FULL_REFRESH_INTERVAL: u32 = 5;
+
 pub struct LocalCollector {
     gpu_readers: Arc<RwLock<Vec<Box<dyn GpuReader>>>>,
     cpu_readers: Arc<RwLock<Vec<Box<dyn CpuReader>>>>,
@@ -58,6 +63,11 @@ pub struct LocalCollector {
     chassis_reader: Arc<RwLock<Option<Box<dyn ChassisReader>>>>,
     aggregator: DataAggregator,
     initialized: Arc<Mutex<bool>>,
+    /// PIDs of processes from the previous collection cycle (top N by CPU usage).
+    /// Used for selective process refresh to reduce CPU overhead.
+    tracked_pids: Arc<RwLock<Vec<sysinfo::Pid>>>,
+    /// Counter for refresh cycles; every FULL_REFRESH_INTERVAL cycles we do a full refresh.
+    refresh_cycle: Arc<AtomicU32>,
 }
 
 impl LocalCollector {
@@ -69,6 +79,8 @@ impl LocalCollector {
             chassis_reader: Arc::new(RwLock::new(None)),
             aggregator: DataAggregator::new(),
             initialized: Arc::new(Mutex::new(false)),
+            tracked_pids: Arc::new(RwLock::new(Vec::new())),
+            refresh_cycle: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -345,6 +357,16 @@ impl LocalCollector {
             all_processes_merged.truncate(MAX_DISPLAY_PROCESSES);
         }
 
+        // Initialize tracked PIDs for selective refresh in subsequent cycles
+        let new_tracked_pids: Vec<sysinfo::Pid> = all_processes_merged
+            .iter()
+            .map(|p| sysinfo::Pid::from_u32(p.pid))
+            .collect();
+        *self.tracked_pids.write().await = new_tracked_pids;
+
+        // Reset refresh cycle counter (first iteration counts as cycle 0)
+        self.refresh_cycle.store(1, Ordering::Relaxed);
+
         CollectionData {
             gpu_info: all_gpu_info,
             cpu_info: all_cpu_info,
@@ -380,6 +402,17 @@ impl LocalCollector {
             .flat_map(|reader| reader.get_process_info())
             .collect();
 
+        // Determine if we should do a full refresh or selective refresh
+        let cycle = self.refresh_cycle.fetch_add(1, Ordering::Relaxed);
+        let do_full_refresh = cycle.is_multiple_of(FULL_REFRESH_INTERVAL);
+
+        // Read tracked PIDs for selective refresh (outside the closure)
+        let tracked_pids_for_refresh: Vec<sysinfo::Pid> = if do_full_refresh {
+            Vec::new() // Not needed for full refresh
+        } else {
+            self.tracked_pids.read().await.clone()
+        };
+
         let gpu_pids: HashSet<u32> = gpu_processes.iter().map(|p| p.pid).collect();
         let mut all_processes = with_global_system(|system| {
             use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
@@ -391,7 +424,19 @@ impl LocalCollector {
                 .with_cpu()
                 .with_memory()
                 .with_user(UpdateKind::OnlyIfNotSet);
-            system.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh_kind);
+
+            // OPTIMIZATION: Selective process refresh
+            // Full refresh every N cycles to discover new high-CPU processes;
+            // otherwise only refresh tracked PIDs to significantly reduce CPU usage.
+            if do_full_refresh || tracked_pids_for_refresh.is_empty() {
+                system.refresh_processes_specifics(ProcessesToUpdate::All, true, refresh_kind);
+            } else {
+                system.refresh_processes_specifics(
+                    ProcessesToUpdate::Some(&tracked_pids_for_refresh),
+                    true,
+                    refresh_kind,
+                );
+            }
             system.refresh_memory();
             get_all_processes(system, &gpu_pids)
         });
@@ -406,6 +451,13 @@ impl LocalCollector {
         if all_processes.len() > MAX_DISPLAY_PROCESSES {
             all_processes.truncate(MAX_DISPLAY_PROCESSES);
         }
+
+        // Update tracked PIDs for next cycle (after truncation to top N)
+        let new_tracked_pids: Vec<sysinfo::Pid> = all_processes
+            .iter()
+            .map(|p| sysinfo::Pid::from_u32(p.pid))
+            .collect();
+        *self.tracked_pids.write().await = new_tracked_pids;
 
         let all_storage_info = Self::collect_storage_info();
 
