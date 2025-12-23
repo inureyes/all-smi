@@ -14,9 +14,8 @@
 
 //! Unified metrics data structure for native macOS APIs
 //!
-//! This module provides a unified data structure that matches the
-//! PowerMetricsData format for backward compatibility, but is populated
-//! using native macOS APIs instead of the powermetrics command.
+//! This module provides a unified data structure for Apple Silicon metrics
+//! populated using native macOS APIs (IOReport, SMC, NSProcessInfo).
 
 use super::ioreport::IOReportMetrics;
 use super::smc::SMCMetrics;
@@ -43,7 +42,6 @@ pub struct NativeMetricsData {
     pub cpu_power_mw: f64,
 
     // Per-core metrics (optional, for detailed reporting)
-    // These are used for compatibility with powermetrics data format
     #[allow(dead_code)]
     pub core_active_residencies: Vec<f64>,
     #[allow(dead_code)]

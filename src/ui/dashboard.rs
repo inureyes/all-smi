@@ -88,10 +88,10 @@ pub fn draw_system_view<W: Write>(stdout: &mut W, state: &AppState, cols: u16) {
     };
 
     // Calculate total power
-    // For Apple Silicon: use combined power (CPU + GPU + ANE) from powermetrics
+    // For Apple Silicon: use combined power (CPU + GPU + ANE) from native metrics
     // For other platforms: sum GPU power consumption
     let total_power_watts = if is_apple_silicon {
-        // Try to get combined power from GPU detail (set by powermetrics)
+        // Try to get combined power from GPU detail (set by native metrics manager)
         state
             .gpu_info
             .iter()

@@ -150,7 +150,7 @@ impl MacOsCpuReader {
         // Get CPU temperature (may not be available)
         let temperature = self.get_cpu_temperature();
 
-        // Power consumption from powermetrics
+        // Power consumption from native metrics manager
         let power_consumption = self.get_cpu_power_consumption();
 
         let total_cores = p_core_count + e_core_count;
@@ -526,14 +526,6 @@ impl MacOsCpuReader {
         *self.cached_intel_info.lock().unwrap() = Some(result.clone());
 
         Ok(result)
-    }
-
-    #[allow(dead_code)] // Kept for compatibility when powermetrics is used
-    fn get_cpu_utilization_powermetrics(&self) -> Result<f64, Box<dyn std::error::Error>> {
-        // Use sysinfo for accurate CPU utilization (better than iostat)
-        // PowerMetrics' active residency != actual CPU utilization
-        // Active residency includes idle time at low frequencies
-        self.get_cpu_utilization_sysinfo()
     }
 
     fn get_cpu_utilization_sysinfo(&self) -> Result<f64, Box<dyn std::error::Error>> {

@@ -19,9 +19,6 @@ help:
 	@echo "  remote-monitoring           Test remote monitoring with multiple mock servers (TODO)"
 	@echo "  prometheus-metrics          Test Prometheus metrics export format (TODO)"
 	@echo ""
-	@echo "Platform-Specific Tests:"
-	@echo "  powermetrics-cleanup        Test powermetrics cleanup on macOS (Apple Silicon)"
-	@echo ""
 	@echo "Performance Tests:"
 	@echo "  high-scale-monitoring       Test monitoring 100+ remote nodes (TODO)"
 	@echo "  api-load-test              Test API performance under load (TODO)"
@@ -67,11 +64,6 @@ container-benchmark:
 quick-api:
 	@echo "=== Running quick API test ==="
 	@./quick-api-test.sh
-
-# Test powermetrics cleanup on macOS (Apple Silicon)
-powermetrics-cleanup:
-	@echo "=== Running powermetrics cleanup test (macOS) ==="
-	@./test-powermetrics-cleanup.sh
 
 # Test memory limit detection in containers (TODO)
 container-memory-limits:

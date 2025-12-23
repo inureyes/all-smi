@@ -491,7 +491,7 @@ pub fn print_cpu_info<W: Write>(
         let core_bar_width =
             (available_width - (cores_per_line - 1) * spacing_between_cores) / cores_per_line;
 
-        // Display E-cores first (matches natural order from powermetrics)
+        // Display E-cores first (matches Apple Silicon core ordering)
         let mut cores_displayed = 0;
         for (i, core) in e_cores.iter().enumerate() {
             if cores_displayed % cores_per_line == 0 && cores_displayed > 0 {
