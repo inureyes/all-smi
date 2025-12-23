@@ -58,11 +58,12 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
         all_metrics.push_str(&memory_exporter.export_metrics());
     }
 
-    // Export disk metrics
-    // Use instance name from first GPU if available, otherwise use hostname
-    let instance = state.gpu_info.first().map(|info| info.instance.clone());
-    let disk_exporter = DiskMetricExporter::new(instance);
-    all_metrics.push_str(&disk_exporter.export_metrics());
+    // Export disk metrics from cached storage_info
+    // This uses pre-collected data from the background task instead of collecting on each request
+    if !state.storage_info.is_empty() {
+        let disk_exporter = DiskMetricExporter::new(&state.storage_info);
+        all_metrics.push_str(&disk_exporter.export_metrics());
+    }
 
     // Export runtime environment metrics
     let runtime_exporter = RuntimeMetricExporter::new(&state.runtime_environment);

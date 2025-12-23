@@ -14,6 +14,7 @@
 
 use axum::{routing::get, Router};
 use std::time::Duration;
+use sysinfo::Disks;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
@@ -24,6 +25,8 @@ use crate::api::handlers::{metrics_handler, SharedState};
 use crate::app_state::AppState;
 use crate::cli::ApiArgs;
 use crate::device::{get_cpu_readers, get_gpu_readers, get_memory_readers};
+use crate::storage::info::StorageInfo;
+use crate::utils::{filter_docker_aware_disks, get_hostname};
 
 pub async fn run_api_mode(args: &ApiArgs) {
     tracing_subscriber::registry()
@@ -69,11 +72,15 @@ pub async fn run_api_mode(args: &ApiArgs) {
                 Vec::new()
             };
 
+            // Collect disk/storage info (cached in state to avoid per-request collection)
+            let storage_info = collect_storage_info();
+
             let mut state = state_clone.write().await;
             state.gpu_info = all_gpu_info;
             state.cpu_info = all_cpu_info;
             state.memory_info = all_memory_info;
             state.process_info = all_processes;
+            state.storage_info = storage_info;
             if state.loading {
                 state.loading = false;
             }
@@ -99,4 +106,33 @@ pub async fn run_api_mode(args: &ApiArgs) {
         .unwrap();
     tracing::info!("API server listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
+}
+
+/// Collect storage/disk information
+/// This is called in the background task and cached in AppState
+fn collect_storage_info() -> Vec<StorageInfo> {
+    let mut storage_info = Vec::new();
+    let disks = Disks::new_with_refreshed_list();
+    let hostname = get_hostname();
+
+    let mut filtered_disks = filter_docker_aware_disks(&disks);
+    filtered_disks.sort_by(|a, b| {
+        a.mount_point()
+            .to_string_lossy()
+            .cmp(&b.mount_point().to_string_lossy())
+    });
+
+    for (index, disk) in filtered_disks.iter().enumerate() {
+        let mount_point_str = disk.mount_point().to_string_lossy();
+        storage_info.push(StorageInfo {
+            mount_point: mount_point_str.to_string(),
+            total_bytes: disk.total_space(),
+            available_bytes: disk.available_space(),
+            host_id: hostname.clone(),
+            hostname: hostname.clone(),
+            index: index as u32,
+        });
+    }
+
+    storage_info
 }

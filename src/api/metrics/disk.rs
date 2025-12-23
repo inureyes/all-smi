@@ -13,33 +13,31 @@
 // limitations under the License.
 
 use super::{MetricBuilder, MetricExporter};
-use crate::utils::disk_filter::filter_docker_aware_disks;
-use crate::utils::system::get_hostname;
-use sysinfo::{Disk, Disks};
+use crate::storage::info::StorageInfo;
 
-pub struct DiskMetricExporter {
-    pub instance: String,
+/// Disk metric exporter that uses cached StorageInfo from AppState
+/// This avoids expensive disk collection on every metrics request
+pub struct DiskMetricExporter<'a> {
+    storage_info: &'a [StorageInfo],
 }
 
-impl DiskMetricExporter {
-    pub fn new(instance: Option<String>) -> Self {
-        Self {
-            instance: instance.unwrap_or_else(get_hostname),
-        }
+impl<'a> DiskMetricExporter<'a> {
+    pub fn new(storage_info: &'a [StorageInfo]) -> Self {
+        Self { storage_info }
     }
 
-    fn export_disk_metrics(&self, builder: &mut MetricBuilder, disk: &Disk, index: usize) {
+    fn export_disk_metrics(&self, builder: &mut MetricBuilder, info: &StorageInfo) {
         let labels = [
-            ("instance", self.instance.as_str()),
-            ("mount_point", &disk.mount_point().to_string_lossy()),
-            ("index", &index.to_string()),
+            ("instance", info.hostname.as_str()),
+            ("mount_point", &info.mount_point),
+            ("index", &info.index.to_string()),
         ];
 
         // Total disk space
         builder
             .help("all_smi_disk_total_bytes", "Total disk space in bytes")
             .type_("all_smi_disk_total_bytes", "gauge")
-            .metric("all_smi_disk_total_bytes", &labels, disk.total_space());
+            .metric("all_smi_disk_total_bytes", &labels, info.total_bytes);
 
         // Available disk space
         builder
@@ -51,20 +49,17 @@ impl DiskMetricExporter {
             .metric(
                 "all_smi_disk_available_bytes",
                 &labels,
-                disk.available_space(),
+                info.available_bytes,
             );
     }
 }
 
-impl MetricExporter for DiskMetricExporter {
+impl<'a> MetricExporter for DiskMetricExporter<'a> {
     fn export_metrics(&self) -> String {
         let mut builder = MetricBuilder::new();
 
-        let disks = Disks::new_with_refreshed_list();
-        let filtered_disks = filter_docker_aware_disks(&disks);
-
-        for (index, disk) in filtered_disks.iter().enumerate() {
-            self.export_disk_metrics(&mut builder, disk, index);
+        for info in self.storage_info {
+            self.export_disk_metrics(&mut builder, info);
         }
 
         builder.build()
