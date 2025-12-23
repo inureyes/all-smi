@@ -39,10 +39,10 @@ pub mod memory_macos;
 #[cfg(target_os = "windows")]
 pub mod memory_windows;
 
-// Powermetrics parser for Apple Silicon
-#[cfg(target_os = "macos")]
+// Powermetrics parser for Apple Silicon (only when native-macos feature is disabled)
+#[cfg(all(target_os = "macos", not(feature = "native-macos")))]
 pub mod powermetrics;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "native-macos")))]
 pub mod powermetrics_parser;
 
 // Native macOS APIs for Apple Silicon (no sudo required)

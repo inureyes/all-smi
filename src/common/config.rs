@@ -41,10 +41,10 @@ impl AppConfig {
     pub const HISTORY_MAX_ENTRIES: usize = 100;
     pub const CONNECTION_STAGGER_BASE_MS: u64 = 500;
 
-    // PowerMetrics Configuration (macOS)
-    #[cfg(target_os = "macos")]
+    // PowerMetrics Configuration (macOS, only when native-macos is not enabled)
+    #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
     pub const POWERMETRICS_BUFFER_CAPACITY: usize = 120; // 2 minutes at 1 second intervals
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
     pub const POWERMETRICS_DEFAULT_INTERVAL_MS: u64 = 1000; // 1 second
 
     // UI Layout Constants

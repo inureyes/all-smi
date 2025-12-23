@@ -30,19 +30,19 @@ use api::run_api_mode;
 use clap::Parser;
 use cli::{Cli, Commands, LocalArgs};
 use tokio::signal;
-use utils::{
-    ensure_sudo_permissions, ensure_sudo_permissions_for_api,
-    ensure_sudo_permissions_with_fallback, RuntimeEnvironment,
-};
+use utils::{ensure_sudo_permissions_for_api, RuntimeEnvironment};
+
+// Sudo permission functions only needed when native-macos is not enabled on macOS,
+// or on any non-macOS platform
+#[cfg(not(all(target_os = "macos", feature = "native-macos")))]
+use utils::{ensure_sudo_permissions, ensure_sudo_permissions_with_fallback};
 
 #[cfg(target_os = "macos")]
 use device::is_apple_silicon;
 
 // Use native macOS APIs when the feature is enabled (no sudo required)
 #[cfg(all(target_os = "macos", feature = "native-macos"))]
-use device::macos_native::{
-    get_native_metrics_manager, initialize_native_metrics_manager, shutdown_native_metrics_manager,
-};
+use device::macos_native::{initialize_native_metrics_manager, shutdown_native_metrics_manager};
 
 // Use powermetrics when native-macos feature is NOT enabled (requires sudo)
 #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
@@ -135,7 +135,7 @@ async fn main() {
             // Initialize native metrics manager (no sudo required)
             #[cfg(all(target_os = "macos", feature = "native-macos"))]
             if is_apple_silicon() {
-                if let Err(e) = initialize_native_metrics_manager(args.interval as u64 * 1000) {
+                if let Err(e) = initialize_native_metrics_manager(args.interval * 1000) {
                     eprintln!("Warning: Failed to initialize native metrics manager: {e}");
                 } else {
                     use std::sync::atomic::Ordering;
@@ -178,7 +178,7 @@ async fn main() {
             #[cfg(all(target_os = "macos", feature = "native-macos"))]
             if is_apple_silicon() {
                 let interval = args.interval.unwrap_or(2);
-                if let Err(e) = initialize_native_metrics_manager(interval as u64 * 1000) {
+                if let Err(e) = initialize_native_metrics_manager(interval * 1000) {
                     eprintln!("Warning: Failed to initialize native metrics manager: {e}");
                 } else {
                     use std::sync::atomic::Ordering;

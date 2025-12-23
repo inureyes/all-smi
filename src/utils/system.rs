@@ -47,6 +47,7 @@ pub fn calculate_adaptive_interval(node_count: usize) -> u64 {
     }
 }
 
+#[allow(dead_code)] // Used conditionally based on platform and feature flags
 pub fn ensure_sudo_permissions() {
     if cfg!(target_os = "macos") {
         // Force flush any pending output before showing our messages
@@ -123,6 +124,7 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
     }
 }
 
+#[allow(dead_code)] // Used conditionally based on platform and feature flags
 pub fn ensure_sudo_permissions_with_fallback() -> bool {
     if cfg!(target_os = "macos") {
         request_sudo_with_explanation(SudoPlatform::MacOS, true)
@@ -160,6 +162,7 @@ enum SudoPlatform {
 }
 
 /// Get platform-specific sudo explanation messages
+#[allow(dead_code)] // Used conditionally based on platform and feature flags
 fn get_sudo_messages(
     platform: SudoPlatform,
 ) -> (
@@ -198,6 +201,7 @@ fn get_sudo_messages(
 }
 
 /// Unified function to request sudo with platform-specific explanations
+#[allow(dead_code)] // Used conditionally based on platform and feature flags
 fn request_sudo_with_explanation(platform: SudoPlatform, return_bool: bool) -> bool {
     // Check if we already have sudo privileges
     if has_sudo_privileges() {

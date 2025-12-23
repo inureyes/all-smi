@@ -43,8 +43,12 @@ pub struct NativeMetricsData {
     pub cpu_power_mw: f64,
 
     // Per-core metrics (optional, for detailed reporting)
+    // These are used for compatibility with powermetrics data format
+    #[allow(dead_code)]
     pub core_active_residencies: Vec<f64>,
+    #[allow(dead_code)]
     pub core_frequencies: Vec<u32>,
+    #[allow(dead_code)]
     pub core_cluster_types: Vec<CoreType>,
 
     // GPU metrics
@@ -186,6 +190,8 @@ impl NativeMetricsData {
 }
 
 /// Convert NativeMetricsData to the format expected by existing code
+/// This is only needed when native-macos feature is NOT enabled (for compatibility)
+#[cfg(not(feature = "native-macos"))]
 impl From<NativeMetricsData> for crate::device::powermetrics_parser::PowerMetricsData {
     fn from(native: NativeMetricsData) -> Self {
         Self {

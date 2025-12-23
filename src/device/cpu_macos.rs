@@ -12,7 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Use powermetrics when native-macos feature is NOT enabled
+#[cfg(not(feature = "native-macos"))]
 use crate::device::powermetrics::get_powermetrics_manager;
+
+// Use native metrics manager when native-macos feature is enabled
+#[cfg(feature = "native-macos")]
+use crate::device::macos_native::get_native_metrics_manager;
+
 use crate::device::{
     AppleSiliconCpuInfo, CoreType, CoreUtilization, CpuInfo, CpuPlatformType, CpuReader,
     CpuSocketInfo,
@@ -104,9 +111,51 @@ impl MacOsCpuReader {
             self.parse_apple_silicon_hardware_info(&hardware_info)?;
 
         // Get actual CPU utilization using iostat (more accurate than active residency)
-        let cpu_utilization = self.get_cpu_utilization_powermetrics()?;
+        let cpu_utilization = self.get_cpu_utilization_sysinfo()?;
 
-        // Get CPU frequency information and per-core data from PowerMetricsManager if available
+        // Get CPU frequency information and per-core data
+        // When using native-macos feature, use native metrics manager
+        // Otherwise, use powermetrics manager
+        #[cfg(feature = "native-macos")]
+        let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq, per_core_utilization): (
+            u32,
+            u32,
+            Option<u32>,
+            Option<u32>,
+            Vec<CoreUtilization>,
+        ) = {
+            if let Some(manager) = get_native_metrics_manager() {
+                if let Ok(data) = manager.collect_once() {
+                    // Use actual frequencies from native metrics
+                    let avg_freq = (data.p_cluster_frequency + data.e_cluster_frequency) / 2;
+                    (
+                        avg_freq,
+                        data.p_cluster_frequency, // P-cluster frequency as max
+                        Some(data.p_cluster_frequency),
+                        Some(data.e_cluster_frequency),
+                        Vec::new(), // Per-core data not available via native APIs
+                    )
+                } else {
+                    (
+                        self.get_cpu_base_frequency()?,
+                        self.get_cpu_max_frequency()?,
+                        None,
+                        None,
+                        Vec::new(),
+                    )
+                }
+            } else {
+                (
+                    self.get_cpu_base_frequency()?,
+                    self.get_cpu_max_frequency()?,
+                    None,
+                    None,
+                    Vec::new(),
+                )
+            }
+        };
+
+        #[cfg(not(feature = "native-macos"))]
         let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq, per_core_utilization) =
             if let Some(manager) = get_powermetrics_manager() {
                 if let Ok(data) = manager.get_latest_data_result() {
@@ -562,6 +611,7 @@ impl MacOsCpuReader {
         Ok(result)
     }
 
+    #[allow(dead_code)] // Kept for compatibility when powermetrics is used
     fn get_cpu_utilization_powermetrics(&self) -> Result<f64, Box<dyn std::error::Error>> {
         // Use sysinfo for accurate CPU utilization (better than iostat)
         // PowerMetrics' active residency != actual CPU utilization
@@ -620,67 +670,90 @@ impl MacOsCpuReader {
         // Get actual CPU utilization from sysinfo first
         let total_cpu_util = self.get_cpu_utilization_sysinfo().unwrap_or(0.0);
 
-        // Try to get data from the PowerMetricsManager
-        if let Some(manager) = get_powermetrics_manager() {
-            if let Ok(data) = manager.get_latest_data_result() {
-                // Get per-core utilization if available
-                if !data.core_active_residencies.is_empty() {
-                    // Calculate average per-core utilization for P and E cores
-                    let mut p_core_sum = 0.0;
-                    let mut p_core_count = 0;
-                    let mut e_core_sum = 0.0;
-                    let mut e_core_count = 0;
+        // When using native-macos feature, use native metrics manager for cluster residency
+        #[cfg(feature = "native-macos")]
+        {
+            if let Some(manager) = get_native_metrics_manager() {
+                if let Ok(data) = manager.collect_once() {
+                    // Use cluster residency from native metrics
+                    let p_residency = data.p_cluster_active_residency.clamp(0.0, 100.0);
+                    let e_residency = data.e_cluster_active_residency.clamp(0.0, 100.0);
+                    let total_residency = p_residency + e_residency;
 
-                    for (i, residency) in data.core_active_residencies.iter().enumerate() {
-                        if i < data.core_cluster_types.len() {
-                            match data.core_cluster_types[i] {
-                                crate::device::powermetrics_parser::CoreType::Performance => {
-                                    p_core_sum += residency;
-                                    p_core_count += 1;
-                                }
-                                crate::device::powermetrics_parser::CoreType::Efficiency => {
-                                    e_core_sum += residency;
-                                    e_core_count += 1;
-                                }
-                            }
-                        }
+                    if total_residency > 0.0 {
+                        let p_ratio = p_residency / total_residency;
+                        let e_ratio = e_residency / total_residency;
+                        return Ok((
+                            (total_cpu_util * p_ratio * 1.2).clamp(0.0, 100.0),
+                            (total_cpu_util * e_ratio * 0.8).clamp(0.0, 100.0),
+                        ));
                     }
-
-                    if p_core_count > 0 && e_core_count > 0 {
-                        let p_avg = p_core_sum / p_core_count as f64;
-                        let e_avg = e_core_sum / e_core_count as f64;
-
-                        // Scale based on actual CPU utilization
-                        // If residencies show P=90%, E=80% but iostat shows 20%,
-                        // scale them proportionally
-                        let residency_total = (p_avg + e_avg) / 2.0;
-                        if residency_total > 0.0 {
-                            let scale_factor = total_cpu_util / residency_total;
-                            return Ok((
-                                (p_avg * scale_factor).clamp(0.0, 100.0),
-                                (e_avg * scale_factor).clamp(0.0, 100.0),
-                            ));
-                        }
-                    }
-                }
-
-                // Fallback: distribute total CPU utilization based on residency ratio
-                let p_residency = data.p_cluster_active_residency.clamp(0.0, 100.0);
-                let e_residency = data.e_cluster_active_residency.clamp(0.0, 100.0);
-                let total_residency = p_residency + e_residency;
-
-                if total_residency > 0.0 {
-                    let p_ratio = p_residency / total_residency;
-                    let e_ratio = e_residency / total_residency;
-                    return Ok((
-                        (total_cpu_util * p_ratio * 1.2).clamp(0.0, 100.0), // P-cores typically do more work
-                        (total_cpu_util * e_ratio * 0.8).clamp(0.0, 100.0), // E-cores typically do less work
-                    ));
                 }
             }
         }
 
-        // Return default values if PowerMetricsManager is not available
+        // When NOT using native-macos feature, use PowerMetricsManager
+        #[cfg(not(feature = "native-macos"))]
+        {
+            if let Some(manager) = get_powermetrics_manager() {
+                if let Ok(data) = manager.get_latest_data_result() {
+                    // Get per-core utilization if available
+                    if !data.core_active_residencies.is_empty() {
+                        // Calculate average per-core utilization for P and E cores
+                        let mut p_core_sum = 0.0;
+                        let mut p_core_count = 0;
+                        let mut e_core_sum = 0.0;
+                        let mut e_core_count = 0;
+
+                        for (i, residency) in data.core_active_residencies.iter().enumerate() {
+                            if i < data.core_cluster_types.len() {
+                                match data.core_cluster_types[i] {
+                                    crate::device::powermetrics_parser::CoreType::Performance => {
+                                        p_core_sum += residency;
+                                        p_core_count += 1;
+                                    }
+                                    crate::device::powermetrics_parser::CoreType::Efficiency => {
+                                        e_core_sum += residency;
+                                        e_core_count += 1;
+                                    }
+                                }
+                            }
+                        }
+
+                        if p_core_count > 0 && e_core_count > 0 {
+                            let p_avg = p_core_sum / p_core_count as f64;
+                            let e_avg = e_core_sum / e_core_count as f64;
+
+                            // Scale based on actual CPU utilization
+                            let residency_total = (p_avg + e_avg) / 2.0;
+                            if residency_total > 0.0 {
+                                let scale_factor = total_cpu_util / residency_total;
+                                return Ok((
+                                    (p_avg * scale_factor).clamp(0.0, 100.0),
+                                    (e_avg * scale_factor).clamp(0.0, 100.0),
+                                ));
+                            }
+                        }
+                    }
+
+                    // Fallback: distribute total CPU utilization based on residency ratio
+                    let p_residency = data.p_cluster_active_residency.clamp(0.0, 100.0);
+                    let e_residency = data.e_cluster_active_residency.clamp(0.0, 100.0);
+                    let total_residency = p_residency + e_residency;
+
+                    if total_residency > 0.0 {
+                        let p_ratio = p_residency / total_residency;
+                        let e_ratio = e_residency / total_residency;
+                        return Ok((
+                            (total_cpu_util * p_ratio * 1.2).clamp(0.0, 100.0),
+                            (total_cpu_util * e_ratio * 0.8).clamp(0.0, 100.0),
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Return default values if neither manager is available
         // Split total utilization evenly
         Ok((total_cpu_util * 0.6, total_cpu_util * 0.4))
     }
@@ -712,12 +785,26 @@ impl MacOsCpuReader {
     }
 
     fn get_cpu_power_consumption(&self) -> Option<f64> {
-        // Try to get data from the PowerMetricsManager first
-        if let Some(manager) = get_powermetrics_manager() {
-            if let Ok(data) = manager.get_latest_data_result() {
-                return Some(data.cpu_power_mw / 1000.0); // Convert mW to W
+        // When using native-macos feature, use native metrics manager
+        #[cfg(feature = "native-macos")]
+        {
+            if let Some(manager) = get_native_metrics_manager() {
+                if let Ok(data) = manager.collect_once() {
+                    return Some(data.cpu_power_mw / 1000.0); // Convert mW to W
+                }
             }
         }
+
+        // When NOT using native-macos feature, use PowerMetricsManager
+        #[cfg(not(feature = "native-macos"))]
+        {
+            if let Some(manager) = get_powermetrics_manager() {
+                if let Ok(data) = manager.get_latest_data_result() {
+                    return Some(data.cpu_power_mw / 1000.0); // Convert mW to W
+                }
+            }
+        }
+
         None
     }
 }

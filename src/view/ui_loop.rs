@@ -58,11 +58,11 @@ pub struct UiLoop {
     previous_selected_process_index: usize,
     previous_process_horizontal_scroll_offset: usize,
     previous_tab_scroll_offset: usize,
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
     powermetrics_notified: bool,
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
     powermetrics_pending_notified: bool,
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
     last_powermetrics_check: std::time::Instant,
     #[cfg(target_os = "linux")]
     hlsmi_notified: bool,
@@ -92,11 +92,11 @@ impl UiLoop {
             previous_selected_process_index: 0,
             previous_process_horizontal_scroll_offset: 0,
             previous_tab_scroll_offset: 0,
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
             powermetrics_notified: false,
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
             powermetrics_pending_notified: false,
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
             last_powermetrics_check: std::time::Instant::now(),
             #[cfg(target_os = "linux")]
             hlsmi_notified: false,
@@ -110,7 +110,8 @@ impl UiLoop {
     pub async fn run(&mut self, args: &ViewArgs) -> Result<(), Box<dyn std::error::Error>> {
         loop {
             // Check PowerMetrics initialization on macOS (periodic check for performance)
-            #[cfg(target_os = "macos")]
+            // Only needed when native-macos feature is NOT enabled
+            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
             {
                 use std::time::Duration;
 
