@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use sysinfo::{Disks, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+use sysinfo::Disks;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
 
@@ -39,7 +39,7 @@ use crate::device::get_tpu_status_message;
 #[cfg(target_os = "linux")]
 use crate::device::platform_detection::has_google_tpu;
 use crate::storage::info::StorageInfo;
-use crate::utils::{filter_docker_aware_disks, get_hostname};
+use crate::utils::{filter_docker_aware_disks, get_hostname, with_global_system};
 
 use super::aggregator::DataAggregator;
 use super::strategy::{
@@ -270,18 +270,23 @@ impl LocalCollector {
                         .collect::<Vec<ProcessInfo>>();
                     processes
                 },
-                // Full process collection
+                // Full process collection - use spawn_blocking to avoid blocking tokio runtime
                 async move {
-                    let mut system = System::new();
-                    system.refresh_processes_specifics(
-                        ProcessesToUpdate::All,
-                        true,
-                        ProcessRefreshKind::everything().with_user(UpdateKind::Always),
-                    );
-                    system.refresh_memory();
-
-                    let gpu_pids: HashSet<u32> = HashSet::new();
-                    let all_processes = get_all_processes(&system, &gpu_pids);
+                    let all_processes = tokio::task::spawn_blocking(|| {
+                        with_global_system(|system| {
+                            use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+                            system.refresh_processes_specifics(
+                                ProcessesToUpdate::All,
+                                true,
+                                ProcessRefreshKind::everything().with_user(UpdateKind::Always),
+                            );
+                            system.refresh_memory();
+                            let gpu_pids: HashSet<u32> = HashSet::new();
+                            get_all_processes(system, &gpu_pids)
+                        })
+                    })
+                    .await
+                    .unwrap_or_default();
                     let _ = status_tx_proc
                         .send((3, "✓ Process information collected".to_string()))
                         .await;
@@ -351,16 +356,17 @@ impl LocalCollector {
             .flat_map(|reader| reader.get_process_info())
             .collect();
 
-        let mut system = System::new();
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::everything().with_user(UpdateKind::Always),
-        );
-        system.refresh_memory();
-
         let gpu_pids: HashSet<u32> = gpu_processes.iter().map(|p| p.pid).collect();
-        let mut all_processes = get_all_processes(&system, &gpu_pids);
+        let mut all_processes = with_global_system(|system| {
+            use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+            system.refresh_processes_specifics(
+                ProcessesToUpdate::All,
+                true,
+                ProcessRefreshKind::everything().with_user(UpdateKind::Always),
+            );
+            system.refresh_memory();
+            get_all_processes(system, &gpu_pids)
+        });
         merge_gpu_processes(&mut all_processes, gpu_processes);
 
         let all_storage_info = Self::collect_storage_info();

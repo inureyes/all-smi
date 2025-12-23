@@ -12,12 +12,45 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use once_cell::sync::Lazy;
 use std::io::{self, Write};
 use std::process::Command;
-use sysinfo::System;
+use std::sync::Mutex;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+/// Global System instance for process collection
+/// This avoids creating new System instances on every collection cycle
+static GLOBAL_SYSTEM: Lazy<Mutex<System>> = Lazy::new(|| {
+    let system = System::new();
+    Mutex::new(system)
+});
 
 pub fn get_hostname() -> String {
     System::host_name().unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Get global system instance for process collection
+/// Returns a reference to the global System wrapped in a MutexGuard
+/// This is more efficient than creating a new System instance every time
+pub fn with_global_system<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut System) -> R,
+{
+    let mut system = GLOBAL_SYSTEM.lock().unwrap();
+    f(&mut system)
+}
+
+/// Refresh processes using the global System instance
+/// This is the primary use case - collecting process information
+#[allow(dead_code)]
+pub fn refresh_global_processes() {
+    let mut system = GLOBAL_SYSTEM.lock().unwrap();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::everything().with_user(UpdateKind::Always),
+    );
+    system.refresh_memory();
 }
 
 /// Check if the current process already has sudo privileges

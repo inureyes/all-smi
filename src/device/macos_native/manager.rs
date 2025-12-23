@@ -290,14 +290,21 @@ impl NativeMetricsManager {
     /// it returns the cached data instead of collecting new samples.
     /// Uses double-checked locking to prevent concurrent collections.
     pub fn collect_once(&self) -> Result<NativeMetricsData, Box<dyn std::error::Error>> {
-        const CACHE_DURATION_MS: u128 = 500;
+        // Use longer cache duration during startup to handle tokio blocking
+        // After first few calls, use shorter duration for responsiveness
+        static CALL_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call_num = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        // First 10 calls use 5 second cache (startup phase)
+        // After that, use 500ms cache (normal operation)
+        let cache_duration_ms: u128 = if call_num < 10 { 5000 } else { 500 };
 
         // First check: quick read-only cache check (no lock)
         if let (Ok(time_guard), Ok(data_guard)) =
             (self.last_collection_time.read(), self.latest_data.read())
         {
             if let (Some(last_time), Some(data)) = (*time_guard, data_guard.clone()) {
-                if last_time.elapsed().as_millis() < CACHE_DURATION_MS {
+                if last_time.elapsed().as_millis() < cache_duration_ms {
                     return Ok(data);
                 }
             }
@@ -314,7 +321,7 @@ impl NativeMetricsManager {
             (self.last_collection_time.read(), self.latest_data.read())
         {
             if let (Some(last_time), Some(data)) = (*time_guard, data_guard.clone()) {
-                if last_time.elapsed().as_millis() < CACHE_DURATION_MS {
+                if last_time.elapsed().as_millis() < cache_duration_ms {
                     return Ok(data);
                 }
             }
@@ -393,6 +400,7 @@ unsafe impl Sync for NativeMetricsManager {}
 /// Initialize the global native metrics manager
 ///
 /// This should be called once at startup for macOS Apple Silicon systems.
+/// Also pre-collects first data sample to warm up the cache for faster startup.
 ///
 /// # Arguments
 /// * `interval_ms` - Sample interval in milliseconds (minimum 50ms)
@@ -406,6 +414,11 @@ pub fn initialize_native_metrics_manager(
 
     if manager_guard.is_none() {
         let manager = NativeMetricsManager::new(interval_ms)?;
+
+        // Pre-collect first data sample to warm up the cache
+        // This ensures all subsequent calls from readers use cached data
+        let _ = manager.collect_once();
+
         *manager_guard = Some(Arc::new(manager));
     }
 
