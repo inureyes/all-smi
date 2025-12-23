@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
+use crate::device::{ChassisInfo, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 
 pub trait GpuReader: Send + Sync {
     fn get_gpu_info(&self) -> Vec<GpuInfo>;
@@ -25,4 +25,11 @@ pub trait CpuReader: Send + Sync {
 
 pub trait MemoryReader: Send + Sync {
     fn get_memory_info(&self) -> Vec<MemoryInfo>;
+}
+
+/// Chassis/Node-level reader for system-wide metrics
+/// Provides access to total power, thermal data, and BMC information
+pub trait ChassisReader: Send + Sync {
+    /// Get chassis information for the current node
+    fn get_chassis_info(&self) -> Option<ChassisInfo>;
 }

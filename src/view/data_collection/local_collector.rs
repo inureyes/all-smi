@@ -24,10 +24,12 @@ use crate::app_state::AppState;
 #[cfg(target_os = "linux")]
 use crate::device::platform_detection::has_tenstorrent;
 use crate::device::{
-    get_cpu_readers, get_gpu_readers, get_memory_readers, get_nvml_status_message,
+    create_chassis_reader, get_cpu_readers, get_gpu_readers, get_memory_readers,
+    get_nvml_status_message,
     platform_detection::has_nvidia,
     process_list::{get_all_processes, merge_gpu_processes},
-    CpuInfo, CpuReader, GpuInfo, GpuReader, MemoryInfo, MemoryReader, ProcessInfo,
+    ChassisInfo, ChassisReader, CpuInfo, CpuReader, GpuInfo, GpuReader, MemoryInfo, MemoryReader,
+    ProcessInfo,
 };
 
 #[cfg(target_os = "linux")]
@@ -48,6 +50,7 @@ pub struct LocalCollector {
     gpu_readers: Arc<RwLock<Vec<Box<dyn GpuReader>>>>,
     cpu_readers: Arc<RwLock<Vec<Box<dyn CpuReader>>>>,
     memory_readers: Arc<RwLock<Vec<Box<dyn MemoryReader>>>>,
+    chassis_reader: Arc<RwLock<Option<Box<dyn ChassisReader>>>>,
     aggregator: DataAggregator,
     initialized: Arc<Mutex<bool>>,
 }
@@ -58,6 +61,7 @@ impl LocalCollector {
             gpu_readers: Arc::new(RwLock::new(Vec::new())),
             cpu_readers: Arc::new(RwLock::new(Vec::new())),
             memory_readers: Arc::new(RwLock::new(Vec::new())),
+            chassis_reader: Arc::new(RwLock::new(None)),
             aggregator: DataAggregator::new(),
             initialized: Arc::new(Mutex::new(false)),
         }
@@ -112,6 +116,9 @@ impl LocalCollector {
 
         let memory_readers = get_memory_readers();
 
+        // Create chassis reader
+        let chassis_reader = create_chassis_reader();
+
         // Store the readers in self using RwLock with timeout
         {
             if let Ok(mut gpu_lock) =
@@ -138,6 +145,15 @@ impl LocalCollector {
                 *mem_lock = memory_readers;
             } else {
                 eprintln!("Warning: Timeout acquiring memory readers lock");
+            }
+        }
+        {
+            if let Ok(mut chassis_lock) =
+                timeout(Duration::from_secs(2), self.chassis_reader.write()).await
+            {
+                *chassis_lock = Some(chassis_reader);
+            } else {
+                eprintln!("Warning: Timeout acquiring chassis reader lock");
             }
         }
 
@@ -191,6 +207,7 @@ impl LocalCollector {
         let gpu_readers_2 = Arc::clone(&self.gpu_readers);
         let cpu_readers = Arc::clone(&self.cpu_readers);
         let memory_readers = Arc::clone(&self.memory_readers);
+        let chassis_reader = Arc::clone(&self.chassis_reader);
 
         let (
             all_gpu_info,
@@ -199,6 +216,7 @@ impl LocalCollector {
             gpu_processes,
             all_processes,
             all_storage_info,
+            all_chassis_info,
         ) = {
             let status_tx_gpu = status_tx.clone();
             let status_tx_cpu = status_tx.clone();
@@ -276,6 +294,16 @@ impl LocalCollector {
                         .send((4, "✓ Storage information collected".to_string()))
                         .await;
                     storage_info
+                },
+                // Chassis info collection
+                async move {
+                    let reader = chassis_reader.read().await;
+                    let info: Vec<ChassisInfo> = reader
+                        .as_ref()
+                        .and_then(|r| r.get_chassis_info())
+                        .into_iter()
+                        .collect();
+                    info
                 }
             )
         };
@@ -294,6 +322,7 @@ impl LocalCollector {
             memory_info: all_memory_info,
             process_info: all_processes_merged,
             storage_info: all_storage_info,
+            chassis_info: all_chassis_info,
             connection_statuses: Vec::new(),
         }
     }
@@ -336,12 +365,21 @@ impl LocalCollector {
 
         let all_storage_info = Self::collect_storage_info();
 
+        // Collect chassis info
+        let chassis_reader = self.chassis_reader.read().await;
+        let all_chassis_info: Vec<ChassisInfo> = chassis_reader
+            .as_ref()
+            .and_then(|r| r.get_chassis_info())
+            .into_iter()
+            .collect();
+
         CollectionData {
             gpu_info: all_gpu_info,
             cpu_info: all_cpu_info,
             memory_info: all_memory_info,
             process_info: all_processes,
             storage_info: all_storage_info,
+            chassis_info: all_chassis_info,
             connection_statuses: Vec::new(),
         }
     }
@@ -500,6 +538,7 @@ impl DataCollectionStrategy for LocalCollector {
         state.process_info = sorted_processes;
 
         state.storage_info = data.storage_info;
+        state.chassis_info = data.chassis_info;
 
         // Mark data as changed to trigger UI update
         state.mark_data_changed();

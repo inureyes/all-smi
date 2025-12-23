@@ -164,3 +164,60 @@ pub struct MemoryInfo {
     pub utilization: f64,      // Memory utilization percentage
     pub time: String,          // Timestamp
 }
+
+/// Chassis/Node-level information for system-wide metrics
+/// This provides visibility into total power consumption, thermal data, and BMC information
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ChassisInfo {
+    pub host_id: String,  // Host identifier (e.g., "10.82.128.41:9090")
+    pub hostname: String, // DNS hostname of the server
+    pub instance: String, // Instance name from metrics
+
+    // Power
+    pub total_power_watts: Option<f64>, // Combined power consumption (CPU+GPU+ANE)
+
+    // Thermal (BMC)
+    pub inlet_temperature: Option<f64>, // Inlet temperature (if available)
+    pub outlet_temperature: Option<f64>, // Outlet temperature (if available)
+    pub thermal_pressure: Option<String>, // Thermal pressure level (Apple Silicon)
+
+    // Cooling
+    pub fan_speeds: Vec<FanInfo>, // Fan speed information
+
+    // PSU
+    pub psu_status: Vec<PsuInfo>, // PSU status information
+
+    // Platform-specific details
+    pub detail: HashMap<String, String>,
+
+    pub time: String, // Timestamp
+}
+
+/// Fan information for cooling monitoring
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FanInfo {
+    pub id: u32,        // Fan identifier
+    pub name: String,   // Fan name
+    pub speed_rpm: u32, // Current speed in RPM
+    pub max_rpm: u32,   // Maximum speed in RPM
+}
+
+/// Power Supply Unit (PSU) status information
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PsuInfo {
+    pub id: u32,                  // PSU identifier
+    pub name: String,             // PSU name
+    pub status: PsuStatus,        // PSU status
+    pub power_watts: Option<f64>, // Current power output
+}
+
+/// PSU operational status
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+pub enum PsuStatus {
+    #[default]
+    Unknown, // Status unknown
+    Ok,         // Normal operation
+    Degraded,   // Operating but with issues
+    Failed,     // PSU has failed
+    NotPresent, // PSU not installed
+}

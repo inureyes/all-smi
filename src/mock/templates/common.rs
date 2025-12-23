@@ -189,3 +189,74 @@ pub fn generate_empty_gpu_metrics(count: usize, memory_total: u64) -> Vec<GpuMet
         })
         .collect()
 }
+
+/// Add chassis metrics template
+pub fn add_chassis_metrics(template: &mut String, instance_name: &str) {
+    template
+        .push_str("# HELP all_smi_chassis_power_watts Total chassis power consumption in watts\n");
+    template.push_str("# TYPE all_smi_chassis_power_watts gauge\n");
+    template.push_str(&format!(
+        "all_smi_chassis_power_watts{{hostname=\"{instance_name}\", instance=\"{instance_name}\"}} {{{{CHASSIS_POWER}}}}\n"
+    ));
+}
+
+/// Add Apple Silicon specific chassis metrics (thermal pressure)
+pub fn add_apple_chassis_metrics(template: &mut String, instance_name: &str) {
+    // Add thermal pressure info metric
+    template.push_str("# HELP all_smi_chassis_thermal_pressure_info Thermal pressure level\n");
+    template.push_str("# TYPE all_smi_chassis_thermal_pressure_info gauge\n");
+    template.push_str(&format!(
+        "all_smi_chassis_thermal_pressure_info{{hostname=\"{instance_name}\", instance=\"{instance_name}\", level=\"Nominal\"}} 1\n"
+    ));
+
+    // Add individual power components
+    template.push_str("# HELP all_smi_chassis_cpu_power_watts CPU power consumption in watts\n");
+    template.push_str("# TYPE all_smi_chassis_cpu_power_watts gauge\n");
+    template.push_str(&format!(
+        "all_smi_chassis_cpu_power_watts{{hostname=\"{instance_name}\", instance=\"{instance_name}\"}} {{{{CHASSIS_CPU_POWER}}}}\n"
+    ));
+
+    template.push_str("# HELP all_smi_chassis_gpu_power_watts GPU power consumption in watts\n");
+    template.push_str("# TYPE all_smi_chassis_gpu_power_watts gauge\n");
+    template.push_str(&format!(
+        "all_smi_chassis_gpu_power_watts{{hostname=\"{instance_name}\", instance=\"{instance_name}\"}} {{{{CHASSIS_GPU_POWER}}}}\n"
+    ));
+
+    template.push_str("# HELP all_smi_chassis_ane_power_watts ANE power consumption in watts\n");
+    template.push_str("# TYPE all_smi_chassis_ane_power_watts gauge\n");
+    template.push_str(&format!(
+        "all_smi_chassis_ane_power_watts{{hostname=\"{instance_name}\", instance=\"{instance_name}\"}} {{{{CHASSIS_ANE_POWER}}}}\n"
+    ));
+}
+
+/// Render chassis metrics with values
+pub fn render_chassis_metrics(mut response: String, gpus: &[GpuMetrics]) -> String {
+    // Calculate total power from all GPUs
+    let total_power: f64 = gpus.iter().map(|g| g.power_consumption_watts as f64).sum();
+    response = response.replace("{{CHASSIS_POWER}}", &format!("{total_power:.2}"));
+    response
+}
+
+/// Render Apple Silicon chassis metrics
+pub fn render_apple_chassis_metrics(mut response: String, gpus: &[GpuMetrics]) -> String {
+    // For Apple Silicon, calculate individual components
+    let mut rng = rng();
+
+    // Simulate CPU and ANE power
+    let cpu_power: f64 = rng.random_range(5.0..25.0);
+    let ane_power: f64 = rng.random_range(0.0..6.0);
+
+    // GPU power comes from the GPU metrics
+    let gpu_power: f64 = gpus.iter().map(|g| g.power_consumption_watts as f64).sum();
+
+    // Total chassis power is sum of all components
+    let total_power = cpu_power + gpu_power + ane_power;
+
+    response = response
+        .replace("{{CHASSIS_POWER}}", &format!("{total_power:.2}"))
+        .replace("{{CHASSIS_CPU_POWER}}", &format!("{cpu_power:.2}"))
+        .replace("{{CHASSIS_GPU_POWER}}", &format!("{gpu_power:.2}"))
+        .replace("{{CHASSIS_ANE_POWER}}", &format!("{ane_power:.2}"));
+
+    response
+}

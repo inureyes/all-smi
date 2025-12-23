@@ -63,5 +63,6 @@ pub mod types;
 // Re-export commonly used items
 pub use platform_detection::*;
 pub use reader_factory::*;
+pub use readers::chassis::create_chassis_reader;
 pub use traits::*;
 pub use types::*;

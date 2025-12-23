@@ -57,6 +57,13 @@ impl AppleSiliconMockGenerator {
         // Apple-specific: System metrics with efficiency cores
         self.add_apple_system_metrics(&mut template, cpu, memory);
 
+        // Chassis metrics with Apple-specific details
+        crate::mock::templates::common::add_chassis_metrics(&mut template, &self.instance_name);
+        crate::mock::templates::common::add_apple_chassis_metrics(
+            &mut template,
+            &self.instance_name,
+        );
+
         template
     }
 
@@ -344,6 +351,9 @@ impl AppleSiliconMockGenerator {
         // Memory pressure (based on usage percentage)
         let mem_pressure = (memory.used_bytes as f64 / memory.total_bytes as f64) * 100.0;
         response = response.replace("{{MEM_PRESSURE}}", &format!("{mem_pressure:.2}"));
+
+        // Replace Apple chassis metrics
+        response = crate::mock::templates::common::render_apple_chassis_metrics(response, gpus);
 
         response
     }

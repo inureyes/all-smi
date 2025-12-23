@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
+use crate::device::{ChassisInfo, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 use crate::ui::notification::NotificationManager;
 use crate::utils::RuntimeEnvironment;
@@ -79,6 +79,7 @@ pub struct AppState {
     pub cpu_info: Vec<CpuInfo>,
     pub memory_info: Vec<MemoryInfo>,
     pub process_info: Vec<ProcessInfo>,
+    pub chassis_info: Vec<ChassisInfo>,
     pub selected_process_index: usize,
     pub start_index: usize,
     pub sort_criteria: SortCriteria,
@@ -168,6 +169,7 @@ impl AppState {
             cpu_info: Vec::new(),
             memory_info: Vec::new(),
             process_info: Vec::new(),
+            chassis_info: Vec::new(),
             selected_process_index: 0,
             start_index: 0,
             sort_criteria: SortCriteria::Default,

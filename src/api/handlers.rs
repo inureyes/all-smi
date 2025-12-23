@@ -19,9 +19,9 @@ use tokio::sync::RwLock;
 use crate::app_state::AppState;
 
 use super::metrics::{
-    cpu::CpuMetricExporter, disk::DiskMetricExporter, gpu::GpuMetricExporter,
-    memory::MemoryMetricExporter, npu::NpuMetricExporter, process::ProcessMetricExporter,
-    runtime::RuntimeMetricExporter, MetricExporter,
+    chassis::ChassisMetricExporter, cpu::CpuMetricExporter, disk::DiskMetricExporter,
+    gpu::GpuMetricExporter, memory::MemoryMetricExporter, npu::NpuMetricExporter,
+    process::ProcessMetricExporter, runtime::RuntimeMetricExporter, MetricExporter,
 };
 
 pub type SharedState = Arc<RwLock<AppState>>;
@@ -67,6 +67,12 @@ pub async fn metrics_handler(State(state): State<SharedState>) -> String {
     // Export runtime environment metrics
     let runtime_exporter = RuntimeMetricExporter::new(&state.runtime_environment);
     all_metrics.push_str(&runtime_exporter.export_metrics());
+
+    // Export chassis metrics
+    if !state.chassis_info.is_empty() {
+        let chassis_exporter = ChassisMetricExporter::new(&state.chassis_info);
+        all_metrics.push_str(&chassis_exporter.export_metrics());
+    }
 
     all_metrics
 }

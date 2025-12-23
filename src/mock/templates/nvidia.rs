@@ -57,6 +57,9 @@ impl NvidiaMockGenerator {
         // CPU and memory metrics
         self.add_system_metrics(&mut template, cpu, memory);
 
+        // Chassis metrics (total power)
+        crate::mock::templates::common::add_chassis_metrics(&mut template, &self.instance_name);
+
         template
     }
 
@@ -279,6 +282,9 @@ impl NvidiaMockGenerator {
         response = response
             .replace("{{CPU_UTIL}}", &format!("{:.2}", cpu.utilization))
             .replace("{{MEM_USED}}", &memory.used_bytes.to_string());
+
+        // Replace chassis metrics
+        response = crate::mock::templates::common::render_chassis_metrics(response, gpus);
 
         response
     }

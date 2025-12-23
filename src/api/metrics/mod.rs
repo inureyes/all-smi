@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod chassis;
 pub mod cpu;
 pub mod disk;
 pub mod gpu;

@@ -189,6 +189,7 @@ mod tests {
             cpu_info: Vec::new(),
             memory_info: Vec::new(),
             process_info: Vec::new(),
+            chassis_info: Vec::new(),
             selected_process_index: 0,
             start_index: 0,
             sort_criteria: crate::app_state::SortCriteria::Default,

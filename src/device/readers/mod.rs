@@ -14,6 +14,9 @@
 
 // Module for device readers with reduced code duplication
 
+// Chassis-level monitoring (node power, thermal, BMC)
+pub mod chassis;
+
 // Common caching utilities shared across all readers
 pub mod common_cache;
 

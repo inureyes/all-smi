@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::app_state::{AppState, ConnectionStatus};
-use crate::device::{CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
+use crate::device::{ChassisInfo, CpuInfo, GpuInfo, MemoryInfo, ProcessInfo};
 use crate::storage::info::StorageInfo;
 
 /// Result type for data collection operations
@@ -31,6 +31,7 @@ pub struct CollectionData {
     pub memory_info: Vec<MemoryInfo>,
     pub process_info: Vec<ProcessInfo>,
     pub storage_info: Vec<StorageInfo>,
+    pub chassis_info: Vec<ChassisInfo>,
     pub connection_statuses: Vec<ConnectionStatus>,
 }
 
@@ -42,6 +43,7 @@ impl CollectionData {
             memory_info: Vec::new(),
             process_info: Vec::new(),
             storage_info: Vec::new(),
+            chassis_info: Vec::new(),
             connection_statuses: Vec::new(),
         }
     }

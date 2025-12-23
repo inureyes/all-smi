@@ -181,6 +181,7 @@ impl DataCollectionStrategy for RemoteCollector {
             memory_info,
             process_info: Vec::new(), // No process info in remote mode
             storage_info: deduplicated_storage,
+            chassis_info: Vec::new(), // TODO: Parse chassis info from remote metrics
             connection_statuses,
         })
     }
