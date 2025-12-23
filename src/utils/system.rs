@@ -86,13 +86,13 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
     #[cfg(unix)]
     {
         // When using native macOS APIs, no sudo is required
-        #[cfg(all(target_os = "macos", feature = "native-macos"))]
+        #[cfg(all(target_os = "macos", not(feature = "powermetrics")))]
         {
             // Native macOS APIs (IOReport, SMC) don't require sudo
             true
         }
 
-        #[cfg(not(all(target_os = "macos", feature = "native-macos")))]
+        #[cfg(not(all(target_os = "macos", not(feature = "powermetrics"))))]
         {
             // Check if we are already running as root
             if std::env::var("USER").unwrap_or_default() == "root"

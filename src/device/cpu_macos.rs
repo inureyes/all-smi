@@ -13,11 +13,11 @@
 // limitations under the License.
 
 // Use powermetrics when native-macos feature is NOT enabled
-#[cfg(not(feature = "native-macos"))]
+#[cfg(feature = "powermetrics")]
 use crate::device::powermetrics::get_powermetrics_manager;
 
 // Use native metrics manager when native-macos feature is enabled
-#[cfg(feature = "native-macos")]
+#[cfg(not(feature = "powermetrics"))]
 use crate::device::macos_native::get_native_metrics_manager;
 
 use crate::device::{
@@ -116,7 +116,7 @@ impl MacOsCpuReader {
         // Get CPU frequency information and per-core data
         // When using native-macos feature, use native metrics manager
         // Otherwise, use powermetrics manager
-        #[cfg(feature = "native-macos")]
+        #[cfg(not(feature = "powermetrics"))]
         let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq, per_core_utilization): (
             u32,
             u32,
@@ -155,7 +155,7 @@ impl MacOsCpuReader {
             }
         };
 
-        #[cfg(not(feature = "native-macos"))]
+        #[cfg(feature = "powermetrics")]
         let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq, per_core_utilization) =
             if let Some(manager) = get_powermetrics_manager() {
                 if let Ok(data) = manager.get_latest_data_result() {
@@ -671,7 +671,7 @@ impl MacOsCpuReader {
         let total_cpu_util = self.get_cpu_utilization_sysinfo().unwrap_or(0.0);
 
         // When using native-macos feature, use native metrics manager for cluster residency
-        #[cfg(feature = "native-macos")]
+        #[cfg(not(feature = "powermetrics"))]
         {
             if let Some(manager) = get_native_metrics_manager() {
                 if let Ok(data) = manager.collect_once() {
@@ -693,7 +693,7 @@ impl MacOsCpuReader {
         }
 
         // When NOT using native-macos feature, use PowerMetricsManager
-        #[cfg(not(feature = "native-macos"))]
+        #[cfg(feature = "powermetrics")]
         {
             if let Some(manager) = get_powermetrics_manager() {
                 if let Ok(data) = manager.get_latest_data_result() {
@@ -786,7 +786,7 @@ impl MacOsCpuReader {
 
     fn get_cpu_power_consumption(&self) -> Option<f64> {
         // When using native-macos feature, use native metrics manager
-        #[cfg(feature = "native-macos")]
+        #[cfg(not(feature = "powermetrics"))]
         {
             if let Some(manager) = get_native_metrics_manager() {
                 if let Ok(data) = manager.collect_once() {
@@ -796,7 +796,7 @@ impl MacOsCpuReader {
         }
 
         // When NOT using native-macos feature, use PowerMetricsManager
-        #[cfg(not(feature = "native-macos"))]
+        #[cfg(feature = "powermetrics")]
         {
             if let Some(manager) = get_powermetrics_manager() {
                 if let Ok(data) = manager.get_latest_data_result() {

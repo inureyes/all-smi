@@ -58,11 +58,11 @@ pub struct UiLoop {
     previous_selected_process_index: usize,
     previous_process_horizontal_scroll_offset: usize,
     previous_tab_scroll_offset: usize,
-    #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+    #[cfg(all(target_os = "macos", feature = "powermetrics"))]
     powermetrics_notified: bool,
-    #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+    #[cfg(all(target_os = "macos", feature = "powermetrics"))]
     powermetrics_pending_notified: bool,
-    #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+    #[cfg(all(target_os = "macos", feature = "powermetrics"))]
     last_powermetrics_check: std::time::Instant,
     #[cfg(target_os = "linux")]
     hlsmi_notified: bool,
@@ -92,11 +92,11 @@ impl UiLoop {
             previous_selected_process_index: 0,
             previous_process_horizontal_scroll_offset: 0,
             previous_tab_scroll_offset: 0,
-            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+            #[cfg(all(target_os = "macos", feature = "powermetrics"))]
             powermetrics_notified: false,
-            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+            #[cfg(all(target_os = "macos", feature = "powermetrics"))]
             powermetrics_pending_notified: false,
-            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+            #[cfg(all(target_os = "macos", feature = "powermetrics"))]
             last_powermetrics_check: std::time::Instant::now(),
             #[cfg(target_os = "linux")]
             hlsmi_notified: false,
@@ -111,7 +111,7 @@ impl UiLoop {
         loop {
             // Check PowerMetrics initialization on macOS (periodic check for performance)
             // Only needed when native-macos feature is NOT enabled
-            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+            #[cfg(all(target_os = "macos", feature = "powermetrics"))]
             {
                 use std::time::Duration;
 

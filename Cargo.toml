@@ -81,8 +81,8 @@ tonic-prost-build = "0.14"
 
 [features]
 mock = ["anyhow"]
-# Use native macOS APIs instead of powermetrics (no sudo required)
-native-macos = []
+# Use legacy powermetrics command instead of native macOS APIs (requires sudo)
+powermetrics = []
 
 [lib]
 name = "all_smi"

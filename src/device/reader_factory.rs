@@ -29,10 +29,10 @@ use crate::device::readers::{google_tpu, tenstorrent};
 #[cfg(target_os = "macos")]
 use crate::device::{cpu_macos, memory_macos, platform_detection::is_apple_silicon};
 
-#[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+#[cfg(all(target_os = "macos", feature = "powermetrics"))]
 use crate::device::readers::apple_silicon;
 
-#[cfg(all(target_os = "macos", feature = "native-macos"))]
+#[cfg(all(target_os = "macos", not(feature = "powermetrics")))]
 use crate::device::readers::apple_silicon_native;
 
 #[cfg(target_os = "linux")]
@@ -107,14 +107,14 @@ pub fn get_gpu_readers() -> Vec<Box<dyn GpuReader>> {
             #[cfg(target_os = "macos")]
             if is_apple_silicon() {
                 // Use native APIs when the feature is enabled (no sudo required)
-                #[cfg(feature = "native-macos")]
+                #[cfg(not(feature = "powermetrics"))]
                 {
                     readers.push(Box::new(
                         apple_silicon_native::AppleSiliconNativeGpuReader::new(),
                     ));
                 }
                 // Fall back to powermetrics-based reader when native feature is not enabled
-                #[cfg(not(feature = "native-macos"))]
+                #[cfg(feature = "powermetrics")]
                 {
                     readers.push(Box::new(apple_silicon::AppleSiliconGpuReader::new()));
                 }

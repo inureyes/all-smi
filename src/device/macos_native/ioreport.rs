@@ -604,8 +604,8 @@ impl IOReport {
         duration_ms: u64,
     ) -> Result<(IOReportIterator, u64), &'static str> {
         let sample1 = self.take_sample()?;
-        let start = Instant::now();
 
+        let start = Instant::now();
         std::thread::sleep(std::time::Duration::from_millis(duration_ms));
 
         let sample2 = self.take_sample()?;

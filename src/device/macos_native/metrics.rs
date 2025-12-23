@@ -191,7 +191,7 @@ impl NativeMetricsData {
 
 /// Convert NativeMetricsData to the format expected by existing code
 /// This is only needed when native-macos feature is NOT enabled (for compatibility)
-#[cfg(not(feature = "native-macos"))]
+#[cfg(feature = "powermetrics")]
 impl From<NativeMetricsData> for crate::device::powermetrics_parser::PowerMetricsData {
     fn from(native: NativeMetricsData) -> Self {
         Self {

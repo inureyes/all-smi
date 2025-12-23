@@ -88,11 +88,13 @@ pub struct NativeMetricsManager {
 
 impl NativeMetricsManager {
     /// Create a new NativeMetricsManager
-    pub fn new(interval_ms: u64) -> Result<Self, Box<dyn std::error::Error>> {
-        let config = NativeMetricsConfig {
-            sample_interval_ms: interval_ms.max(50), // Minimum 50ms
-            ..Default::default()
-        };
+    ///
+    /// Note: The `_interval_ms` parameter is kept for API compatibility but is not used.
+    /// IOReport sampling uses a fixed 100ms interval for optimal performance.
+    pub fn new(_interval_ms: u64) -> Result<Self, Box<dyn std::error::Error>> {
+        // Use default config with 100ms sample interval for fast IOReport delta sampling
+        // The CLI interval parameter is for data collection frequency, not IOReport sampling
+        let config = NativeMetricsConfig::default();
 
         // Initialize IOReport
         let ioreport = IOReport::new().map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
