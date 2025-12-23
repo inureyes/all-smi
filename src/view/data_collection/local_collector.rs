@@ -46,6 +46,11 @@ use super::strategy::{
     CollectionConfig, CollectionData, CollectionError, CollectionResult, DataCollectionStrategy,
 };
 
+/// Maximum number of processes to keep after collection.
+/// Processes are sorted by CPU usage (descending) and truncated to this limit
+/// to reduce CPU overhead from tracking thousands of processes.
+const MAX_DISPLAY_PROCESSES: usize = 500;
+
 pub struct LocalCollector {
     gpu_readers: Arc<RwLock<Vec<Box<dyn GpuReader>>>>,
     cpu_readers: Arc<RwLock<Vec<Box<dyn CpuReader>>>>,
@@ -330,6 +335,16 @@ impl LocalCollector {
         let mut all_processes_merged = all_processes;
         merge_gpu_processes(&mut all_processes_merged, gpu_processes);
 
+        // Sort by CPU usage descending and limit to top MAX_DISPLAY_PROCESSES
+        all_processes_merged.sort_by(|a, b| {
+            b.cpu_percent
+                .partial_cmp(&a.cpu_percent)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        if all_processes_merged.len() > MAX_DISPLAY_PROCESSES {
+            all_processes_merged.truncate(MAX_DISPLAY_PROCESSES);
+        }
+
         CollectionData {
             gpu_info: all_gpu_info,
             cpu_info: all_cpu_info,
@@ -381,6 +396,16 @@ impl LocalCollector {
             get_all_processes(system, &gpu_pids)
         });
         merge_gpu_processes(&mut all_processes, gpu_processes);
+
+        // Sort by CPU usage descending and limit to top MAX_DISPLAY_PROCESSES
+        all_processes.sort_by(|a, b| {
+            b.cpu_percent
+                .partial_cmp(&a.cpu_percent)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        if all_processes.len() > MAX_DISPLAY_PROCESSES {
+            all_processes.truncate(MAX_DISPLAY_PROCESSES);
+        }
 
         let all_storage_info = Self::collect_storage_info();
 
