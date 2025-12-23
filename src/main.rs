@@ -37,7 +37,15 @@ use utils::{
 
 #[cfg(target_os = "macos")]
 use device::is_apple_silicon;
-#[cfg(target_os = "macos")]
+
+// Use native macOS APIs when the feature is enabled (no sudo required)
+#[cfg(all(target_os = "macos", feature = "native-macos"))]
+use device::macos_native::{
+    get_native_metrics_manager, initialize_native_metrics_manager, shutdown_native_metrics_manager,
+};
+
+// Use powermetrics when native-macos feature is NOT enabled (requires sudo)
+#[cfg(all(target_os = "macos", not(feature = "native-macos")))]
 use device::powermetrics::{initialize_powermetrics_manager, shutdown_powermetrics_manager};
 
 #[cfg(target_os = "linux")]
@@ -47,11 +55,14 @@ use device::platform_detection::has_gaudi;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::sync::atomic::AtomicBool;
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "native-macos")))]
 use std::sync::atomic::Ordering;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(feature = "native-macos")))]
 static POWERMETRICS_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(all(target_os = "macos", feature = "native-macos"))]
+static NATIVE_METRICS_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "linux")]
 static HLSMI_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -67,9 +78,14 @@ async fn main() {
     // Set up signal handler for clean shutdown
     tokio::spawn(async {
         signal::ctrl_c().await.expect("Failed to listen for Ctrl+C");
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "native-macos"))]
         {
-            // Always cleanup powermetrics on signal
+            // Cleanup native metrics manager on signal
+            shutdown_native_metrics_manager();
+        }
+        #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+        {
+            // Cleanup powermetrics on signal
             shutdown_powermetrics_manager();
         }
         #[cfg(target_os = "linux")]
@@ -86,9 +102,14 @@ async fn main() {
         let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())
             .expect("Failed to listen for SIGTERM");
         sigterm.recv().await;
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "native-macos"))]
         {
-            // Always cleanup powermetrics on signal
+            // Cleanup native metrics manager on signal
+            shutdown_native_metrics_manager();
+        }
+        #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+        {
+            // Cleanup powermetrics on signal
             shutdown_powermetrics_manager();
         }
         #[cfg(target_os = "linux")]
@@ -101,13 +122,29 @@ async fn main() {
 
     match cli.command {
         Some(Commands::Api(args)) => {
-            #[cfg(target_os = "macos")]
+            // When using native macOS APIs, no sudo is needed
+            #[cfg(all(target_os = "macos", feature = "native-macos"))]
+            let _ = ensure_sudo_permissions_for_api(); // Just for any other checks
+
+            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
             let has_sudo = ensure_sudo_permissions_for_api();
+
             #[cfg(not(target_os = "macos"))]
             let _has_sudo = ensure_sudo_permissions_for_api();
 
-            // Initialize PowerMetricsManager if we have sudo
-            #[cfg(target_os = "macos")]
+            // Initialize native metrics manager (no sudo required)
+            #[cfg(all(target_os = "macos", feature = "native-macos"))]
+            if is_apple_silicon() {
+                if let Err(e) = initialize_native_metrics_manager(args.interval as u64 * 1000) {
+                    eprintln!("Warning: Failed to initialize native metrics manager: {e}");
+                } else {
+                    use std::sync::atomic::Ordering;
+                    NATIVE_METRICS_INITIALIZED.store(true, Ordering::Relaxed);
+                }
+            }
+
+            // Initialize PowerMetricsManager if we have sudo (legacy mode)
+            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
             if has_sudo && is_apple_silicon() {
                 if let Err(e) = initialize_powermetrics_manager(args.interval) {
                     eprintln!("Warning: Failed to initialize PowerMetricsManager: {e}");
@@ -130,10 +167,27 @@ async fn main() {
             run_api_mode(&args).await;
         }
         Some(Commands::Local(args)) => {
+            // Only require sudo when NOT using native macOS APIs
+            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
             ensure_sudo_permissions();
 
-            // Initialize PowerMetricsManager in background after getting sudo
-            #[cfg(target_os = "macos")]
+            #[cfg(not(target_os = "macos"))]
+            ensure_sudo_permissions();
+
+            // Initialize native metrics manager (no sudo required)
+            #[cfg(all(target_os = "macos", feature = "native-macos"))]
+            if is_apple_silicon() {
+                let interval = args.interval.unwrap_or(2);
+                if let Err(e) = initialize_native_metrics_manager(interval as u64 * 1000) {
+                    eprintln!("Warning: Failed to initialize native metrics manager: {e}");
+                } else {
+                    use std::sync::atomic::Ordering;
+                    NATIVE_METRICS_INITIALIZED.store(true, Ordering::Relaxed);
+                }
+            }
+
+            // Initialize PowerMetricsManager in background after getting sudo (legacy mode)
+            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
             if is_apple_silicon() {
                 // Use specified interval or default to 2 seconds for local mode
                 let interval = args.interval.unwrap_or(2);
@@ -194,9 +248,14 @@ async fn main() {
             view::run_view_mode(&args).await;
 
             // Cleanup after view mode exits
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", feature = "native-macos"))]
             {
-                // Always try to shutdown powermetrics, even if not fully initialized
+                // Cleanup native metrics manager
+                shutdown_native_metrics_manager();
+            }
+            #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+            {
+                // Cleanup powermetrics
                 shutdown_powermetrics_manager();
             }
             #[cfg(target_os = "linux")]
@@ -207,10 +266,27 @@ async fn main() {
         }
         None => {
             // Default to local mode when no command is specified
+            // With native macOS feature, sudo is not needed
+            #[cfg(all(target_os = "macos", feature = "native-macos"))]
+            let has_sudo = true; // Always proceed, no sudo needed
+
+            #[cfg(not(all(target_os = "macos", feature = "native-macos")))]
             let has_sudo = ensure_sudo_permissions_with_fallback();
+
             if has_sudo {
-                // Initialize PowerMetricsManager in background after getting sudo
-                #[cfg(target_os = "macos")]
+                // Initialize native metrics manager (no sudo required)
+                #[cfg(all(target_os = "macos", feature = "native-macos"))]
+                if is_apple_silicon() {
+                    if let Err(e) = initialize_native_metrics_manager(2000) {
+                        eprintln!("Warning: Failed to initialize native metrics manager: {e}");
+                    } else {
+                        use std::sync::atomic::Ordering;
+                        NATIVE_METRICS_INITIALIZED.store(true, Ordering::Relaxed);
+                    }
+                }
+
+                // Initialize PowerMetricsManager in background after getting sudo (legacy mode)
+                #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
                 if is_apple_silicon() {
                     // Default to 2 seconds for local mode
                     std::thread::spawn(|| {
@@ -238,9 +314,14 @@ async fn main() {
                 view::run_local_mode(&LocalArgs { interval: None }).await;
 
                 // Cleanup after local mode exits
-                #[cfg(target_os = "macos")]
+                #[cfg(all(target_os = "macos", feature = "native-macos"))]
                 {
-                    // Always try to shutdown powermetrics, even if not fully initialized
+                    // Cleanup native metrics manager
+                    shutdown_native_metrics_manager();
+                }
+                #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
+                {
+                    // Cleanup powermetrics
                     shutdown_powermetrics_manager();
                 }
                 #[cfg(target_os = "linux")]
@@ -255,7 +336,11 @@ async fn main() {
     }
 
     // Final cleanup - ensure all managers are terminated
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "native-macos"))]
+    {
+        shutdown_native_metrics_manager();
+    }
+    #[cfg(all(target_os = "macos", not(feature = "native-macos")))]
     {
         shutdown_powermetrics_manager();
     }
@@ -266,7 +351,17 @@ async fn main() {
 }
 
 // Set up a panic handler to ensure cleanup
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "native-macos"))]
+fn setup_panic_handler() {
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        // Cleanup native metrics manager before panicking
+        device::macos_native::shutdown_native_metrics_manager();
+        default_panic(panic_info);
+    }));
+}
+
+#[cfg(all(target_os = "macos", not(feature = "native-macos")))]
 fn setup_panic_handler() {
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {

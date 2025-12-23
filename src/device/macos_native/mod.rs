@@ -36,8 +36,9 @@ mod thermal;
 
 pub mod manager;
 
-// Re-export public types for use by apple_silicon_native reader
+// Re-export public types for use by apple_silicon_native reader and main
 #[allow(unused_imports)]
 pub use manager::{
-    get_native_metrics_manager, initialize_native_metrics_manager, NativeMetricsManager,
+    get_native_metrics_manager, initialize_native_metrics_manager, shutdown_native_metrics_manager,
+    NativeMetricsManager,
 };

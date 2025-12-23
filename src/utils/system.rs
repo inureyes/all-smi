@@ -84,23 +84,35 @@ pub fn ensure_sudo_permissions_for_api() -> bool {
 
     #[cfg(unix)]
     {
-        // Check if we are already running as root
-        if std::env::var("USER").unwrap_or_default() == "root" || unsafe { libc::geteuid() } == 0 {
-            println!("✅ Running as root, no sudo required.");
+        // When using native macOS APIs, no sudo is required
+        #[cfg(all(target_os = "macos", feature = "native-macos"))]
+        {
+            // Native macOS APIs (IOReport, SMC) don't require sudo
             return true;
         }
 
-        // Check if we already have sudo privileges cached
-        if has_sudo_privileges() {
-            println!("✅ Sudo privileges already available.");
-            return true;
-        }
+        #[cfg(not(all(target_os = "macos", feature = "native-macos")))]
+        {
+            // Check if we are already running as root
+            if std::env::var("USER").unwrap_or_default() == "root"
+                || unsafe { libc::geteuid() } == 0
+            {
+                println!("✅ Running as root, no sudo required.");
+                return true;
+            }
 
-        // Sudo not available - warn but continue (for API mode)
-        println!("⚠️  Warning: Running without sudo privileges.");
-        println!("   Some hardware metrics may not be available.");
-        println!("   For full functionality, run with: sudo all-smi api --port <port>");
-        false
+            // Check if we already have sudo privileges cached
+            if has_sudo_privileges() {
+                println!("✅ Sudo privileges already available.");
+                return true;
+            }
+
+            // Sudo not available - warn but continue (for API mode)
+            println!("⚠️  Warning: Running without sudo privileges.");
+            println!("   Some hardware metrics may not be available.");
+            println!("   For full functionality, run with: sudo all-smi api --port <port>");
+            false
+        }
     }
 
     #[cfg(not(any(target_os = "windows", unix)))]
