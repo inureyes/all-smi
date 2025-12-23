@@ -121,34 +121,33 @@ impl MacOsCpuReader {
             self.parse_apple_silicon_hardware_info_fast()?
         };
 
-        // Get actual CPU utilization using iostat (more accurate than active residency)
-        let cpu_utilization = self.get_cpu_utilization_sysinfo()?;
+        // OPTIMIZATION: Refresh CPU usage ONCE and reuse for all subsequent reads
+        // This avoids multiple refresh_cpu_usage() calls which was causing high CPU usage
+        self.ensure_cpu_refreshed();
 
-        // Get CPU frequency information from native metrics manager
+        // Get actual CPU utilization (no refresh needed - already done above)
+        let cpu_utilization = self.system.read().unwrap().global_cpu_usage() as f64;
+
+        // OPTIMIZATION: Get native metrics ONCE and reuse for frequency/power/residency
+        // This avoids multiple collect_once() calls which was expensive
+        let native_data = get_native_metrics_manager().and_then(|m| m.collect_once().ok());
+
+        // Get CPU frequency information from cached native metrics
         let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq): (
             u32,
             u32,
             Option<u32>,
             Option<u32>,
         ) = {
-            if let Some(manager) = get_native_metrics_manager() {
-                if let Ok(data) = manager.collect_once() {
-                    // Use actual frequencies from native metrics
-                    let avg_freq = (data.p_cluster_frequency + data.e_cluster_frequency) / 2;
-                    (
-                        avg_freq,
-                        data.p_cluster_frequency, // P-cluster frequency as max
-                        Some(data.p_cluster_frequency),
-                        Some(data.e_cluster_frequency),
-                    )
-                } else {
-                    (
-                        self.get_cpu_base_frequency()?,
-                        self.get_cpu_max_frequency()?,
-                        None,
-                        None,
-                    )
-                }
+            if let Some(ref data) = native_data {
+                // Use actual frequencies from native metrics
+                let avg_freq = (data.p_cluster_frequency + data.e_cluster_frequency) / 2;
+                (
+                    avg_freq,
+                    data.p_cluster_frequency, // P-cluster frequency as max
+                    Some(data.p_cluster_frequency),
+                    Some(data.e_cluster_frequency),
+                )
             } else {
                 (
                     self.get_cpu_base_frequency()?,
@@ -159,15 +158,15 @@ impl MacOsCpuReader {
             }
         };
 
-        // Get per-core utilization using sysinfo
+        // Get per-core utilization (no refresh needed - already done above)
         let per_core_utilization =
-            self.get_per_core_utilization(e_core_count as usize, p_core_count as usize);
+            self.get_per_core_utilization_no_refresh(e_core_count as usize, p_core_count as usize);
 
         // Get CPU temperature (may not be available)
         let temperature = self.get_cpu_temperature();
 
-        // Power consumption from native metrics manager
-        let power_consumption = self.get_cpu_power_consumption();
+        // Power consumption from cached native metrics
+        let power_consumption = native_data.as_ref().map(|d| d.cpu_power_mw / 1000.0);
 
         let total_cores = p_core_count + e_core_count;
         let total_threads = total_cores; // Apple Silicon doesn't use hyperthreading
@@ -649,6 +648,20 @@ impl MacOsCpuReader {
         Ok(cpu_usage)
     }
 
+    /// OPTIMIZATION: Refresh CPU usage once per collection cycle
+    /// This avoids multiple refresh_cpu_usage() calls which was causing high CPU usage
+    fn ensure_cpu_refreshed(&self) {
+        // Check if we need to do first refresh with initialization delay
+        if !*self.first_refresh_done.read().unwrap() {
+            self.system.write().unwrap().refresh_cpu_usage();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            *self.first_refresh_done.write().unwrap() = true;
+        }
+
+        // Single refresh per collection cycle
+        self.system.write().unwrap().refresh_cpu_usage();
+    }
+
     #[allow(dead_code)] // Kept as fallback method when sysinfo is unavailable
     fn get_cpu_utilization_iostat(&self) -> Result<f64, Box<dyn std::error::Error>> {
         // Fallback method using iostat (kept for compatibility)
@@ -733,6 +746,7 @@ impl MacOsCpuReader {
         None
     }
 
+    #[allow(dead_code)] // OPTIMIZATION: Now using cached native_data instead
     fn get_cpu_power_consumption(&self) -> Option<f64> {
         // Use native metrics manager
         if let Some(manager) = get_native_metrics_manager() {
@@ -744,18 +758,30 @@ impl MacOsCpuReader {
         None
     }
 
-    /// Get per-core CPU utilization using sysinfo
+    /// Get per-core CPU utilization using sysinfo (with refresh)
     /// For Apple Silicon: E-cores are indexed first (0 to e_core_count-1),
     /// then P-cores (e_core_count to total-1)
+    #[allow(dead_code)] // Kept for potential future use when refresh is needed
     fn get_per_core_utilization(
         &self,
         e_core_count: usize,
         p_core_count: usize,
     ) -> Vec<CoreUtilization> {
-        let mut per_core_utilization = Vec::new();
-
         // Refresh CPU usage to get latest data
         self.system.write().unwrap().refresh_cpu_usage();
+        self.get_per_core_utilization_no_refresh(e_core_count, p_core_count)
+    }
+
+    /// Get per-core CPU utilization WITHOUT refreshing CPU data
+    /// OPTIMIZATION: Used when CPU has already been refreshed via ensure_cpu_refreshed()
+    /// For Apple Silicon: E-cores are indexed first (0 to e_core_count-1),
+    /// then P-cores (e_core_count to total-1)
+    fn get_per_core_utilization_no_refresh(
+        &self,
+        e_core_count: usize,
+        p_core_count: usize,
+    ) -> Vec<CoreUtilization> {
+        let mut per_core_utilization = Vec::new();
 
         let system = self.system.read().unwrap();
         let cpus = system.cpus();

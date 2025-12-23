@@ -327,8 +327,10 @@ impl NativeMetricsManager {
             }
         }
 
-        // Create a new IOReport for this collection
-        let mut ioreport = IOReport::new()?;
+        // OPTIMIZATION: Reuse the existing IOReport instance instead of creating a new one
+        // Creating IOReport::new() is expensive (involves IOKit setup)
+        let mut ioreport_guard = self.ioreport.lock().map_err(|_| "IOReport lock poisoned")?;
+        let ioreport = ioreport_guard.as_mut().ok_or("IOReport not initialized")?;
 
         // For first collection, use fewer samples for faster startup
         // Subsequent calls can use full sample count for accuracy
