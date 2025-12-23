@@ -124,13 +124,12 @@ impl MacOsCpuReader {
         // Get actual CPU utilization using iostat (more accurate than active residency)
         let cpu_utilization = self.get_cpu_utilization_sysinfo()?;
 
-        // Get CPU frequency information and per-core data from native metrics manager
-        let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq, per_core_utilization): (
+        // Get CPU frequency information from native metrics manager
+        let (base_frequency, max_frequency, p_cluster_freq, e_cluster_freq): (
             u32,
             u32,
             Option<u32>,
             Option<u32>,
-            Vec<CoreUtilization>,
         ) = {
             if let Some(manager) = get_native_metrics_manager() {
                 if let Ok(data) = manager.collect_once() {
@@ -141,7 +140,6 @@ impl MacOsCpuReader {
                         data.p_cluster_frequency, // P-cluster frequency as max
                         Some(data.p_cluster_frequency),
                         Some(data.e_cluster_frequency),
-                        Vec::new(), // Per-core data not available via native APIs
                     )
                 } else {
                     (
@@ -149,7 +147,6 @@ impl MacOsCpuReader {
                         self.get_cpu_max_frequency()?,
                         None,
                         None,
-                        Vec::new(),
                     )
                 }
             } else {
@@ -158,10 +155,13 @@ impl MacOsCpuReader {
                     self.get_cpu_max_frequency()?,
                     None,
                     None,
-                    Vec::new(),
                 )
             }
         };
+
+        // Get per-core utilization using sysinfo
+        let per_core_utilization =
+            self.get_per_core_utilization(e_core_count as usize, p_core_count as usize);
 
         // Get CPU temperature (may not be available)
         let temperature = self.get_cpu_temperature();
@@ -742,6 +742,50 @@ impl MacOsCpuReader {
         }
 
         None
+    }
+
+    /// Get per-core CPU utilization using sysinfo
+    /// For Apple Silicon: E-cores are indexed first (0 to e_core_count-1),
+    /// then P-cores (e_core_count to total-1)
+    fn get_per_core_utilization(
+        &self,
+        e_core_count: usize,
+        p_core_count: usize,
+    ) -> Vec<CoreUtilization> {
+        let mut per_core_utilization = Vec::new();
+
+        // Refresh CPU usage to get latest data
+        self.system.write().unwrap().refresh_cpu_usage();
+
+        let system = self.system.read().unwrap();
+        let cpus = system.cpus();
+
+        for (core_id, cpu) in cpus.iter().enumerate() {
+            let utilization = cpu.cpu_usage() as f64;
+
+            // Determine core type based on index
+            // Apple Silicon layout: E-cores first (indices 0 to e_core_count-1),
+            // then P-cores (indices e_core_count to total-1)
+            let core_type = if self.is_apple_silicon {
+                if core_id < e_core_count {
+                    CoreType::Efficiency
+                } else if core_id < e_core_count + p_core_count {
+                    CoreType::Performance
+                } else {
+                    CoreType::Standard // Fallback for any extra cores
+                }
+            } else {
+                CoreType::Standard // Intel Macs use standard cores
+            };
+
+            per_core_utilization.push(CoreUtilization {
+                core_id: core_id as u32,
+                core_type,
+                utilization,
+            });
+        }
+
+        per_core_utilization
     }
 }
 
