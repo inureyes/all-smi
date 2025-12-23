@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::device::types::ProcessInfo;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use sysinfo::{ProcessStatus, System};
 
 /// Get all system processes with GPU usage information
@@ -60,6 +60,81 @@ pub fn get_all_processes(system: &System, gpu_pids: &HashSet<u32>) -> Vec<Proces
     }
 
     // Sort by PID for consistent ordering
+    processes.sort_by_key(|p| p.pid);
+    processes
+}
+
+/// Update a process cache in place, reusing existing ProcessInfo objects where possible.
+/// This reduces memory allocation overhead compared to creating new objects each cycle.
+/// Returns a Vec of ProcessInfo cloned from the cache for the current snapshot.
+pub fn update_process_cache(
+    system: &System,
+    gpu_pids: &HashSet<u32>,
+    cache: &mut HashMap<u32, ProcessInfo>,
+) -> Vec<ProcessInfo> {
+    // Track which PIDs are still alive this cycle
+    let mut seen_pids: HashSet<u32> = HashSet::with_capacity(system.processes().len());
+    let total_memory = system.total_memory();
+
+    for (pid, process) in system.processes() {
+        let pid_u32 = pid.as_u32();
+        seen_pids.insert(pid_u32);
+
+        let uses_gpu = gpu_pids.contains(&pid_u32);
+
+        if let Some(cached) = cache.get_mut(&pid_u32) {
+            // Update existing entry - only update dynamic fields to reduce allocations
+            cached.cpu_percent = process.cpu_usage() as f64;
+            cached.memory_percent = (process.memory() as f64 / total_memory as f64) * 100.0;
+            cached.memory_rss = process.memory();
+            cached.memory_vms = process.virtual_memory();
+            cached.state = convert_process_state(process.status());
+            cached.cpu_time = process.run_time();
+            // Update GPU status (may change if process starts/stops using GPU)
+            cached.uses_gpu = uses_gpu;
+            if uses_gpu && cached.device_uuid.is_empty() {
+                cached.device_uuid = "GPU".to_string();
+            }
+            // Note: Static fields like process_name, user, command, start_time, ppid are kept unchanged
+            // They don't change during process lifetime
+        } else {
+            // New process - create full ProcessInfo entry
+            let (priority, nice_value) = get_process_priority_nice(pid_u32);
+            let process_info = ProcessInfo {
+                device_id: 0,
+                device_uuid: if uses_gpu {
+                    "GPU".to_string()
+                } else {
+                    String::new()
+                },
+                pid: pid_u32,
+                process_name: process.name().to_string_lossy().to_string(),
+                used_memory: 0,
+                cpu_percent: process.cpu_usage() as f64,
+                memory_percent: (process.memory() as f64 / total_memory as f64) * 100.0,
+                memory_rss: process.memory(),
+                memory_vms: process.virtual_memory(),
+                user: get_process_user(process),
+                state: convert_process_state(process.status()),
+                start_time: format!("{}", process.start_time()),
+                cpu_time: process.run_time(),
+                command: get_process_command(process),
+                ppid: process.parent().map(|p| p.as_u32()).unwrap_or(0),
+                threads: 1,
+                uses_gpu,
+                priority,
+                nice_value,
+                gpu_utilization: 0.0,
+            };
+            cache.insert(pid_u32, process_info);
+        }
+    }
+
+    // Remove stale entries (processes that no longer exist)
+    cache.retain(|pid, _| seen_pids.contains(pid));
+
+    // Return a clone of the cached data as a Vec
+    let mut processes: Vec<ProcessInfo> = cache.values().cloned().collect();
     processes.sort_by_key(|p| p.pid);
     processes
 }

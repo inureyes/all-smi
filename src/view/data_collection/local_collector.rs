@@ -13,13 +13,16 @@
 // limitations under the License.
 
 use async_trait::async_trait;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::Disks;
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
+
+/// Type alias for the process cache using std::sync::RwLock for synchronous access
+type ProcessCache = std::sync::RwLock<HashMap<u32, ProcessInfo>>;
 
 use crate::app_state::AppState;
 #[cfg(target_os = "linux")]
@@ -28,7 +31,7 @@ use crate::device::{
     create_chassis_reader, get_cpu_readers, get_gpu_readers, get_memory_readers,
     get_nvml_status_message,
     platform_detection::has_nvidia,
-    process_list::{get_all_processes, merge_gpu_processes},
+    process_list::{merge_gpu_processes, update_process_cache},
     ChassisInfo, ChassisReader, CpuInfo, CpuReader, GpuInfo, GpuReader, MemoryInfo, MemoryReader,
     ProcessInfo,
 };
@@ -68,6 +71,10 @@ pub struct LocalCollector {
     tracked_pids: Arc<RwLock<Vec<sysinfo::Pid>>>,
     /// Counter for refresh cycles; every FULL_REFRESH_INTERVAL cycles we do a full refresh.
     refresh_cycle: Arc<AtomicU32>,
+    /// Cache of ProcessInfo objects by PID to reduce memory allocation overhead.
+    /// On each collection, existing objects are updated in place rather than reallocated.
+    /// Uses std::sync::RwLock for synchronous access within with_global_system closure.
+    process_cache: Arc<ProcessCache>,
 }
 
 impl LocalCollector {
@@ -81,6 +88,9 @@ impl LocalCollector {
             initialized: Arc::new(Mutex::new(false)),
             tracked_pids: Arc::new(RwLock::new(Vec::new())),
             refresh_cycle: Arc::new(AtomicU32::new(0)),
+            process_cache: Arc::new(std::sync::RwLock::new(HashMap::with_capacity(
+                MAX_DISPLAY_PROCESSES,
+            ))),
         }
     }
 
@@ -225,6 +235,7 @@ impl LocalCollector {
         let cpu_readers = Arc::clone(&self.cpu_readers);
         let memory_readers = Arc::clone(&self.memory_readers);
         let chassis_reader = Arc::clone(&self.chassis_reader);
+        let process_cache = Arc::clone(&self.process_cache);
 
         let (
             all_gpu_info,
@@ -289,7 +300,7 @@ impl LocalCollector {
                 },
                 // Full process collection - use spawn_blocking to avoid blocking tokio runtime
                 async move {
-                    let all_processes = tokio::task::spawn_blocking(|| {
+                    let all_processes = tokio::task::spawn_blocking(move || {
                         with_global_system(|system| {
                             use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
                             // OPTIMIZATION: Only refresh fields we actually need
@@ -307,8 +318,12 @@ impl LocalCollector {
                                 refresh_kind,
                             );
                             system.refresh_memory();
+
+                            // OPTIMIZATION: Initialize process cache on first iteration
+                            // This populates the cache with all current processes
                             let gpu_pids: HashSet<u32> = HashSet::new();
-                            get_all_processes(system, &gpu_pids)
+                            let mut cache = process_cache.write().unwrap();
+                            update_process_cache(system, &gpu_pids, &mut cache)
                         })
                     })
                     .await
@@ -414,6 +429,7 @@ impl LocalCollector {
         };
 
         let gpu_pids: HashSet<u32> = gpu_processes.iter().map(|p| p.pid).collect();
+        let process_cache = Arc::clone(&self.process_cache);
         let mut all_processes = with_global_system(|system| {
             use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
             // OPTIMIZATION: Only refresh fields we actually need
@@ -438,7 +454,12 @@ impl LocalCollector {
                 );
             }
             system.refresh_memory();
-            get_all_processes(system, &gpu_pids)
+
+            // OPTIMIZATION: Use process cache to reduce memory allocation overhead
+            // Instead of creating new ProcessInfo objects every cycle, we update
+            // existing cached objects and only allocate for new processes.
+            let mut cache = process_cache.write().unwrap();
+            update_process_cache(system, &gpu_pids, &mut cache)
         });
         merge_gpu_processes(&mut all_processes, gpu_processes);
 
