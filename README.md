@@ -139,13 +139,10 @@ http://gpu-node3:9090
 ## Platform-Specific Requirements
 
 ### macOS (Apple Silicon)
-- **Recommended (Native APIs):** Build with `--features native-macos` for sudo-free operation
+- **No sudo required:** Uses native macOS APIs for metrics collection
   - Uses IOReport API and Apple SMC directly
-  - Provides actual temperature readings
-  - Lower latency than powermetrics
+  - Provides actual temperature readings from SMC sensors
   - Run with: `all-smi local`
-- **Legacy Mode:** Without `native-macos` feature, requires `sudo` privileges for `powermetrics`
-  - Run with: `sudo all-smi local`
 
 ### Linux with AMD GPUs
 - **Sudo Access Required:** AMD GPU monitoring requires `sudo` to access `/dev/dri` devices
@@ -264,10 +261,9 @@ http://gpu-node3:9090
   - Furiosa NPUs (RNGD) via furiosa-smi
 - **macOS:**
   - Apple Silicon (M1/M2/M3/M4) GPUs monitoring
-  - Native APIs (with `native-macos` feature): IOReport, SMC for no-sudo operation
-  - Legacy mode: powermetrics command (requires sudo)
+  - Native APIs: IOReport, SMC for no-sudo operation
   - ANE (Apple Neural Engine) power tracking
-  - Actual CPU/GPU temperature readings (native mode)
+  - Actual CPU/GPU temperature readings from SMC sensors
   - Thermal pressure monitoring
   - P/E core architecture support
 - **NVIDIA Jetson:** 
