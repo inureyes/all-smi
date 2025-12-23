@@ -97,17 +97,23 @@ impl MacOsCpuReader {
         time: String,
     ) -> Result<CpuInfo, Box<dyn std::error::Error>> {
         // Check cache BEFORE calling expensive system_profiler command
+        // IMPORTANT: Read cache values first and drop the locks before any else branch
+        let cached_values = {
+            let cpu_model = self.cached_cpu_model.lock().unwrap().clone();
+            let p_core_count = *self.cached_p_core_count.lock().unwrap();
+            let e_core_count = *self.cached_e_core_count.lock().unwrap();
+            let gpu_core_count = *self.cached_gpu_core_count.lock().unwrap();
+            (cpu_model, p_core_count, e_core_count, gpu_core_count)
+        };
+        // Now all locks are released
+
         let (cpu_model, p_core_count, e_core_count, gpu_core_count) = if let (
             Some(cpu_model),
             Some(p_core_count),
             Some(e_core_count),
             Some(gpu_core_count),
-        ) = (
-            self.cached_cpu_model.lock().unwrap().clone(),
-            *self.cached_p_core_count.lock().unwrap(),
-            *self.cached_e_core_count.lock().unwrap(),
-            *self.cached_gpu_core_count.lock().unwrap(),
-        ) {
+        ) = cached_values
+        {
             // Use cached values - avoids expensive system_profiler call
             (cpu_model, p_core_count, e_core_count, gpu_core_count)
         } else {
@@ -268,10 +274,14 @@ impl MacOsCpuReader {
         time: String,
     ) -> Result<CpuInfo, Box<dyn std::error::Error>> {
         // Check cache BEFORE calling expensive system_profiler command
+        // IMPORTANT: Read cache value first and drop the lock before any else branch
+        let cached_info = self.cached_intel_info.lock().unwrap().clone();
+        // Lock is now released
+
         let (cpu_model, socket_count, total_cores, total_threads, base_frequency, cache_size) =
-            if let Some(cached_info) = self.cached_intel_info.lock().unwrap().clone() {
+            if let Some(info) = cached_info {
                 // Use cached values - avoids expensive system_profiler call
-                cached_info
+                info
             } else {
                 // Get CPU information using system_profiler (first time only)
                 let output = Command::new("system_profiler")
@@ -665,7 +675,9 @@ impl MacOsCpuReader {
 impl CpuReader for MacOsCpuReader {
     fn get_cpu_info(&self) -> Vec<CpuInfo> {
         match self.get_cpu_info_from_system() {
-            Ok(cpu_info) => vec![cpu_info],
+            Ok(cpu_info) => {
+                vec![cpu_info]
+            }
             Err(e) => {
                 eprintln!("Error reading CPU info: {e}");
                 vec![]
