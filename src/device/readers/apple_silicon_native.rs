@@ -371,16 +371,24 @@ fn parse_ioreg_gpu_cores(output_str: &str) -> Option<u32> {
     None
 }
 
-fn get_total_memory() -> u64 {
+// Use a cached System instance for memory info to avoid creating new instances on every call
+// Total memory is static so we only need to fetch it once
+static CACHED_TOTAL_MEMORY: Lazy<u64> = Lazy::new(|| {
     let mut system = System::new();
     system.refresh_memory();
     system.total_memory()
+});
+
+fn get_total_memory() -> u64 {
+    *CACHED_TOTAL_MEMORY
 }
 
 fn get_used_memory() -> u64 {
-    let mut system = System::new();
-    system.refresh_memory();
-    system.used_memory()
+    // Use global system instance from utils for memory refresh
+    crate::utils::with_global_system(|system| {
+        system.refresh_memory();
+        system.used_memory()
+    })
 }
 
 #[cfg(test)]

@@ -25,8 +25,12 @@ static GLOBAL_SYSTEM: Lazy<Mutex<System>> = Lazy::new(|| {
     Mutex::new(system)
 });
 
+/// Cached hostname - fetched once and reused to avoid repeated system calls
+static CACHED_HOSTNAME: Lazy<String> =
+    Lazy::new(|| System::host_name().unwrap_or_else(|| "unknown".to_string()));
+
 pub fn get_hostname() -> String {
-    System::host_name().unwrap_or_else(|| "unknown".to_string())
+    CACHED_HOSTNAME.clone()
 }
 
 /// Get global system instance for process collection

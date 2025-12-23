@@ -96,14 +96,29 @@ impl MacOsCpuReader {
         instance: String,
         time: String,
     ) -> Result<CpuInfo, Box<dyn std::error::Error>> {
-        // Get CPU model and core counts using system_profiler
-        let output = Command::new("system_profiler")
-            .arg("SPHardwareDataType")
-            .output()?;
+        // Check cache BEFORE calling expensive system_profiler command
+        let (cpu_model, p_core_count, e_core_count, gpu_core_count) = if let (
+            Some(cpu_model),
+            Some(p_core_count),
+            Some(e_core_count),
+            Some(gpu_core_count),
+        ) = (
+            self.cached_cpu_model.lock().unwrap().clone(),
+            *self.cached_p_core_count.lock().unwrap(),
+            *self.cached_e_core_count.lock().unwrap(),
+            *self.cached_gpu_core_count.lock().unwrap(),
+        ) {
+            // Use cached values - avoids expensive system_profiler call
+            (cpu_model, p_core_count, e_core_count, gpu_core_count)
+        } else {
+            // Get CPU model and core counts using system_profiler (first time only)
+            let output = Command::new("system_profiler")
+                .arg("SPHardwareDataType")
+                .output()?;
 
-        let hardware_info = String::from_utf8_lossy(&output.stdout);
-        let (cpu_model, p_core_count, e_core_count, gpu_core_count) =
-            self.parse_apple_silicon_hardware_info(&hardware_info)?;
+            let hardware_info = String::from_utf8_lossy(&output.stdout);
+            self.parse_apple_silicon_hardware_info(&hardware_info)?
+        };
 
         // Get actual CPU utilization using iostat (more accurate than active residency)
         let cpu_utilization = self.get_cpu_utilization_sysinfo()?;
@@ -252,14 +267,20 @@ impl MacOsCpuReader {
         instance: String,
         time: String,
     ) -> Result<CpuInfo, Box<dyn std::error::Error>> {
-        // Get CPU information using system_profiler
-        let output = Command::new("system_profiler")
-            .arg("SPHardwareDataType")
-            .output()?;
-
-        let hardware_info = String::from_utf8_lossy(&output.stdout);
+        // Check cache BEFORE calling expensive system_profiler command
         let (cpu_model, socket_count, total_cores, total_threads, base_frequency, cache_size) =
-            self.parse_intel_mac_hardware_info(&hardware_info)?;
+            if let Some(cached_info) = self.cached_intel_info.lock().unwrap().clone() {
+                // Use cached values - avoids expensive system_profiler call
+                cached_info
+            } else {
+                // Get CPU information using system_profiler (first time only)
+                let output = Command::new("system_profiler")
+                    .arg("SPHardwareDataType")
+                    .output()?;
+
+                let hardware_info = String::from_utf8_lossy(&output.stdout);
+                self.parse_intel_mac_hardware_info(&hardware_info)?
+            };
 
         // Get CPU utilization using sysinfo
         let cpu_utilization = self.get_cpu_utilization_sysinfo()?;
