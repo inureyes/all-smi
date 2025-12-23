@@ -27,7 +27,7 @@
 //! - asitop project by tlkh
 //! - OSXPrivateSDK IOReport.h
 
-use core_foundation::base::{CFRelease, CFType, CFTypeRef, TCFType};
+use core_foundation::base::{CFRelease, CFRetain, CFType, CFTypeRef, TCFType};
 use core_foundation::data::CFData;
 use core_foundation::dictionary::{CFDictionary, CFDictionaryRef, CFMutableDictionaryRef};
 use core_foundation::string::{CFString, CFStringRef};
@@ -36,6 +36,81 @@ use std::marker::{PhantomData, PhantomPinned};
 use std::ptr;
 use std::sync::OnceLock;
 use std::time::Instant;
+
+/// Static CFStringRef constants for IOReport channel groups.
+/// These are created once, retained with CFRetain, and kept for the lifetime
+/// of the application to avoid use-after-free issues with temporary CFString objects.
+///
+/// SAFETY: CFStringRef pointers are immutable once created and CFRetain ensures
+/// they live for the application's lifetime. They can be safely shared across threads.
+struct CFStringRefs {
+    energy_model: CFStringRef,
+    cpu_stats: CFStringRef,
+    cpu_perf_states: CFStringRef,
+    gpu_stats: CFStringRef,
+    gpu_perf_states: CFStringRef,
+}
+
+// SAFETY: CFStringRef is an immutable reference type. Once created and retained,
+// CFStrings are thread-safe for read-only access. We never mutate these pointers.
+unsafe impl Send for CFStringRefs {}
+unsafe impl Sync for CFStringRefs {}
+
+impl CFStringRefs {
+    fn new() -> Self {
+        // SAFETY: We create CFStrings, get their raw pointers, then call CFRetain
+        // to ensure they live for the program's lifetime. The CFString objects
+        // go out of scope but the underlying CF objects are retained.
+        unsafe {
+            let energy_model = {
+                let s = CFString::new(ENERGY_MODEL);
+                let ptr = s.as_concrete_TypeRef();
+                CFRetain(ptr as *const c_void);
+                ptr
+            };
+            let cpu_stats = {
+                let s = CFString::new(CPU_STATS);
+                let ptr = s.as_concrete_TypeRef();
+                CFRetain(ptr as *const c_void);
+                ptr
+            };
+            let cpu_perf_states = {
+                let s = CFString::new(CPU_PERF_STATES);
+                let ptr = s.as_concrete_TypeRef();
+                CFRetain(ptr as *const c_void);
+                ptr
+            };
+            let gpu_stats = {
+                let s = CFString::new(GPU_STATS);
+                let ptr = s.as_concrete_TypeRef();
+                CFRetain(ptr as *const c_void);
+                ptr
+            };
+            let gpu_perf_states = {
+                let s = CFString::new(GPU_PERF_STATES);
+                let ptr = s.as_concrete_TypeRef();
+                CFRetain(ptr as *const c_void);
+                ptr
+            };
+
+            Self {
+                energy_model,
+                cpu_stats,
+                cpu_perf_states,
+                gpu_stats,
+                gpu_perf_states,
+            }
+        }
+    }
+}
+
+/// Global static CFString constants to prevent use-after-free
+static CFSTRING_REFS: OnceLock<CFStringRefs> = OnceLock::new();
+
+/// Get or initialize the static CFString constants
+fn get_cfstring_refs() -> &'static CFStringRefs {
+    CFSTRING_REFS.get_or_init(CFStringRefs::new)
+}
 
 /// Opaque IOReport subscription reference
 #[repr(C)]
@@ -247,6 +322,14 @@ fn extract_gpu_frequencies_from_properties(properties: CFMutableDictionaryRef) -
     }
 }
 
+/// Minimum valid GPU frequency in Hz (100 MHz)
+const MIN_GPU_FREQ_HZ: u32 = 100_000_000;
+/// Maximum valid GPU frequency in Hz (4 GHz - fits in u32)
+/// Apple Silicon GPUs typically max out around 1.4 GHz, so 4 GHz is generous
+const MAX_GPU_FREQ_HZ: u32 = 4_000_000_000;
+/// Maximum number of frequency entries to parse
+const MAX_FREQ_ENTRIES: usize = 64;
+
 /// Parse voltage-states data to extract frequencies in MHz
 fn parse_voltage_states_data(data_ref: core_foundation::data::CFDataRef) -> Vec<u32> {
     unsafe {
@@ -256,9 +339,9 @@ fn parse_voltage_states_data(data_ref: core_foundation::data::CFDataRef) -> Vec<
 
         // Each entry is 8 bytes: first 4 bytes are frequency in Hz
         let total_entries = len / 8;
-        let mut frequencies: Vec<u32> = Vec::with_capacity(total_entries.min(64));
+        let mut frequencies: Vec<u32> = Vec::with_capacity(total_entries.min(MAX_FREQ_ENTRIES));
 
-        for i in 0..total_entries.min(64) {
+        for i in 0..total_entries.min(MAX_FREQ_ENTRIES) {
             let offset = i * 8;
             if offset + 4 > len {
                 break;
@@ -272,10 +355,11 @@ fn parse_voltage_states_data(data_ref: core_foundation::data::CFDataRef) -> Vec<
                 bytes[offset + 3],
             ]);
 
-            // Convert to MHz and filter out invalid values
-            // Valid GPU frequencies are typically > 100 MHz
-            let freq_mhz = freq_hz / 1_000_000;
-            if freq_mhz > 0 {
+            // Validate frequency is in reasonable range (100 MHz - 4 GHz)
+            // This filters out invalid/corrupted data
+            if (MIN_GPU_FREQ_HZ..=MAX_GPU_FREQ_HZ).contains(&freq_hz) {
+                // Convert to MHz
+                let freq_mhz = freq_hz / 1_000_000;
                 frequencies.push(freq_mhz);
             }
         }
@@ -453,23 +537,16 @@ impl IOReport {
     /// Create a new IOReport subscription for the specified channel groups
     pub fn new() -> Result<Self, &'static str> {
         unsafe {
-            // Get channels for each group
+            // Get static CFString refs to avoid use-after-free
+            let refs = get_cfstring_refs();
+
+            // Get channels for each group using static CFStrings
             let energy_channels =
-                IOReportCopyChannelsInGroup(cfstring(ENERGY_MODEL), ptr::null(), 0, 0, 0);
-            let cpu_channels = IOReportCopyChannelsInGroup(
-                cfstring(CPU_STATS),
-                cfstring(CPU_PERF_STATES),
-                0,
-                0,
-                0,
-            );
-            let gpu_channels = IOReportCopyChannelsInGroup(
-                cfstring(GPU_STATS),
-                cfstring(GPU_PERF_STATES),
-                0,
-                0,
-                0,
-            );
+                IOReportCopyChannelsInGroup(refs.energy_model, ptr::null(), 0, 0, 0);
+            let cpu_channels =
+                IOReportCopyChannelsInGroup(refs.cpu_stats, refs.cpu_perf_states, 0, 0, 0);
+            let gpu_channels =
+                IOReportCopyChannelsInGroup(refs.gpu_stats, refs.gpu_perf_states, 0, 0, 0);
 
             if energy_channels.is_null() {
                 return Err("Failed to get Energy Model channels");
@@ -582,10 +659,10 @@ impl Drop for IOReport {
 unsafe impl Send for IOReport {}
 unsafe impl Sync for IOReport {}
 
-/// Helper to create CFStringRef from &str
-fn cfstring(s: &str) -> CFStringRef {
-    CFString::new(s).as_concrete_TypeRef()
-}
+// Note: The old cfstring() helper was removed because it caused use-after-free.
+// The CFString would be dropped immediately after as_concrete_TypeRef() was called,
+// leaving a dangling pointer. Now we use static CFString constants that are kept
+// alive for the lifetime of the application.
 
 /// Collected metrics from IOReport
 #[derive(Debug, Default, Clone)]

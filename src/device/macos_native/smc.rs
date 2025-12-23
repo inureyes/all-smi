@@ -35,9 +35,18 @@
 use std::ffi::c_void;
 use std::sync::OnceLock;
 
-/// Cached temperature keys discovered via dynamic enumeration
-static DISCOVERED_CPU_KEYS: OnceLock<Vec<String>> = OnceLock::new();
-static DISCOVERED_GPU_KEYS: OnceLock<Vec<String>> = OnceLock::new();
+/// Maximum number of temperature keys to discover per category (similar to mactop's limit)
+const MAX_TEMP_KEYS: usize = 64;
+
+/// Discovered temperature keys (CPU keys, GPU keys)
+/// Using a single static prevents race conditions where one call discovers keys
+/// but the other category's keys are discarded.
+struct DiscoveredTempKeys {
+    cpu_keys: Vec<String>,
+    gpu_keys: Vec<String>,
+}
+
+static DISCOVERED_KEYS: OnceLock<DiscoveredTempKeys> = OnceLock::new();
 
 // IOKit framework linkage
 #[link(name = "IOKit", kind = "framework")]
@@ -272,9 +281,11 @@ impl SMC {
     /// - Filters for 'flt ' type (float, dataType == 1718383648)
     /// - CPU keys: Tp* or Te* prefix
     /// - GPU keys: Tg* prefix
+    ///
+    /// Returns at most MAX_TEMP_KEYS per category to prevent unbounded growth.
     pub fn discover_temperature_keys(&self) -> (Vec<String>, Vec<String>) {
-        let mut cpu_keys = Vec::new();
-        let mut gpu_keys = Vec::new();
+        let mut cpu_keys = Vec::with_capacity(MAX_TEMP_KEYS);
+        let mut gpu_keys = Vec::with_capacity(MAX_TEMP_KEYS);
 
         let key_count = match self.get_key_count() {
             Ok(count) => count,
@@ -282,6 +293,11 @@ impl SMC {
         };
 
         for i in 0..key_count {
+            // Stop early if we've found enough keys in both categories
+            if cpu_keys.len() >= MAX_TEMP_KEYS && gpu_keys.len() >= MAX_TEMP_KEYS {
+                break;
+            }
+
             let key = match self.get_key_from_index(i) {
                 Ok(k) => k,
                 Err(_) => continue,
@@ -304,11 +320,15 @@ impl SMC {
             }
 
             // CPU temperature keys: Tp* or Te*
-            if key_bytes[0] == b'T' && (key_bytes[1] == b'p' || key_bytes[1] == b'e') {
+            if key_bytes[0] == b'T'
+                && (key_bytes[1] == b'p' || key_bytes[1] == b'e')
+                && cpu_keys.len() < MAX_TEMP_KEYS
+            {
                 cpu_keys.push(key);
             }
             // GPU temperature keys: Tg*
-            else if key_bytes[0] == b'T' && key_bytes[1] == b'g' {
+            else if key_bytes[0] == b'T' && key_bytes[1] == b'g' && gpu_keys.len() < MAX_TEMP_KEYS
+            {
                 gpu_keys.push(key);
             }
         }
@@ -443,12 +463,12 @@ impl SMC {
 
         // If static keys didn't work, try dynamically discovered keys
         if temps.is_empty() {
-            let discovered = DISCOVERED_CPU_KEYS.get_or_init(|| {
-                let (cpu_keys, _) = self.discover_temperature_keys();
-                cpu_keys
+            let discovered = DISCOVERED_KEYS.get_or_init(|| {
+                let (cpu_keys, gpu_keys) = self.discover_temperature_keys();
+                DiscoveredTempKeys { cpu_keys, gpu_keys }
             });
 
-            for key in discovered {
+            for key in &discovered.cpu_keys {
                 if let Ok(value) = self.read_value(key) {
                     if (10.0..=120.0).contains(&value) {
                         temps.push(value);
@@ -484,12 +504,12 @@ impl SMC {
 
         // If static keys didn't work, try dynamically discovered keys
         if temps.is_empty() {
-            let discovered = DISCOVERED_GPU_KEYS.get_or_init(|| {
-                let (_, gpu_keys) = self.discover_temperature_keys();
-                gpu_keys
+            let discovered = DISCOVERED_KEYS.get_or_init(|| {
+                let (cpu_keys, gpu_keys) = self.discover_temperature_keys();
+                DiscoveredTempKeys { cpu_keys, gpu_keys }
             });
 
-            for key in discovered {
+            for key in &discovered.gpu_keys {
                 if let Ok(value) = self.read_value(key) {
                     if (10.0..=120.0).contains(&value) {
                         temps.push(value);
