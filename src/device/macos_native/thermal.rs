@@ -63,7 +63,7 @@ impl ThermalState {
         }
     }
 
-    /// Get the string representation matching powermetrics output
+    /// Get the string representation for thermal state
     pub fn as_str(&self) -> &'static str {
         match self {
             ThermalState::Nominal => "Nominal",

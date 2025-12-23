@@ -269,7 +269,7 @@ impl NativeMetricsManager {
         guard.clone().ok_or_else(|| "No data available yet".into())
     }
 
-    /// Get the latest data, returning Result for compatibility with PowerMetricsManager
+    /// Get the latest data as a Result for consistent API usage
     #[allow(dead_code)]
     pub fn get_latest_data_result(&self) -> Result<NativeMetricsData, Box<dyn std::error::Error>> {
         self.get_latest_data()

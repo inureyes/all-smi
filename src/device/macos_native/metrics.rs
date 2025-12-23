@@ -21,7 +21,7 @@ use super::ioreport::IOReportMetrics;
 use super::smc::SMCMetrics;
 use super::thermal::ThermalState;
 
-/// Core types matching PowerMetricsData for compatibility
+/// Core types for Apple Silicon cluster identification
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CoreType {
     Efficiency,
@@ -30,8 +30,8 @@ pub enum CoreType {
 
 /// Unified metrics data from native macOS APIs
 ///
-/// This structure is designed to be compatible with PowerMetricsData
-/// to allow seamless switching between implementations.
+/// This structure provides comprehensive Apple Silicon metrics
+/// collected from IOReport, SMC, and NSProcessInfo APIs.
 #[derive(Debug, Default, Clone)]
 pub struct NativeMetricsData {
     // CPU cluster metrics
@@ -63,7 +63,7 @@ pub struct NativeMetricsData {
     // Thermal
     pub thermal_pressure_level: Option<String>,
 
-    // Additional metrics from SMC (not in original PowerMetricsData)
+    // Additional metrics from SMC sensors
     pub cpu_temperature: Option<f64>,
     pub gpu_temperature: Option<f64>,
     #[allow(dead_code)]
