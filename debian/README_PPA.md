@@ -97,47 +97,45 @@ This will fetch all releases from GitHub and format them for the Debian changelo
 
 ## Rust Toolchain and Cargo.lock Compatibility
 
-### Why rustup is Required
+### Why rust-1.85-all is Required
 
-The PPA build process uses **rustup** to install the latest stable Rust toolchain instead of relying on Ubuntu's system-provided Rust packages. This is necessary due to Cargo.lock format compatibility:
+The PPA build process uses Ubuntu's **rust-1.85-all** package instead of the default `rustc` package. This is necessary due to Cargo.lock format compatibility:
 
-- **Ubuntu 24.04 (Noble)** ships with **Rust 1.75.0**
+- **Ubuntu 24.04 (Noble)** default `rustc` package is **Rust 1.75.0**
 - **Cargo.lock version 4** requires **Rust 1.78+** to parse
 - The repository uses lockfile v4 (generated with newer Rust versions)
-- Rust 1.75's cargo cannot parse v4 lockfiles, even to regenerate them
+- Rust 1.75's cargo cannot parse v4 lockfiles at all
 
 ### How It Works
 
 The build process in `debian/rules`:
 
-1. **Installation**: During `override_dh_auto_configure`:
-   ```bash
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-     sh -s -- -y --default-toolchain stable --profile minimal
+1. **Build-Depends**: The `debian/control` file specifies:
+   ```
+   Build-Depends: ..., rust-1.85-all, ...
    ```
 
 2. **Build**: During `override_dh_auto_build`:
    ```bash
-   . $(CARGO_HOME)/env && cargo build --release --locked
+   cargo-1.85 build --release --locked
    ```
 
-3. **Requirements**:
-   - Network access during build (Launchpad provides this)
-   - `curl` and `ca-certificates` in Build-Depends
-   - `HOME` and `CARGO_HOME` environment variables set
+3. **Version-specific binaries**: Ubuntu's versioned Rust packages provide
+   version-suffixed binaries (`rustc-1.85`, `cargo-1.85`) to allow multiple
+   Rust versions to coexist.
 
 ### Benefits
 
-- **Full Cargo.lock v4 Support**: Latest stable Rust can parse modern lockfile formats
+- **Full Cargo.lock v4 Support**: Rust 1.85 can parse modern lockfile formats
 - **Reproducible Builds**: Using `--locked` ensures exact dependency versions
-- **No Lockfile Version Maintenance**: No need to downgrade or regenerate lockfiles
-- **Future-Proof**: Automatically gets Rust updates that support new lockfile formats
+- **No Network Required**: Uses official Ubuntu packages (Launchpad has no network access)
+- **No External Dependencies**: All build tools come from Ubuntu repositories
 
-### Build Time Impact
+### Why Not rustup?
 
-- First build downloads rustup (~20-30 seconds)
-- Subsequent builds use cached toolchain
-- Minimal overhead compared to compilation time
+Launchpad PPA build environments have **no network access** for security reasons.
+This means rustup cannot download toolchains during the build. Using Ubuntu's
+official versioned Rust packages is the correct approach for PPA builds.
 
 ## Troubleshooting
 
