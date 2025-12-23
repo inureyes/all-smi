@@ -35,7 +35,7 @@ A Prometheus-compatible metrics endpoint for integration with monitoring systems
 .TP
 .B local
 Run in local mode, monitoring local GPUs/NPUs with an interactive TUI. This is the default mode if no command is specified.
-Requires sudo permissions on macOS for Apple Silicon metrics.
+No sudo required on macOS (uses native APIs).
 .TP
 .B view
 Run in remote view mode, monitoring remote nodes via API endpoints. Requires either --hosts or --hostfile option.
@@ -43,7 +43,7 @@ Does not require sudo permissions.
 .TP
 .B api
 Run in API mode, exposing metrics in Prometheus format via HTTP endpoint.
-Requires sudo permissions on macOS for Apple Silicon metrics.
+No sudo required on macOS (uses native APIs).
 .TP
 .B help
 Display help information about all-smi or a specific command.
@@ -196,7 +196,7 @@ https://node003:9443
 Set logging level (e.g., debug, info, warn, error)
 .SH NOTES
 .IP \(bu 3
-On macOS, sudo permissions are required for accessing hardware metrics via the powermetrics command
+On macOS, no sudo permissions are required (uses native APIs: IOReport, SMC, NSProcessInfo)
 .IP \(bu 3
 Remote monitoring requires the target hosts to be running all-smi in API mode
 .IP \(bu 3
@@ -228,7 +228,6 @@ License: MIT OR Apache-2.0
 This is free software: you are free to change and redistribute it.
 There is NO WARRANTY, to the extent permitted by law.
 .SH SEE ALSO
-.BR nvidia-smi (1),
-.BR powermetrics (1)
+.BR nvidia-smi (1)
 
 Project homepage: https://github.com/lablup/all-smi

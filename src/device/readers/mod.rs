@@ -20,13 +20,8 @@ pub mod chassis;
 // Common caching utilities shared across all readers
 pub mod common_cache;
 
-// Legacy Apple Silicon reader using powermetrics (requires sudo)
-// Only compiled when native-macos feature is not enabled
-#[cfg(all(target_os = "macos", feature = "powermetrics"))]
-pub mod apple_silicon;
-
 // Native Apple Silicon reader using IOReport/SMC (no sudo required)
-#[cfg(all(target_os = "macos", not(feature = "powermetrics")))]
+#[cfg(target_os = "macos")]
 pub mod apple_silicon_native;
 
 pub mod furiosa;

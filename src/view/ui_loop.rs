@@ -58,12 +58,6 @@ pub struct UiLoop {
     previous_selected_process_index: usize,
     previous_process_horizontal_scroll_offset: usize,
     previous_tab_scroll_offset: usize,
-    #[cfg(all(target_os = "macos", feature = "powermetrics"))]
-    powermetrics_notified: bool,
-    #[cfg(all(target_os = "macos", feature = "powermetrics"))]
-    powermetrics_pending_notified: bool,
-    #[cfg(all(target_os = "macos", feature = "powermetrics"))]
-    last_powermetrics_check: std::time::Instant,
     #[cfg(target_os = "linux")]
     hlsmi_notified: bool,
     #[cfg(target_os = "linux")]
@@ -92,12 +86,6 @@ impl UiLoop {
             previous_selected_process_index: 0,
             previous_process_horizontal_scroll_offset: 0,
             previous_tab_scroll_offset: 0,
-            #[cfg(all(target_os = "macos", feature = "powermetrics"))]
-            powermetrics_notified: false,
-            #[cfg(all(target_os = "macos", feature = "powermetrics"))]
-            powermetrics_pending_notified: false,
-            #[cfg(all(target_os = "macos", feature = "powermetrics"))]
-            last_powermetrics_check: std::time::Instant::now(),
             #[cfg(target_os = "linux")]
             hlsmi_notified: false,
             #[cfg(target_os = "linux")]
@@ -109,44 +97,6 @@ impl UiLoop {
 
     pub async fn run(&mut self, args: &ViewArgs) -> Result<(), Box<dyn std::error::Error>> {
         loop {
-            // Check PowerMetrics initialization on macOS (periodic check for performance)
-            // Only needed when native-macos feature is NOT enabled
-            #[cfg(all(target_os = "macos", feature = "powermetrics"))]
-            {
-                use std::time::Duration;
-
-                // Early exit: skip all checks if both notifications have been shown
-                if !(self.powermetrics_notified && self.powermetrics_pending_notified) {
-                    // Only check if enough time has passed since last check (500ms)
-                    if self.last_powermetrics_check.elapsed() >= Duration::from_millis(500) {
-                        use crate::device::powermetrics::{
-                            get_powermetrics_manager, has_powermetrics_data,
-                        };
-
-                        // Update last check time
-                        self.last_powermetrics_check = std::time::Instant::now();
-
-                        // Show pending notification if manager exists but data not ready
-                        if !self.powermetrics_pending_notified
-                            && get_powermetrics_manager().is_some()
-                            && !has_powermetrics_data()
-                        {
-                            let mut state = self.app_state.lock().await;
-                            let _ = state
-                                .notifications
-                                .info("Initializing PowerMetrics...".to_string());
-                            self.powermetrics_pending_notified = true;
-                        }
-
-                        // Show success notification when data is ready
-                        if !self.powermetrics_notified && has_powermetrics_data() {
-                            let mut state = self.app_state.lock().await;
-                            let _ = state.notifications.status("PowerMetrics ready".to_string());
-                            self.powermetrics_notified = true;
-                        }
-                    }
-                }
-            }
             // Check hl-smi initialization on Linux (periodic check for performance)
             #[cfg(target_os = "linux")]
             {

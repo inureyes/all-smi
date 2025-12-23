@@ -20,21 +20,13 @@
 //! - Cooling information (fan speeds)
 //! - PSU status
 
-// Apple Silicon chassis reader using powermetrics (requires sudo)
-// Only compiled when native-macos feature is NOT enabled
-#[cfg(all(target_os = "macos", feature = "powermetrics"))]
-mod apple_silicon;
-
 // Native Apple Silicon chassis reader using IOReport/SMC (no sudo required)
-#[cfg(all(target_os = "macos", not(feature = "powermetrics")))]
+#[cfg(target_os = "macos")]
 mod apple_silicon_native;
 
 mod generic;
 
-#[cfg(all(target_os = "macos", feature = "powermetrics"))]
-pub use apple_silicon::AppleSiliconChassisReader;
-
-#[cfg(all(target_os = "macos", not(feature = "powermetrics")))]
+#[cfg(target_os = "macos")]
 pub use apple_silicon_native::AppleSiliconNativeChassisReader;
 
 #[allow(unused_imports)]
@@ -44,16 +36,10 @@ use crate::device::ChassisReader;
 
 /// Create a platform-appropriate chassis reader
 pub fn create_chassis_reader() -> Box<dyn ChassisReader> {
-    // On macOS with native APIs (no sudo required)
-    #[cfg(all(target_os = "macos", not(feature = "powermetrics")))]
+    // On macOS, use native APIs (no sudo required)
+    #[cfg(target_os = "macos")]
     {
         Box::new(AppleSiliconNativeChassisReader::new())
-    }
-
-    // On macOS with powermetrics (requires sudo)
-    #[cfg(all(target_os = "macos", feature = "powermetrics"))]
-    {
-        Box::new(AppleSiliconChassisReader::new())
     }
 
     #[cfg(not(target_os = "macos"))]

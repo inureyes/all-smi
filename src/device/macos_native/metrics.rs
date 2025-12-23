@@ -189,41 +189,6 @@ impl NativeMetricsData {
     }
 }
 
-/// Convert NativeMetricsData to the format expected by existing code
-/// This is only needed when native-macos feature is NOT enabled (for compatibility)
-#[cfg(feature = "powermetrics")]
-impl From<NativeMetricsData> for crate::device::powermetrics_parser::PowerMetricsData {
-    fn from(native: NativeMetricsData) -> Self {
-        Self {
-            e_cluster_active_residency: native.e_cluster_active_residency,
-            p_cluster_active_residency: native.p_cluster_active_residency,
-            e_cluster_frequency: native.e_cluster_frequency,
-            p_cluster_frequency: native.p_cluster_frequency,
-            cpu_power_mw: native.cpu_power_mw,
-            core_active_residencies: native.core_active_residencies,
-            core_frequencies: native.core_frequencies,
-            core_cluster_types: native
-                .core_cluster_types
-                .into_iter()
-                .map(|t| match t {
-                    CoreType::Efficiency => {
-                        crate::device::powermetrics_parser::CoreType::Efficiency
-                    }
-                    CoreType::Performance => {
-                        crate::device::powermetrics_parser::CoreType::Performance
-                    }
-                })
-                .collect(),
-            gpu_active_residency: native.gpu_active_residency,
-            gpu_frequency: native.gpu_frequency,
-            gpu_power_mw: native.gpu_power_mw,
-            ane_power_mw: native.ane_power_mw,
-            combined_power_mw: native.combined_power_mw,
-            thermal_pressure_level: native.thermal_pressure_level,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
