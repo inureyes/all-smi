@@ -14,7 +14,11 @@
 
 use std::io::Write;
 
-use crossterm::{cursor, queue, style::Color};
+use crossterm::{
+    cursor, queue,
+    style::Color,
+    terminal::{Clear, ClearType},
+};
 
 use crate::app_state::AppState;
 use crate::ui::constants::{ANIMATION_SPEED, BLOCK_SIZE_DIVISOR, BLOCK_SIZE_MAX, SCREEN_MARGIN};
@@ -92,6 +96,8 @@ pub fn print_loading_indicator<W: Write>(
             };
 
             print_colored_text(stdout, status_line, color, None, None);
+            // Clear to end of line to remove any leftover characters from previous longer text
+            queue!(stdout, Clear(ClearType::UntilNewLine)).unwrap();
         }
     }
 }
