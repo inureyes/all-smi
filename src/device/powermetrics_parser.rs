@@ -186,7 +186,14 @@ pub fn parse_powermetrics_output(
         else if line.starts_with("CPU Power:") && !line.contains("GPU") {
             data.cpu_power_mw = parse_power_mw(line)?;
         } else if line.starts_with("GPU Power:") && !line.contains("CPU") {
-            data.gpu_power_mw = parse_power_mw(line)?;
+            // Only parse GPU Power from the power summary section (before Combined Power)
+            // The powermetrics output has two GPU Power lines:
+            // 1. In power summary section (used in Combined Power calculation)
+            // 2. In GPU stats section (detailed GPU metrics)
+            // We want the first one, so only set if combined_power_mw hasn't been parsed yet
+            if data.combined_power_mw == 0.0 {
+                data.gpu_power_mw = parse_power_mw(line)?;
+            }
         } else if line.starts_with("ANE Power:") {
             data.ane_power_mw = parse_power_mw(line)?;
         } else if line.contains("Combined Power (CPU + GPU + ANE):") {
@@ -357,7 +364,7 @@ GPU Power: 132 mW
 
         // Verify power data
         assert_eq!(data.cpu_power_mw, 5247.0);
-        assert_eq!(data.gpu_power_mw, 132.0); // Parser picks up the last GPU Power value
+        assert_eq!(data.gpu_power_mw, 139.0); // Parser uses GPU Power from summary section (before Combined Power)
         assert_eq!(data.gpu_frequency, 636);
         assert_eq!(data.gpu_active_residency, 19.10);
     }
@@ -463,7 +470,7 @@ GPU Power: 104 mW
 
         // Verify power data
         assert_eq!(data.cpu_power_mw, 289.0);
-        assert_eq!(data.gpu_power_mw, 104.0); // Parser picks up last GPU Power value
+        assert_eq!(data.gpu_power_mw, 112.0); // Parser uses GPU Power from summary section (before Combined Power)
         assert_eq!(data.gpu_frequency, 389);
         assert_eq!(data.gpu_active_residency, 9.99);
     }
