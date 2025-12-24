@@ -570,6 +570,18 @@ impl LinuxCpuReader {
     fn parse_cpu_stat(&self, _content: &str, socket_count: u32) -> CpuStatParseResult {
         // OPTIMIZATION: Don't refresh here - caller (get_cpu_info_from_proc) already refreshed
         // This avoids duplicate refresh_cpu_usage() calls which was causing high CPU usage
+        // However, for direct calls (e.g., tests), we need to ensure cpus() is populated
+        {
+            let system = self.system.read().unwrap();
+            if system.cpus().is_empty() {
+                drop(system);
+                // Fallback: refresh if not yet initialized (for direct test calls)
+                self.system.write().unwrap().refresh_cpu_usage();
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                self.system.write().unwrap().refresh_cpu_usage();
+            }
+        }
+
         let overall_utilization = self.system.read().unwrap().global_cpu_usage() as f64;
         let mut per_socket_info = Vec::new();
         let mut per_core_utilization = Vec::new();
