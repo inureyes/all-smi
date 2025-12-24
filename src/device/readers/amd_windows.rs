@@ -24,7 +24,7 @@ use crate::utils::get_hostname;
 use chrono::Local;
 use serde::Deserialize;
 use std::collections::HashMap;
-use wmi::{COMLibrary, WMIConnection};
+use wmi::WMIConnection;
 
 // Thread-local WMI connection for reuse within the same thread
 thread_local! {
@@ -36,17 +36,12 @@ fn with_wmi_connection<T, F: FnOnce(&WMIConnection) -> T>(f: F) -> Option<T> {
     WMI_CONNECTION.with(|cell| {
         let mut conn_ref = cell.borrow_mut();
         if conn_ref.is_none() {
-            match COMLibrary::new() {
-                Ok(com) => match WMIConnection::new(com) {
-                    Ok(wmi_con) => {
-                        *conn_ref = Some(wmi_con);
-                    }
-                    Err(e) => {
-                        eprintln!("AMD GPU: Failed to create WMI connection: {e}");
-                    }
-                },
+            match WMIConnection::new() {
+                Ok(wmi_con) => {
+                    *conn_ref = Some(wmi_con);
+                }
                 Err(e) => {
-                    eprintln!("AMD GPU: Failed to initialize COM library: {e}");
+                    eprintln!("AMD GPU: Failed to create WMI connection: {e}");
                 }
             }
         }
@@ -208,29 +203,7 @@ impl GpuReader for AmdWindowsGpuReader {
 /// Check if AMD GPU is present on Windows using WMI
 /// Note: This creates its own WMI connection since detection may run on a different thread
 pub fn has_amd_gpu_windows() -> bool {
-    // Try multiple COM initialization strategies
-    // Strategy 1: Try normal COM initialization
-    let com = match COMLibrary::new() {
-        Ok(c) => Some(c),
-        Err(e) => {
-            // Strategy 2: Try without_security for already-initialized COM
-            match COMLibrary::without_security() {
-                Ok(c) => Some(c),
-                Err(e2) => {
-                    eprintln!(
-                        "AMD GPU detection: Failed to initialize COM library: {e}, fallback: {e2}"
-                    );
-                    None
-                }
-            }
-        }
-    };
-
-    let Some(com) = com else {
-        return false;
-    };
-
-    let wmi_con = match WMIConnection::new(com) {
+    let wmi_con = match WMIConnection::new() {
         Ok(w) => w,
         Err(e) => {
             eprintln!("AMD GPU detection: Failed to create WMI connection: {e}");
