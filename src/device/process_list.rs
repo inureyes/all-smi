@@ -250,7 +250,17 @@ fn get_process_priority_nice(pid: u32) -> (i32, i32) {
         }
     }
 
-    // Default values if unable to retrieve
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, process priority is managed differently than Unix systems.
+        // Windows uses priority classes (Idle, Below Normal, Normal, Above Normal, High, Realtime)
+        // rather than nice values. The sysinfo crate doesn't expose priority directly.
+        // Return default values as Unix-style nice values don't apply to Windows.
+        // Priority 20 corresponds to "Normal" priority class in Windows terms.
+        return (20, 0);
+    }
+
+    // Default values if unable to retrieve (for any other OS)
     (20, 0)
 }
 

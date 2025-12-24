@@ -68,6 +68,14 @@ jobs:
             archive_ext: ".zip"
             protoc_platform: osx-aarch_64
 
+          # Windows x86_64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact_name: all-smi.exe
+            asset_name: all-smi-windows-x86_64
+            archive_ext: ".zip"
+            protoc_platform: ""  # Not needed for Windows (TPU is Linux-only)
+
     env:
       BIN_NAME: all-smi
       BUNDLE_ID: ${{ vars.BUNDLE_ID }}
@@ -117,8 +125,9 @@ jobs:
           sudo apt update
           sudo apt install -y libdrm-dev libdrm-amdgpu1
 
-      # 6) Setup protoc (cached)
+      # 6) Setup protoc (cached) - skip on Windows as TPU support is Linux-only
       - name: Setup protoc
+        if: runner.os != 'Windows'
         uses: ./.github/actions/setup-protoc
         with:
           version: ${{ env.PROTOC_VERSION }}
@@ -163,8 +172,19 @@ jobs:
           cp docs/man/all-smi.1 package/
           ditto -c -k --sequesterRsrc package "$ASSET"
 
+      - name: Package Windows binary (zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $BIN = "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
+          $ASSET = "${{ matrix.asset_name }}.zip"
+          New-Item -ItemType Directory -Force -Path package
+          Copy-Item $BIN -Destination package/
+          Compress-Archive -Path package/* -DestinationPath $ASSET
+
       # 10) Generate checksum
-      - name: Generate checksum
+      - name: Generate checksum (Linux/macOS)
+        if: runner.os != 'Windows'
         run: |
           FILE="${{ matrix.asset_name }}${{ matrix.archive_ext }}"
           if [[ "$RUNNER_OS" == "Linux" ]]; then
@@ -172,6 +192,14 @@ jobs:
           else
             shasum -a 256 "$FILE" > "$FILE.sha256"
           fi
+
+      - name: Generate checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $FILE = "${{ matrix.asset_name }}${{ matrix.archive_ext }}"
+          $hash = (Get-FileHash -Path $FILE -Algorithm SHA256).Hash.ToLower()
+          "$hash  $FILE" | Out-File -FilePath "$FILE.sha256" -Encoding ASCII -NoNewline
 
       # 11) Upload release artifacts and checksum
       - name: Upload release artifacts
