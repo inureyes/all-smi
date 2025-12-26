@@ -21,6 +21,11 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+#[cfg(unix)]
+use std::path::PathBuf;
+#[cfg(unix)]
+use tokio::net::UnixListener;
+
 use crate::api::handlers::{metrics_handler, SharedState};
 use crate::app_state::AppState;
 use crate::cli::ApiArgs;
@@ -28,6 +33,52 @@ use crate::device::{get_cpu_readers, get_gpu_readers, get_memory_readers};
 use crate::storage::info::StorageInfo;
 use crate::utils::{filter_docker_aware_disks, get_hostname};
 
+/// Get the default Unix domain socket path for the current platform.
+/// - Linux: /var/run/all-smi.sock (fallback to /tmp/all-smi.sock if no permission)
+/// - macOS: /tmp/all-smi.sock
+#[cfg(unix)]
+fn get_default_socket_path() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        let var_run_path = PathBuf::from("/var/run/all-smi.sock");
+        // Check if we can write to /var/run
+        if let Ok(metadata) = std::fs::metadata("/var/run") {
+            if metadata.is_dir() {
+                // Try to create a test file to check write permission
+                let test_path = PathBuf::from("/var/run/.all-smi-test");
+                if std::fs::write(&test_path, b"").is_ok() {
+                    let _ = std::fs::remove_file(&test_path);
+                    return var_run_path;
+                }
+            }
+        }
+        // Fallback to /tmp
+        PathBuf::from("/tmp/all-smi.sock")
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        PathBuf::from("/tmp/all-smi.sock")
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        PathBuf::from("/tmp/all-smi.sock")
+    }
+}
+
+/// Remove stale socket file if it exists.
+/// This is necessary because Unix sockets leave files on disk that prevent rebinding.
+#[cfg(unix)]
+fn remove_stale_socket(path: &std::path::Path) -> std::io::Result<()> {
+    if path.exists() {
+        tracing::info!("Removing stale socket file: {}", path.display());
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+/// Run the API server with TCP and optionally Unix Domain Socket listeners.
 pub async fn run_api_mode(args: &ApiArgs) {
     tracing_subscriber::registry()
         .with(
@@ -43,6 +94,7 @@ pub async fn run_api_mode(args: &ApiArgs) {
     let processes = args.processes;
     let interval = args.interval;
 
+    // Spawn background task for collecting metrics
     tokio::spawn(async move {
         let gpu_readers = get_gpu_readers();
         let cpu_readers = get_cpu_readers();
@@ -90,6 +142,7 @@ pub async fn run_api_mode(args: &ApiArgs) {
         }
     });
 
+    // Create the router with shared state
     let app = Router::new()
         .route("/metrics", get(metrics_handler))
         .with_state(state)
@@ -101,11 +154,212 @@ pub async fn run_api_mode(args: &ApiArgs) {
         )
         .layer(TraceLayer::new_for_http());
 
-    let listener = TcpListener::bind(&format!("0.0.0.0:{}", args.port))
-        .await
-        .unwrap();
+    // Determine which listeners to start
+    #[cfg(unix)]
+    {
+        let socket_path = args.socket.as_ref().map(|s| {
+            if s.is_empty() {
+                get_default_socket_path()
+            } else {
+                PathBuf::from(s)
+            }
+        });
+
+        let port = args.port;
+        match (port, socket_path) {
+            // Both TCP and UDS (port > 0 with socket)
+            (1..=u16::MAX, Some(path)) => {
+                run_dual_listeners(app, port, path).await;
+            }
+            // UDS only (port == 0 with socket)
+            (0, Some(path)) => {
+                run_unix_listener(app, path).await;
+            }
+            // TCP only (port > 0, no socket)
+            (1..=u16::MAX, None) => {
+                run_tcp_listener(app, port).await;
+            }
+            // No listeners - error (port == 0, no socket)
+            (0, None) => {
+                tracing::error!(
+                    "No listeners configured. Use --port or --socket to specify a listener."
+                );
+                eprintln!(
+                    "Error: No listeners configured. Use --port or --socket to specify a listener."
+                );
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        run_tcp_listener(app, args.port).await;
+    }
+}
+
+/// Run only the TCP listener
+async fn run_tcp_listener(app: Router, port: u16) {
+    let listener = TcpListener::bind(&format!("0.0.0.0:{port}")).await.unwrap();
     tracing::info!("API server listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
+}
+
+/// Run only the Unix Domain Socket listener
+#[cfg(unix)]
+async fn run_unix_listener(app: Router, path: PathBuf) {
+    // Remove stale socket file if it exists
+    if let Err(e) = remove_stale_socket(&path) {
+        tracing::warn!("Failed to remove stale socket file: {e}");
+    }
+
+    // Create parent directory if it doesn't exist
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::error!(
+                    "Failed to create socket directory {}: {e}",
+                    parent.display()
+                );
+                eprintln!(
+                    "Error: Failed to create socket directory {}: {e}",
+                    parent.display()
+                );
+                return;
+            }
+        }
+    }
+
+    let listener = match UnixListener::bind(&path) {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to bind Unix socket at {}: {e}", path.display());
+            eprintln!(
+                "Error: Failed to bind Unix socket at {}: {e}",
+                path.display()
+            );
+            return;
+        }
+    };
+
+    tracing::info!("API server listening on Unix socket: {}", path.display());
+
+    // Set up socket cleanup on shutdown
+    let path_clone = path.clone();
+    let cleanup_handle = tokio::spawn(async move {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to listen for Ctrl+C");
+        cleanup_socket(&path_clone);
+    });
+
+    // Serve the application
+    if let Err(e) = axum::serve(listener, app).await {
+        tracing::error!("Unix socket server error: {e}");
+    }
+
+    // Cancel cleanup handle and do cleanup
+    cleanup_handle.abort();
+    cleanup_socket(&path);
+}
+
+/// Run both TCP and Unix Domain Socket listeners simultaneously
+#[cfg(unix)]
+async fn run_dual_listeners(app: Router, port: u16, socket_path: PathBuf) {
+    // Remove stale socket file if it exists
+    if let Err(e) = remove_stale_socket(&socket_path) {
+        tracing::warn!("Failed to remove stale socket file: {e}");
+    }
+
+    // Create parent directory if it doesn't exist
+    if let Some(parent) = socket_path.parent() {
+        if !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::error!(
+                    "Failed to create socket directory {}: {e}",
+                    parent.display()
+                );
+                eprintln!(
+                    "Error: Failed to create socket directory {}: {e}",
+                    parent.display()
+                );
+                return;
+            }
+        }
+    }
+
+    // Create TCP listener
+    let tcp_listener = match TcpListener::bind(&format!("0.0.0.0:{port}")).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to bind TCP listener on port {port}: {e}");
+            eprintln!("Error: Failed to bind TCP listener on port {port}: {e}");
+            return;
+        }
+    };
+
+    // Create Unix listener
+    let unix_listener = match UnixListener::bind(&socket_path) {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!(
+                "Failed to bind Unix socket at {}: {e}",
+                socket_path.display()
+            );
+            eprintln!(
+                "Error: Failed to bind Unix socket at {}: {e}",
+                socket_path.display()
+            );
+            return;
+        }
+    };
+
+    tracing::info!(
+        "API server listening on TCP {} and Unix socket {}",
+        tcp_listener.local_addr().unwrap(),
+        socket_path.display()
+    );
+
+    // Clone the app for the second server
+    let app_clone = app.clone();
+
+    // Set up socket cleanup on shutdown
+    let path_clone = socket_path.clone();
+    let cleanup_handle = tokio::spawn(async move {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to listen for Ctrl+C");
+        cleanup_socket(&path_clone);
+    });
+
+    // Run both servers concurrently
+    tokio::select! {
+        result = axum::serve(tcp_listener, app) => {
+            if let Err(e) = result {
+                tracing::error!("TCP server error: {e}");
+            }
+        }
+        result = axum::serve(unix_listener, app_clone) => {
+            if let Err(e) = result {
+                tracing::error!("Unix socket server error: {e}");
+            }
+        }
+    }
+
+    // Cancel cleanup handle and do cleanup
+    cleanup_handle.abort();
+    cleanup_socket(&socket_path);
+}
+
+/// Clean up the Unix domain socket file
+#[cfg(unix)]
+fn cleanup_socket(path: &std::path::Path) {
+    if path.exists() {
+        if let Err(e) = std::fs::remove_file(path) {
+            tracing::warn!("Failed to remove socket file on shutdown: {e}");
+        } else {
+            tracing::info!("Cleaned up socket file: {}", path.display());
+        }
+    }
 }
 
 /// Collect storage/disk information

@@ -33,7 +33,7 @@ pub enum Commands {
 
 #[derive(Parser)]
 pub struct ApiArgs {
-    /// The port to listen on for the API server.
+    /// The port to listen on for the API server. Use 0 to disable TCP listener.
     #[arg(short, long, default_value_t = 9090)]
     pub port: u16,
     /// The interval in seconds at which to update the GPU information.
@@ -42,6 +42,13 @@ pub struct ApiArgs {
     /// Include the process list in the API output.
     #[arg(long)]
     pub processes: bool,
+    /// Unix domain socket path for local IPC (Unix only).
+    /// When specified without a value, uses platform default:
+    /// - Linux: /var/run/all-smi.sock (fallback to /tmp/all-smi.sock if no permission)
+    /// - macOS: /tmp/all-smi.sock
+    #[cfg(unix)]
+    #[arg(short, long, num_args = 0..=1, default_missing_value = "")]
+    pub socket: Option<String>,
 }
 
 #[derive(Parser, Clone)]
