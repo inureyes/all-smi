@@ -312,7 +312,7 @@ http://gpu-node3:9090
 Expose hardware metrics in Prometheus format for integration with monitoring systems:
 
 ```bash
-# Start API server
+# Start API server on TCP port
 all-smi api --port 9090
 
 # Custom update interval (default: 3 seconds)
@@ -320,9 +320,24 @@ all-smi api --port 9090 --interval 5
 
 # Include process information
 all-smi api --port 9090 --processes
+
+# Unix Domain Socket support (Unix only)
+all-smi api --socket                              # Default path
+all-smi api --socket /custom/path.sock            # Custom path
+all-smi api --port 9090 --socket                  # TCP + UDS simultaneously
+all-smi api --port 0 --socket                     # UDS only (disable TCP)
+
+# Access via Unix socket
+curl --unix-socket /tmp/all-smi.sock http://localhost/metrics
 ```
 
-Metrics are available at `http://localhost:9090/metrics` and include comprehensive hardware monitoring for:
+**Unix Domain Socket Details:**
+- Default paths: `/tmp/all-smi.sock` (macOS), `/var/run/all-smi.sock` or `/tmp/all-smi.sock` (Linux)
+- Socket permissions are set to `0600` for security (owner-only access)
+- Socket file is automatically cleaned up on shutdown
+- Currently Unix-only (Linux, macOS); Windows support pending Rust ecosystem maturity
+
+Metrics are available at `http://localhost:9090/metrics` (TCP) or via Unix socket and include comprehensive hardware monitoring for:
 - **GPUs:** Utilization, memory, temperature, power, frequency (NVIDIA, AMD, Apple Silicon, Intel Gaudi, Google TPU, Tenstorrent)
 - **CPUs:** Utilization, frequency, temperature, power (with P/E core metrics for Apple Silicon)
 - **Memory:** System and swap memory statistics

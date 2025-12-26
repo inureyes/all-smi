@@ -86,13 +86,26 @@ If not specified, uses adaptive interval based on node count:
 .SS API Mode Options
 .TP
 .B \-p, \-\-port \fIPORT\fR
-The port to listen on for the API server (default: 9090)
+The port to listen on for the API server (default: 9090). Use 0 to disable TCP listener when using Unix socket.
 .TP
 .B \-i, \-\-interval \fISECONDS\fR
 The interval in seconds at which to update the hardware information (default: 3)
 .TP
 .B \-\-processes
 Include the process list in the API output
+.TP
+.B \-s, \-\-socket \fR[\fIPATH\fR]
+Unix domain socket path for local IPC (Unix only). When specified without a path, uses platform default:
+.RS
+.IP \(bu 3
+Linux: /var/run/all-smi.sock (fallback to /tmp/all-smi.sock if no write permission)
+.IP \(bu 3
+macOS: /tmp/all-smi.sock
+.RE
+.RS
+Socket permissions are set to 0600 (owner-only access) for security.
+Can be used together with --port for simultaneous TCP and Unix socket listeners.
+.RE
 .SH INTERACTIVE CONTROLS (LOCAL/VIEW MODE)
 .TP
 .B Tab / Shift+Tab
@@ -167,6 +180,18 @@ Start API server on default port 9090:
 .TP
 Start API server on custom port with 5-second interval:
 .B all-smi api --port 8080 --interval 5
+.TP
+Start API server with Unix socket (default path):
+.B all-smi api --socket
+.TP
+Start API server with TCP and Unix socket simultaneously:
+.B all-smi api --port 9090 --socket /tmp/all-smi.sock
+.TP
+Start API server with Unix socket only (no TCP):
+.B all-smi api --port 0 --socket
+.TP
+Access metrics via Unix socket:
+.B curl --unix-socket /tmp/all-smi.sock http://localhost/metrics
 .TP
 Monitor local hardware with custom interval:
 .B all-smi local --interval 5

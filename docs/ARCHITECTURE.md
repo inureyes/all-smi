@@ -114,6 +114,32 @@ NetworkClient → Remote /metrics endpoints → MetricsParser → Shared AppStat
 DataCollector → Device Readers → API State → HTTP Handlers → Prometheus Export
 ```
 
+### Unix Domain Socket Support
+
+API mode supports Unix Domain Sockets (UDS) as an alternative to TCP for local IPC scenarios:
+
+#### Benefits
+- **No port management**: Avoid port conflicts with other services
+- **Better security**: File permission-based access control (0600)
+- **Lower overhead**: Bypasses TCP/IP stack for local communication
+- **Simplified discovery**: Fixed socket path instead of dynamic ports
+
+#### Implementation Details
+- **Listener options**: TCP only, UDS only, or both simultaneously
+- **Platform defaults**:
+  - Linux: `/var/run/all-smi.sock` (fallback to `/tmp/all-smi.sock`)
+  - macOS: `/tmp/all-smi.sock`
+- **Socket lifecycle**:
+  - Stale socket removal on startup (atomic, TOCTOU-safe)
+  - Graceful cleanup on shutdown via signal handlers
+- **Security**: Socket permissions set to `0600` immediately after bind
+- **Platform availability**: Unix only (Linux, macOS); Windows pending Rust ecosystem support
+
+#### Architecture
+```
+Client (curl/Python) → Unix Socket → Axum Server → Same handlers as TCP
+```
+
 ### State Management
 
 The architecture uses `Arc<Mutex<AppState>>` for thread-safe state sharing:

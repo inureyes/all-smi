@@ -5,7 +5,7 @@
 ## Starting API Mode
 
 ```bash
-# Start API server
+# Start API server on TCP port
 all-smi api --port 9090
 
 # Custom update interval (default: 3 seconds)
@@ -16,6 +16,40 @@ all-smi api --port 9090 --processes
 ```
 
 Metrics are available at `http://localhost:9090/metrics`
+
+### Unix Domain Socket Support (Unix Only)
+
+For local IPC scenarios, API mode supports Unix Domain Sockets:
+
+```bash
+# Use default socket path
+all-smi api --socket
+# Linux: /var/run/all-smi.sock (or /tmp/all-smi.sock)
+# macOS: /tmp/all-smi.sock
+
+# Use custom socket path
+all-smi api --socket /custom/path/all-smi.sock
+
+# TCP and Unix socket simultaneously
+all-smi api --port 9090 --socket
+
+# Unix socket only (disable TCP)
+all-smi api --port 0 --socket
+```
+
+Access metrics via Unix socket:
+```bash
+curl --unix-socket /tmp/all-smi.sock http://localhost/metrics
+```
+
+```python
+# Python example
+import requests_unixsocket
+session = requests_unixsocket.Session()
+r = session.get('http+unix://%2Ftmp%2Fall-smi.sock/metrics')
+```
+
+**Security**: Socket permissions are set to `0600` (owner-only access).
 
 ## Available Metrics
 
