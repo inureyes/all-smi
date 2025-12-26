@@ -69,13 +69,29 @@ fn get_default_socket_path() -> PathBuf {
 
 /// Remove stale socket file if it exists.
 /// This is necessary because Unix sockets leave files on disk that prevent rebinding.
+/// Uses atomic remove to avoid TOCTOU race conditions.
 #[cfg(unix)]
 fn remove_stale_socket(path: &std::path::Path) -> std::io::Result<()> {
-    if path.exists() {
-        tracing::info!("Removing stale socket file: {}", path.display());
-        std::fs::remove_file(path)?;
+    match std::fs::remove_file(path) {
+        Ok(()) => {
+            tracing::info!("Removed stale socket file: {}", path.display());
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // File doesn't exist, that's fine
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
-    Ok(())
+}
+
+/// Set restrictive permissions (0o600) on the socket file.
+/// This ensures only the owner can connect to the socket.
+#[cfg(unix)]
+fn set_socket_permissions(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let permissions = std::fs::Permissions::from_mode(0o600);
+    std::fs::set_permissions(path, permissions)
 }
 
 /// Run the API server with TCP and optionally Unix Domain Socket listeners.
@@ -199,9 +215,23 @@ pub async fn run_api_mode(args: &ApiArgs) {
 
 /// Run only the TCP listener
 async fn run_tcp_listener(app: Router, port: u16) {
-    let listener = TcpListener::bind(&format!("0.0.0.0:{port}")).await.unwrap();
-    tracing::info!("API server listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, app).await.unwrap();
+    let listener = match TcpListener::bind(&format!("0.0.0.0:{port}")).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to bind TCP listener on port {port}: {e}");
+            eprintln!("Error: Failed to bind TCP listener on port {port}: {e}");
+            return;
+        }
+    };
+    tracing::info!(
+        "API server listening on {}",
+        listener
+            .local_addr()
+            .unwrap_or_else(|_| "unknown".parse().unwrap())
+    );
+    if let Err(e) = axum::serve(listener, app).await {
+        tracing::error!("TCP server error: {e}");
+    }
 }
 
 /// Run only the Unix Domain Socket listener
@@ -240,6 +270,11 @@ async fn run_unix_listener(app: Router, path: PathBuf) {
             return;
         }
     };
+
+    // Set restrictive permissions (0o600) on the socket file
+    if let Err(e) = set_socket_permissions(&path) {
+        tracing::warn!("Failed to set socket permissions: {e}");
+    }
 
     tracing::info!("API server listening on Unix socket: {}", path.display());
 
@@ -313,9 +348,16 @@ async fn run_dual_listeners(app: Router, port: u16, socket_path: PathBuf) {
         }
     };
 
+    // Set restrictive permissions (0o600) on the socket file
+    if let Err(e) = set_socket_permissions(&socket_path) {
+        tracing::warn!("Failed to set socket permissions: {e}");
+    }
+
     tracing::info!(
         "API server listening on TCP {} and Unix socket {}",
-        tcp_listener.local_addr().unwrap(),
+        tcp_listener
+            .local_addr()
+            .unwrap_or_else(|_| "unknown".parse().unwrap()),
         socket_path.display()
     );
 
@@ -350,14 +392,19 @@ async fn run_dual_listeners(app: Router, port: u16, socket_path: PathBuf) {
     cleanup_socket(&socket_path);
 }
 
-/// Clean up the Unix domain socket file
+/// Clean up the Unix domain socket file.
+/// Uses atomic remove to avoid TOCTOU race conditions.
 #[cfg(unix)]
 fn cleanup_socket(path: &std::path::Path) {
-    if path.exists() {
-        if let Err(e) = std::fs::remove_file(path) {
-            tracing::warn!("Failed to remove socket file on shutdown: {e}");
-        } else {
+    match std::fs::remove_file(path) {
+        Ok(()) => {
             tracing::info!("Cleaned up socket file: {}", path.display());
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // File already removed, that's fine
+        }
+        Err(e) => {
+            tracing::warn!("Failed to remove socket file on shutdown: {e}");
         }
     }
 }
