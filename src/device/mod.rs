@@ -27,6 +27,10 @@ pub mod cpu_macos;
 #[cfg(target_os = "windows")]
 pub mod cpu_windows;
 
+// Windows temperature fallback chain
+#[cfg(target_os = "windows")]
+pub mod windows_temp;
+
 // Container resource support
 #[cfg(target_os = "linux")]
 pub mod container_info;

@@ -238,6 +238,18 @@ pub trait MetricsExporter: Send + Sync {
 - `sysctl` for runtime metrics
 - P/E-core detection for Apple Silicon
 
+#### Windows (`src/device/cpu_windows.rs`, `src/device/windows_temp/`)
+- WMI for processor information (MaxClockSpeed, cache sizes, socket count)
+- Thread-local WMI connections for efficiency
+- Temperature monitoring via fallback chain:
+  1. **MSAcpi_ThermalZoneTemperature**: Standard ACPI thermal zones (root\WMI namespace)
+  2. **AMD Ryzen Master SDK**: FFI integration with `AMDRyzenMasterMonitoringDLL.dll`
+  3. **Intel WMI**: Intel-specific thermal zones (root\Intel namespace)
+  4. **LibreHardwareMonitor**: Third-party WMI (root\LibreHardwareMonitor namespace)
+- Graceful fallback: Returns `None` silently when all sources unavailable
+- Availability caching: OnceCell/RwLock pattern to avoid repeated failed queries
+- No error spam: WBEM_E_NOT_FOUND (0x8004100C) handled silently
+
 ### Conditional Compilation
 
 ```rust
