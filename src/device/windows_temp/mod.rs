@@ -36,11 +36,24 @@ pub use intel_wmi::IntelWmiSource;
 pub use libre_hwmon::LibreHardwareMonitorSource;
 
 use once_cell::sync::OnceCell;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use wmi::WMIConnection;
+
+/// Helper to get read lock, recovering from poisoned state.
+/// This prevents the application from panicking if another thread panicked while holding the lock.
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Helper to get write lock, recovering from poisoned state.
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// HRESULT error code for WBEM_E_NOT_FOUND (0x8004100C)
 /// This error indicates the WMI class doesn't exist in the namespace.
+#[allow(dead_code)]
 const WBEM_E_NOT_FOUND: i32 = -0x7FFBEFEC_i32; // 0x8004100C as signed
 
 /// Represents the detected CPU vendor for selecting appropriate temperature sources.
@@ -214,7 +227,7 @@ impl TemperatureManager {
 
     /// Check if a source is potentially available (not marked as permanently unavailable).
     fn is_source_potentially_available(&self, status: &RwLock<SourceAvailability>) -> bool {
-        match *status.read().expect("lock poisoned") {
+        match *read_lock(status) {
             SourceAvailability::Unavailable => false,
             _ => true,
         }
@@ -222,7 +235,7 @@ impl TemperatureManager {
 
     /// Mark a source as available.
     fn mark_available(&self, status: &RwLock<SourceAvailability>) {
-        let mut guard = status.write().expect("lock poisoned");
+        let mut guard = write_lock(status);
         if *guard == SourceAvailability::Unknown {
             *guard = SourceAvailability::Available;
         }
@@ -230,12 +243,12 @@ impl TemperatureManager {
 
     /// Mark a source as permanently unavailable.
     fn mark_unavailable(&self, status: &RwLock<SourceAvailability>) {
-        *status.write().expect("lock poisoned") = SourceAvailability::Unavailable;
+        *write_lock(status) = SourceAvailability::Unavailable;
     }
 }
 
 /// Result of attempting to read temperature from a source.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemperatureResult {
     /// Successfully read temperature (in Celsius)
     Success(u32),

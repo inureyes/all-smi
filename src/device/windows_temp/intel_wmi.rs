@@ -20,8 +20,19 @@
 use super::{is_wmi_not_found_error, TemperatureResult};
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use wmi::WMIConnection;
+
+/// Helper to get read lock, recovering from poisoned state.
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Helper to get write lock, recovering from poisoned state.
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// WMI structure for Intel thermal zone information.
 #[derive(Deserialize, Debug)]
@@ -67,8 +78,7 @@ impl IntelWmiSource {
         *self.connect_attempted.get_or_init(|| {
             match WMIConnection::with_namespace_path("root\\Intel") {
                 Ok(conn) => {
-                    *self.state.write().expect("lock poisoned") =
-                        Some(IntelWmiState { connection: conn });
+                    *write_lock(&self.state) = Some(IntelWmiState { connection: conn });
                     true
                 }
                 Err(_) => false,
@@ -89,7 +99,7 @@ impl IntelWmiSource {
             return TemperatureResult::NotFound;
         }
 
-        let state_guard = self.state.read().expect("lock poisoned");
+        let state_guard = read_lock(&self.state);
         let state = match state_guard.as_ref() {
             Some(s) => s,
             None => return TemperatureResult::NotFound,
@@ -122,7 +132,8 @@ impl IntelWmiSource {
                             };
 
                             if celsius > 0.0 && celsius < 150.0 {
-                                return TemperatureResult::Success(celsius as u32);
+                                // Use round() for more accurate conversion
+                                return TemperatureResult::Success(celsius.round() as u32);
                             }
                         }
                     }

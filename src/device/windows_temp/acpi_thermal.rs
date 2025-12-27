@@ -77,7 +77,8 @@ impl AcpiThermalSource {
                         // Formula: (K / 10) - 273.15 = C
                         let celsius = (temp_tenths_kelvin as f64 / 10.0) - 273.15;
                         if celsius > 0.0 && celsius < 150.0 {
-                            return TemperatureResult::Success(celsius as u32);
+                            // Use round() for more accurate conversion
+                            return TemperatureResult::Success(celsius.round() as u32);
                         }
                         // Out of range value, continue to next zone
                     }

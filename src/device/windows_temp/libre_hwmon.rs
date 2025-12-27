@@ -26,8 +26,19 @@
 use super::{is_wmi_not_found_error, TemperatureResult};
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use wmi::WMIConnection;
+
+/// Helper to get read lock, recovering from poisoned state.
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Helper to get write lock, recovering from poisoned state.
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// WMI structure for LibreHardwareMonitor sensor.
 #[derive(Deserialize, Debug)]
@@ -77,16 +88,14 @@ impl LibreHardwareMonitorSource {
         *self.connect_attempted.get_or_init(|| {
             match WMIConnection::with_namespace_path("root\\LibreHardwareMonitor") {
                 Ok(conn) => {
-                    *self.state.write().expect("lock poisoned") =
-                        Some(LhmWmiState { connection: conn });
+                    *write_lock(&self.state) = Some(LhmWmiState { connection: conn });
                     true
                 }
                 Err(_) => {
                     // Also try OpenHardwareMonitor namespace (older versions)
                     match WMIConnection::with_namespace_path("root\\OpenHardwareMonitor") {
                         Ok(conn) => {
-                            *self.state.write().expect("lock poisoned") =
-                                Some(LhmWmiState { connection: conn });
+                            *write_lock(&self.state) = Some(LhmWmiState { connection: conn });
                             true
                         }
                         Err(_) => false,
@@ -109,7 +118,7 @@ impl LibreHardwareMonitorSource {
             return TemperatureResult::NotFound;
         }
 
-        let state_guard = self.state.read().expect("lock poisoned");
+        let state_guard = read_lock(&self.state);
         let state = match state_guard.as_ref() {
             Some(s) => s,
             None => return TemperatureResult::NotFound,
@@ -150,7 +159,8 @@ impl LibreHardwareMonitorSource {
                             if is_cpu && name.contains(priority) {
                                 let temp = value as f64;
                                 if temp > 0.0 && temp < 150.0 {
-                                    return TemperatureResult::Success(temp as u32);
+                                    // Use round() for more accurate conversion
+                                    return TemperatureResult::Success(temp.round() as u32);
                                 }
                             }
                         }
@@ -170,7 +180,8 @@ impl LibreHardwareMonitorSource {
                         if is_cpu {
                             let temp = value as f64;
                             if temp > 0.0 && temp < 150.0 {
-                                return TemperatureResult::Success(temp as u32);
+                                // Use round() for more accurate conversion
+                                return TemperatureResult::Success(temp.round() as u32);
                             }
                         }
                     }

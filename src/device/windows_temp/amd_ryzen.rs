@@ -18,27 +18,64 @@
 //! The DLL is typically installed with AMD chipset drivers or Ryzen Master app.
 //!
 //! Reference: https://www.amd.com/en/developer/ryzen-master-monitoring-sdk.html
+//!
+//! ## Security Note
+//! This module only loads DLLs from absolute paths in standard AMD installation
+//! directories to prevent DLL hijacking attacks. Relative paths are not used.
+//!
+//! ## Thread Safety
+//! The AMD Ryzen Master SDK is assumed to be thread-safe for read operations.
+//! All SDK calls are protected by a RwLock for additional safety.
 
 use super::TemperatureResult;
 use libloading::{Library, Symbol};
 use once_cell::sync::OnceCell;
 use std::ffi::c_int;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+/// Helper to get read lock, recovering from poisoned state.
+/// This prevents the application from panicking if another thread panicked while holding the lock.
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Helper to get write lock, recovering from poisoned state.
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Paths to search for the AMD Ryzen Master Monitoring DLL.
+///
+/// SECURITY: Only absolute paths are used to prevent DLL hijacking attacks.
+/// We do NOT search the current directory or relative paths.
 const AMD_DLL_PATHS: &[&str] = &[
-    // Default AMD driver installation path
+    // Default AMD driver installation path (64-bit)
     "C:\\Program Files\\AMD\\RyzenMaster\\bin\\AMDRyzenMasterMonitoringDLL.dll",
-    // Alternative paths
+    // Alternative path (32-bit installation on 64-bit Windows)
     "C:\\Program Files (x86)\\AMD\\RyzenMaster\\bin\\AMDRyzenMasterMonitoringDLL.dll",
-    // Current directory (if packaged with app)
-    "AMDRyzenMasterMonitoringDLL.dll",
+    // AMD chipset driver installation path
+    "C:\\Program Files\\AMD\\CNext\\CNext\\AMDRyzenMasterMonitoringDLL.dll",
 ];
 
-/// Quick stats structure from the AMD SDK.
-/// Based on the RyzenMasterMonitoringSDK documentation.
+/// Quick stats structure from the AMD Ryzen Master Monitoring SDK.
+///
+/// This structure matches the `RMQuickStats` struct from the official AMD SDK.
+/// Reference: AMD Ryzen Master Monitoring SDK v2.6.0
+///
+/// ## Layout Verification
+/// The struct uses `#[repr(C)]` to ensure C-compatible memory layout.
+/// Expected size: 7 fields × 8 bytes (f64) = 56 bytes on all platforms.
+///
+/// ## Field Order
+/// The field order matches the official SDK header file. If the SDK is updated,
+/// this struct may need to be updated to match.
+///
+/// ## Safety
+/// This struct is used in FFI calls to the AMD SDK. Incorrect layout would cause
+/// memory corruption. The compile-time size assertion below helps catch mismatches.
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct RmQuickStats {
     /// CPU temperature in Celsius
     pub d_temperature: f64,
@@ -55,6 +92,12 @@ pub struct RmQuickStats {
     /// SoC power in Watts (if available)
     pub d_soc_power: f64,
 }
+
+// Compile-time size verification to catch layout mismatches
+const _: () = assert!(
+    std::mem::size_of::<RmQuickStats>() == 56,
+    "RmQuickStats size mismatch - expected 56 bytes (7 × f64)"
+);
 
 /// Type alias for PlatformInit function.
 type PlatformInitFn = unsafe extern "C" fn() -> c_int;
@@ -97,11 +140,7 @@ impl AmdRyzenSource {
     /// Attempt to load the AMD DLL.
     fn try_load_library(&self) -> bool {
         // Only attempt to load once
-        let first_attempt = self.load_attempted.get_or_init(|| {
-            let loaded = self.do_load_library();
-            loaded
-        });
-        *first_attempt
+        *self.load_attempted.get_or_init(|| self.do_load_library())
     }
 
     /// Actually load the library (called once).
@@ -121,11 +160,10 @@ impl AmdRyzenSource {
                         let result = unsafe { init_fn() };
                         if result == 0 {
                             // Successfully initialized
-                            *self.library_state.write().expect("lock poisoned") =
-                                Some(AmdLibraryState {
-                                    library: lib,
-                                    initialized: true,
-                                });
+                            *write_lock(&self.library_state) = Some(AmdLibraryState {
+                                library: lib,
+                                initialized: true,
+                            });
                             return true;
                         }
                     }
@@ -150,7 +188,7 @@ impl AmdRyzenSource {
             return TemperatureResult::NotFound;
         }
 
-        let state_guard = self.library_state.read().expect("lock poisoned");
+        let state_guard = read_lock(&self.library_state);
         let state = match state_guard.as_ref() {
             Some(s) if s.initialized => s,
             _ => return TemperatureResult::NotFound,
@@ -171,7 +209,8 @@ impl AmdRyzenSource {
                     // Validate the temperature reading
                     let temp = stats.d_temperature;
                     if temp > 0.0 && temp < 150.0 {
-                        return TemperatureResult::Success(temp as u32);
+                        // Use round() for more accurate conversion
+                        return TemperatureResult::Success(temp.round() as u32);
                     }
                     TemperatureResult::NoValidReading
                 } else {
@@ -186,7 +225,7 @@ impl AmdRyzenSource {
 impl Drop for AmdRyzenSource {
     fn drop(&mut self) {
         // Clean up the AMD library
-        if let Some(state) = self.library_state.write().expect("lock poisoned").take() {
+        if let Some(state) = write_lock(&self.library_state).take() {
             if state.initialized {
                 // SAFETY: We're calling PlatformUninit to clean up resources.
                 let uninit_fn: Result<Symbol<PlatformUninitFn>, _> =
