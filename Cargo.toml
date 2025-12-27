@@ -68,6 +68,7 @@ openssl = { version = "0.10.75", features = ["vendored"] }
 # Windows-specific dependencies
 [target.'cfg(target_os = "windows")'.dependencies]
 wmi = "0.18"
+libloading = "0.9"
 
 # macOS-specific dependencies
 [target.'cfg(target_os = "macos")'.dependencies]

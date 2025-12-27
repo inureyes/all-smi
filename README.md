@@ -162,6 +162,18 @@ http://gpu-node3:9090
 - **No Sudo Required:** NVIDIA GPU monitoring works without sudo privileges
 - **Driver Required:** NVIDIA proprietary drivers must be installed
 
+### Windows
+- **No Sudo Required:** GPU and CPU monitoring works without administrator privileges
+- **CPU Temperature Limitations:**
+  - Standard Windows WMI thermal zones (MSAcpi_ThermalZoneTemperature) are not available on all systems
+  - The application uses a fallback chain to try multiple temperature sources:
+    1. ACPI Thermal Zones (standard WMI)
+    2. AMD Ryzen Master SDK (AMD CPUs - requires AMD drivers or Ryzen Master)
+    3. Intel WMI (Intel CPUs - if chipset drivers support it)
+    4. LibreHardwareMonitor WMI (any CPU - if [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) is running)
+  - If temperature is not available, it will be shown as "N/A" without error messages
+  - For best temperature monitoring on Windows, install and run LibreHardwareMonitor in the background
+
 ## Features
 
 ### GPU Monitoring

@@ -22,12 +22,8 @@ use std::sync::RwLock;
 use sysinfo::{CpuRefreshKind, System};
 use wmi::WMIConnection;
 
-// WMI structures for thermal zone temperature
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
-struct ThermalZoneTemperature {
-    current_temperature: Option<u32>, // Temperature in tenths of Kelvin
-}
+// Import the temperature fallback chain
+use super::windows_temp::TemperatureManager;
 
 // WMI structures for processor information
 #[derive(Deserialize, Debug)]
@@ -40,8 +36,10 @@ struct Win32Processor {
 
 // Thread-local WMI connections for reuse within the same thread
 thread_local! {
-    static WMI_CIMV2_CONNECTION: std::cell::RefCell<Option<WMIConnection>> = std::cell::RefCell::new(None);
-    static WMI_ROOT_WMI_CONNECTION: std::cell::RefCell<Option<WMIConnection>> = std::cell::RefCell::new(None);
+    static WMI_CIMV2_CONNECTION: std::cell::RefCell<Option<WMIConnection>> =
+        const { std::cell::RefCell::new(None) };
+    static WMI_ROOT_WMI_CONNECTION: std::cell::RefCell<Option<WMIConnection>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Helper to get or create CIMV2 connection
@@ -49,14 +47,10 @@ fn with_cimv2_connection<T, F: FnOnce(&WMIConnection) -> T>(f: F) -> Option<T> {
     WMI_CIMV2_CONNECTION.with(|cell| {
         let mut conn_ref = cell.borrow_mut();
         if conn_ref.is_none() {
-            match WMIConnection::new() {
-                Ok(wmi_con) => {
-                    *conn_ref = Some(wmi_con);
-                }
-                Err(e) => {
-                    eprintln!("Failed to create WMI CIMV2 connection: {e}");
-                }
+            if let Ok(wmi_con) = WMIConnection::new() {
+                *conn_ref = Some(wmi_con);
             }
+            // Silently fail if connection cannot be created
         }
         conn_ref.as_ref().map(f)
     })
@@ -67,14 +61,10 @@ fn with_root_wmi_connection<T, F: FnOnce(&WMIConnection) -> T>(f: F) -> Option<T
     WMI_ROOT_WMI_CONNECTION.with(|cell| {
         let mut conn_ref = cell.borrow_mut();
         if conn_ref.is_none() {
-            match WMIConnection::with_namespace_path("root\\WMI") {
-                Ok(wmi_con) => {
-                    *conn_ref = Some(wmi_con);
-                }
-                Err(e) => {
-                    eprintln!("Failed to create WMI root\\WMI connection: {e}");
-                }
+            if let Ok(wmi_con) = WMIConnection::with_namespace_path("root\\WMI") {
+                *conn_ref = Some(wmi_con);
             }
+            // Silently fail if connection cannot be created
         }
         conn_ref.as_ref().map(f)
     })
@@ -87,6 +77,8 @@ pub struct WindowsCpuReader {
     cached_max_frequency: RwLock<Option<u32>>,
     cached_cache_size: RwLock<Option<u32>>,
     cached_socket_count: RwLock<Option<u32>>,
+    // Temperature manager with fallback chain
+    temperature_manager: TemperatureManager,
 }
 
 impl Default for WindowsCpuReader {
@@ -112,45 +104,26 @@ impl WindowsCpuReader {
             cached_max_frequency: RwLock::new(None),
             cached_cache_size: RwLock::new(None),
             cached_socket_count: RwLock::new(None),
+            temperature_manager: TemperatureManager::new(),
         }
     }
 
-    /// Get CPU temperature from WMI thermal zones (using thread-local connection)
+    /// Get CPU temperature using the fallback chain.
+    ///
+    /// Tries multiple temperature sources in order:
+    /// 1. MSAcpi_ThermalZoneTemperature (ACPI thermal zones)
+    /// 2. AMD Ryzen Master SDK (AMD CPUs only)
+    /// 3. Intel WMI (Intel CPUs only)
+    /// 4. LibreHardwareMonitor WMI (any CPU)
+    /// 5. None (graceful fallback)
     fn get_cpu_temperature(&self) -> Option<u32> {
-        with_root_wmi_connection(|wmi_con| {
-            let results: Result<Vec<ThermalZoneTemperature>, _> = wmi_con
-                .raw_query("SELECT CurrentTemperature FROM MSAcpi_ThermalZoneTemperature");
-
-            match results {
-                Ok(zones) => {
-                    if zones.is_empty() {
-                        eprintln!("CPU temperature: No thermal zones found in WMI");
-                        return None;
-                    }
-                    for zone in zones {
-                        if let Some(temp_tenths_kelvin) = zone.current_temperature {
-                            // Convert from tenths of Kelvin to Celsius
-                            // Formula: (K / 10) - 273.15 = C
-                            let celsius = (temp_tenths_kelvin as f64 / 10.0) - 273.15;
-                            if celsius > 0.0 && celsius < 150.0 {
-                                return Some(celsius as u32);
-                            } else {
-                                eprintln!(
-                                    "CPU temperature: Out of range value {:.1}°C (raw: {} tenths K)",
-                                    celsius, temp_tenths_kelvin
-                                );
-                            }
-                        }
-                    }
-                    None
-                }
-                Err(e) => {
-                    eprintln!("CPU temperature: WMI query failed: {e}");
-                    None
-                }
-            }
+        // Get the root\WMI connection for ACPI thermal zones
+        with_root_wmi_connection(|wmi_conn| {
+            self.temperature_manager.get_temperature(Some(wmi_conn))
         })
         .flatten()
+        // If root\WMI connection failed, still try other sources
+        .or_else(|| self.temperature_manager.get_temperature(None))
     }
 
     /// Get static CPU info from WMI (max frequency, cache size, socket count)
@@ -304,7 +277,7 @@ impl WindowsCpuReader {
             });
         }
 
-        // Get CPU temperature from WMI
+        // Get CPU temperature using fallback chain (no more error spam)
         let temperature = self.get_cpu_temperature();
 
         // Get static info from WMI (max frequency, cache size, socket count)
@@ -356,8 +329,8 @@ impl CpuReader for WindowsCpuReader {
     fn get_cpu_info(&self) -> Vec<CpuInfo> {
         match self.get_cpu_info_from_system() {
             Ok(cpu_info) => vec![cpu_info],
-            Err(e) => {
-                eprintln!("Error reading CPU info: {e}");
+            Err(_) => {
+                // Silently return empty - errors are expected on some systems
                 vec![]
             }
         }
